@@ -47,19 +47,22 @@ const app = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 app.use("*", async (c, next) => {
   const origin = c.req.header("Origin");
   const frontendUrl = c.env.FRONTEND_URL || "http://localhost:3000";
-  
-  // Define allowed origins
-  const allowedOrigins = [frontendUrl, "http://localhost:3000"];
-  
-  let actualOrigin = allowedOrigins.includes(origin || "") ? origin : frontendUrl;
 
-  // Special handling for Sandpack previews (e.g. https://*.csb.app)
-  if (origin && (origin.endsWith(".csb.app") || origin.endsWith(".codesandbox.io"))) {
+  const allowedOrigins = [frontendUrl, "http://localhost:3000"];
+
+  let actualOrigin = allowedOrigins.includes(origin || "") ? origin : undefined;
+
+  if (
+    origin &&
+    (origin.endsWith(".csb.app") ||
+      origin.endsWith(".codesandbox.io") ||
+      origin.endsWith(".dock.4esh.nl"))
+  ) {
     actualOrigin = origin;
   }
 
   const middleware = cors({
-    origin: actualOrigin || "*",
+    origin: actualOrigin || frontendUrl,
     allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type", "Authorization"],
     maxAge: 600,

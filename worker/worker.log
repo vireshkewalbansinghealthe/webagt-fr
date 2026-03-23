@@ -344,8 +344,9 @@ user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-er_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects/aSyoIzGvO-gX/deployment/xg8ss4wk8kgcgw0wgscwck4g 200 OK (58ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+ (58ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [wrangler:info] GET /api/projects/aSyoIzGvO-gX/deployment/xg8ss4wk8kgcgw0wgscwck4g 200 OK (47ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
@@ -608,3 +609,7 @@ er_3BJSQjGBOOdBT2WKyMz0tAFruoh
 ⎔ Local server updated and ready
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [wrangler:info] POST /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (133ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] POST /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (19ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] POST /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (14ms)

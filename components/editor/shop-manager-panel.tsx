@@ -405,35 +405,6 @@ function StripeTab({ project, onNavigate }: { project: Project; onNavigate: (tab
   const { getToken } = useAuth();
   const client = useMemo(() => createApiClient(getToken), [getToken]);
 
-  if (!project.deployment_uuid) {
-    return (
-      <div className="space-y-6 max-w-2xl">
-        <div>
-          <h3 className="text-lg font-medium">Stripe Connect Integration</h3>
-          <p className="text-sm text-muted-foreground mt-1">
-            Manage payments for {project.name}.
-          </p>
-        </div>
-        <div className="p-8 border-2 border-dashed border-amber-500/30 rounded-2xl bg-amber-500/5 text-center space-y-4">
-          <div className="mx-auto w-14 h-14 bg-amber-500/20 rounded-full flex items-center justify-center">
-            <Globe className="size-7 text-amber-600" />
-          </div>
-          <h3 className="text-xl font-bold text-amber-700">Publish your site first</h3>
-          <p className="text-sm text-amber-600/80 max-w-md mx-auto">
-            Before setting up Stripe payments, your webshop needs to be published and live on the internet. 
-            Stripe requires a live URL to process real payments and webhooks.
-          </p>
-          <div className="pt-2">
-            <Button onClick={() => onNavigate("publish")} className="gap-2">
-              <Globe className="size-4" />
-              Go to Publish
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const enabledMethods = useMemo(() => project.stripePaymentMethods || ["card", "ideal"], [project.stripePaymentMethods]);
 
   const togglePaymentMethod = async (method: string) => {
@@ -443,19 +414,10 @@ function StripeTab({ project, onNavigate }: { project: Project; onNavigate: (tab
         ? enabledMethods.filter(m => m !== method)
         : [...enabledMethods, method];
       
-      // Ensure card is always enabled if empty
       if (newMethods.length === 0) newMethods.push("card");
 
       await client.projects.update(project.id, { stripePaymentMethods: newMethods });
-      toast.success(`${method} updated`);
-      
-      // Also sync files so the new methods are picked up
-      toast.loading("Syncing methods to shop files...", { id: "sync-files" });
-      await client.projects.syncStripe(project.id);
-      toast.success("Shop files updated!", { id: "sync-files" });
-      
-      // Trigger a page refresh to show the new version in the editor
-      setTimeout(() => window.location.reload(), 1000);
+      toast.success(`${method} updated — changes apply immediately to your live shop`);
     } catch (error) {
       toast.error("Failed to update payment methods");
     } finally {
@@ -474,61 +436,8 @@ function StripeTab({ project, onNavigate }: { project: Project; onNavigate: (tab
       setStripeStatus(status);
       setBalance(balRes);
       setPayouts(payoutsRes.data || []);
-      
-      if (status.details_submitted && status.charges_enabled) {
-        toast.success("Stripe account synced and active!");
-      } else {
-        toast.info("Stripe account synced. Onboarding still required.");
-      }
     } catch (error) {
       console.error("Failed to fetch Stripe data:", error);
-      toast.error("Failed to sync with Stripe");
-    } finally {
-      setIsChecking(false);
-    }
-  };
-
-  const handleSync = async () => {
-    if (!project.stripeAccountId) {
-      handleConnectStripe();
-      return;
-    }
-    
-    setIsChecking(true);
-    try {
-      // 1. Fetch latest Stripe status
-      const [status, balRes, payoutsRes] = await Promise.all([
-        client.stripe.getAccountStatus(project.stripeAccountId),
-        client.stripe.getBalance(project.stripeAccountId),
-        client.stripe.getPayouts(project.stripeAccountId)
-      ]);
-      setStripeStatus(status);
-      setBalance(balRes);
-      setPayouts(payoutsRes.data || []);
-
-      // 2. Sync Stripe config to project files
-      toast.loading("Syncing Stripe config to project files...", { id: "stripe-sync" });
-      await client.projects.syncStripe(project.id);
-      toast.success("Stripe files updated!", { id: "stripe-sync" });
-
-      // 3. If deployed, also trigger a redeploy so the live site gets the new config
-      if (project.deployment_uuid) {
-        toast.loading("Redeploying with Stripe config...", { id: "stripe-redeploy" });
-        try {
-          const data = await client.projects.publish(project.id);
-          toast.success("Redeployment triggered! Your live site will update shortly.", { id: "stripe-redeploy" });
-        } catch (e: any) {
-          toast.error("Redeploy failed: " + e.message, { id: "stripe-redeploy" });
-        }
-      }
-
-      if (status.details_submitted && status.charges_enabled) {
-        toast.success("Stripe fully synced and active!");
-      } else {
-        toast.info("Stripe synced. Complete onboarding to accept payments.");
-      }
-    } catch (error) {
-      console.error("Failed to sync Stripe:", error);
       toast.error("Failed to sync with Stripe");
     } finally {
       setIsChecking(false);
@@ -604,12 +513,12 @@ function StripeTab({ project, onNavigate }: { project: Project; onNavigate: (tab
           <Button 
             variant="outline" 
             size="sm" 
-            className="gap-2 bg-primary/5 hover:bg-primary/10 border-primary/20 text-primary font-bold shadow-sm"
-            onClick={handleSync}
+            className="gap-2"
+            onClick={() => fetchData(project.stripeAccountId!)}
             disabled={isChecking}
           >
             {isChecking ? <Loader2 className="size-4 animate-spin" /> : <RotateCw className="size-4" />}
-            {isChecking ? "Syncing & Deploying..." : "Sync & Redeploy"}
+            Refresh
           </Button>
         )}
       </div>
@@ -835,9 +744,10 @@ function StripeTab({ project, onNavigate }: { project: Project; onNavigate: (tab
           How it works
         </h4>
         <ul className="mt-2 text-xs text-blue-600 space-y-1 list-disc pl-4">
-          <li>You will be redirected to Stripe to verify your identity and add bank details.</li>
-          <li>Once completed, the webshop uses this account to accept payments.</li>
-          <li>All product payments are automatically split: 75% to you, 25% platform fee.</li>
+          <li>Connect your Stripe account and verify your identity.</li>
+          <li>Payments work immediately — no redeploy needed.</li>
+          <li>Payment method changes (iDEAL, Klarna, etc.) also apply instantly.</li>
+          <li>Revenue split: 75% to you, 25% platform fee.</li>
         </ul>
       </div>
     </div>

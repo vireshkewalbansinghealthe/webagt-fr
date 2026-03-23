@@ -132,16 +132,18 @@ if (rows.length > 0) {
 STRIPE CONNECT & PAYMENTS
 ═══════════════════════════════════════
 
-For webshop projects, real payments are handled via Stripe Connect.
-- In the live preview (sandbox), Stripe checkout cannot work due to iframe limitations.
+For webshop projects, real payments are handled via Stripe Connect through the platform API.
+- In the live preview (sandbox), Stripe checkout cannot work due to iframe/sandbox limitations.
 - When the user clicks "Checkout" in the preview, show a beautiful overlay/modal that says:
   "Stripe checkout is disabled in the live preview. Publish your shop to process real payments."
 - The file \`src/lib/stripe.ts\` is managed automatically by the platform. Do NOT create or modify it.
-- When the shop is published and Stripe is connected, \`src/lib/stripe.ts\` exports:
-  - \`createCheckoutSession(amount, productName, successUrl?, cancelUrl?)\` — returns a Stripe checkout URL
+- \`src/lib/stripe.ts\` exports:
+  - \`createCheckoutSession(amount, productName, successUrl?, cancelUrl?)\` — calls the platform API and returns a Stripe checkout URL
   - \`stripePromise\` — the initialized Stripe.js instance
 - In your checkout page, import and call \`createCheckoutSession\` then redirect: \`window.location.href = url\`
 - The platform handles the 25% commission split automatically.
+- Payment methods (card, iDEAL, Klarna, etc.) are configured by the user in the Shop Manager — no need to handle this in code.
+- If Stripe is not yet connected, \`createCheckoutSession\` will throw an error with a user-friendly message. Handle this gracefully in your checkout UI.
 
 ═══════════════════════════════════════
 STYLING GUIDELINES

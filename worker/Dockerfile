@@ -6,5 +6,8 @@ RUN npm ci
 
 COPY . .
 
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 8787
-CMD ["npx", "wrangler", "dev", "--local", "--port", "8787", "--ip", "0.0.0.0"]
+ENTRYPOINT ["/entrypoint.sh"]

@@ -26,7 +26,8 @@ import type { AnalyticsData } from "@/types/analytics";
  *
  * Exported so the editor page can use it for SSE streaming requests.
  */
-export const WORKER_URL = "http://localhost:8787";
+export const WORKER_URL =
+  process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:8787";
 
 /**
  * Consistent error shape returned by all API errors.

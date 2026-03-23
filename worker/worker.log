@@ -325,14 +325,16 @@ nticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-tAFruoh
-[wrangler:info] POST /api/projects/aSyoIzGvO-gX/publish 200 OK (2399ms)
-[wrangler:info] OPTIONS /api/projects/aSyoIzGvO-gX/deployment/xg8ss4wk8kgcgw0wgscwck4g 204 No Content (2ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects/aSyoIzGvO-gX/deployment/xg8ss4wk8kgcgw0wgscwck4g 200 OK (50ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects/aSyoIzGvO-gX/deployment/xg8ss4wk8kgcgw0wgscwck4g 200 OK (51ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+GBOOdBT2WKyMz0tAFruoh
 [wrangler:info] GET /api/projects/aSyoIzGvO-gX/deployment/xg8ss4wk8kgcgw0wgscwck4g 200 OK (40ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [wrangler:info] GET /api/projects/aSyoIzGvO-gX/deployment/xg8ss4wk8kgcgw0wgscwck4g 200 OK (51ms)
@@ -563,3 +565,30 @@ tAFruoh
 [wrangler:info] GET /api/projects/aSyoIzGvO-gX/versions 200 OK (153ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [wrangler:info] GET /api/chat/aSyoIzGvO-gX 200 OK (159ms)
+[wrangler:info] OPTIONS /api/projects/aSyoIzGvO-gX/thumbnail 204 No Content (7ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] POST /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (213ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] POST /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (36ms)
+[wrangler:info] OPTIONS /api/credits 204 No Content (15ms)
+[wrangler:info] OPTIONS /api/projects 204 No Content (8ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] POST /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (34ms)
+[wrangler:info] OPTIONS /api/projects 204 No Content (5ms)
+[wrangler:info] OPTIONS /api/projects/aSyoIzGvO-gX 204 No Content (11ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] OPTIONS /api/chat/aSyoIzGvO-gX 204 No Content (14ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] GET /api/projects/aSyoIzGvO-gX 200 OK (21ms)
+[wrangler:info] OPTIONS /api/projects/aSyoIzGvO-gX/files 204 No Content (14ms)
+[wrangler:info] OPTIONS /api/projects/aSyoIzGvO-gX/versions 204 No Content (31ms)
+[wrangler:info] OPTIONS /api/credits 204 No Content (32ms)
+[wrangler:info] GET /api/projects/aSyoIzGvO-gX/files 200 OK (28ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] GET /api/chat/aSyoIzGvO-gX 200 OK (38ms)
+[wrangler:info] GET /api/credits 200 OK (39ms)
+[wrangler:info] GET /api/projects/aSyoIzGvO-gX/versions 200 OK (62ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[wrangler:info] POST /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (9ms)

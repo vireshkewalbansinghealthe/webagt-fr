@@ -1,0 +1,33 @@
+/**
+ * worker/wrangler.jsonc
+ *
+ * Cloudflare Worker configuration file.
+ * Defines the worker name, entry point, bindings (KV, R2),
+ * and compatibility settings for the runtime.
+ *
+ * KV Namespace (METADATA): Stores project metadata, chat sessions, credits
+ * R2 Bucket (FILES): Stores project file contents for each version
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lovable-clone-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-01-01",
+  // The Vercel AI SDK uses Node.js APIs internally (crypto, streams).
+  // Cloudflare Workers need this flag to provide those APIs.
+  "compatibility_flags": ["nodejs_compat"],
+  // KV Namespace for fast JSON lookups (project metadata, chat history, credits)
+  "kv_namespaces": [
+    {
+      "binding": "METADATA",
+      "id": "placeholder_for_local_dev",
+    },
+  ],
+  // R2 Bucket for file storage (generated project files per version)
+  "r2_buckets": [
+    {
+      "bucket_name": "lovable-clone-files",
+      "binding": "FILES",
+    },
+  ],
+}

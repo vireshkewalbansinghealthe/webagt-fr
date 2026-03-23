@@ -1,0 +1,22 @@
+<svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="180" height="180" rx="40" fill="url(#paint0_linear)"/>
+  
+  <!-- Left diagonal (W left part) -->
+  <path d="M40 50L60 130L90 70" stroke="white" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <!-- Right diagonal (W right part) -->
+  <path d="M90 70L120 130L140 50" stroke="white" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Horizontal bar (A crossbar) -->
+  <path d="M65 105H115" stroke="white" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  
+  <circle cx="90" cy="50" r="12" fill="#00D4FF"/>
+
+  <defs>
+    <linearGradient id="paint0_linear" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#020024"/>
+      <stop offset="0.3" stop-color="#090979"/>
+      <stop offset="1" stop-color="#00D4FF"/>
+    </linearGradient>
+  </defs>
+</svg>

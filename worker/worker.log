@@ -121,6 +121,22 @@ env.DEPLOYMENT_REPO ("(hidden)")                             Environment Variabl
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
 Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
@@ -296,12 +312,12 @@ ding local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-rver...
-⎔ Local server updated and ready
-ver updated and ready
+import { [32mchatRoutes[37m } from "./routes/chat";
+         ╵          [32m~~~~~~~~~~[0m
+
+
 ⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
+[⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
@@ -311,7 +327,15 @@ ver updated and ready
 ⎔ Local server updated and ready
 server...
 ⎔ Local server updated and ready
-g local server...
+][0m [1mThe Workers runtime failed to start. There is likely additional logging output above.[0m
+
+
+[32mIf you think this is a bug then please create an issue at https://github.com/cloudflare/workers-sdk/issues/new/choose[0m
+Note that there is a newer version of Wrangler available (4.76.0). Consider checking whether upgrading resolves this error.
+? Would you like to report this error to Cloudflare? Wrangler's output and the error details will be shared with the Wrangler team to help us diagnose and fix the issue.
+🤖 Using fallback value in non-interactive context: no
+🪵  Logs were written to "/Users/vireshkewalbansing/Library/Preferences/.wrangler/logs/wrangler-2026-03-23_17-13-09_128.log"
+Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
@@ -319,44 +343,7 @@ g local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-vO-gX (32 messages)
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
-⎔ Reloading local server...
-⎔ Local server updated and ready
+ated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKy⎔ Reloading local server...
@@ -393,17 +380,23 @@ vO-gX (32 messages)
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and read�⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
 � Local server updated and ready
-oh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+jGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
@@ -927,17 +920,23 @@ Finished executing default shop schema on libsql://shop-tpetu-l7-webagt.aws-eu-w
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[chat] Parsed 2 files from AI response
-[chat] Creating version v7 with 22 files
-[chat] R2 put SUCCESS: TpEtU-L7H0-f/v7/files.json
-[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v7)
-[chat] Credits deducted. Remaining: -1
-[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (14 messages)
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+nticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [chat] Parsed 1 files from AI response
 [chat] Creating version v8 with 22 files
 [chat] R2 put SUCCESS: TpEtU-L7H0-f/v8/files.json
@@ -945,6 +944,275 @@ Finished executing default shop schema on libsql://shop-tpetu-l7-webagt.aws-eu-w
 [chat] Credits deducted. Remaining: -1
 [chat] KV put SUCCESS: chat:TpEtU-L7H0-f (16 messages)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v9 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v9/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v9)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (18 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v10 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v10/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v10)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (20 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v11 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v11/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v11)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (22 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v12 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v12/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v12)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (24 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v13 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v13/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v13)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (26 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v14 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v14/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v14)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (28 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v15 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v15/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v15)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (30 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v16 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v16/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v16)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (32 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 0 files from AI response
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (34 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v17 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v17/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v17)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (36 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v18 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v18/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v18)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (38 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v19 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v19/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v19)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (40 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v20 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v20/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v20)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (42 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v21 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v21/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v21)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (44 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v22 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v22/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v22)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (46 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 0 files from AI response
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (48 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 0 files from AI response
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (50 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 3 files from AI response
+[chat] Creating version v23 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v23/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v23)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (52 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v24 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v24/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v24)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (54 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v25 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v25/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v25)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (56 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 0 files from AI response
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (58 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v26 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v26/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v26)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (60 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v27 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v27/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v27)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (62 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v28 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v28/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v28)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (64 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+Attempting to provision Turso database: shop-vly__jxn
+[Turso] Using scope: organization webagt
+[Turso] Using group: webagt
+[Turso] Creating database shop-vly__jxn in group webagt...
+[Turso Error] Create DB failed: Status 400, Body: {"code":"invalid_name","error":"invalid database name: name may only contain numbers, lowercase letters, and dashes"}
+[Turso Error] Error: Failed to create Turso database: {"code":"invalid_name","error":"invalid database name: name may only contain numbers, lowercase letters, and dashes"}
+    at createTursoDatabase (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:23379:15)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:23706:23
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:22926:3
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:22871:5
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async cors2 (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:21186:5)
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:20330:26 {
+  stack: Error: Failed to create Turso database: {"code":"i…worker/.wrangler/tmp/dev-ZEaSxD/index.js:20330:26,
+  message: Failed to create Turso database: {"code":"invalid_… contain numbers, lowercase letters, and dashes"}
+}
+[Project Create] Failed to provision Turso database Error: Failed to create Turso database: {"code":"invalid_name","error":"invalid database name: name may only contain numbers, lowercase letters, and dashes"}
+    at createTursoDatabase (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:23379:15)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:23706:23
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:22926:3
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:22871:5
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async cors2 (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:21186:5)
+    at async dispatch (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:18952:17)
+    at async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ZEaSxD/index.js:20330:26 {
+  stack: Error: Failed to create Turso database: {"code":"i…worker/.wrangler/tmp/dev-ZEaSxD/index.js:20330:26,
+  message: Failed to create Turso database: {"code":"invalid_… contain numbers, lowercase letters, and dashes"}
+}
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 17 files from AI response
+[chat] Creating version v1 with 16 files
+[chat] R2 put SUCCESS: vly__jxNZx54/v1/files.json
+[chat] KV put SUCCESS: project:vly__jxNZx54 (v1)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:vly__jxNZx54 (2 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v2 with 17 files
+[chat] R2 put SUCCESS: vly__jxNZx54/v2/files.json
+[chat] KV put SUCCESS: project:vly__jxNZx54 (v2)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:vly__jxNZx54 (4 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...

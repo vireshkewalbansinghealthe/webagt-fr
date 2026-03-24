@@ -306,7 +306,7 @@ chatRoutes.post("/:projectId", async (c) => {
   // --- 6. Build the AI prompt with context management ---
   let backendUrl = new URL(c.req.url).origin;
   if (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1")) {
-    backendUrl = "https://api-webagt.dock.4esh.nl";
+    backendUrl = "https://maistro.website";
   }
   const systemPrompt = buildSystemPrompt(project, existingFiles, backendUrl);
 

@@ -211,7 +211,7 @@ projectRoutes.post("/", async (c) => {
   // Create the initial version with starter template files
   let backendUrl = new URL(c.req.url).origin;
   if (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1")) {
-    backendUrl = "https://api-webagt.dock.4esh.nl";
+    backendUrl = "https://maistro.website";
   }
 
   const initialVersion = createInitialVersion(
@@ -364,7 +364,7 @@ projectRoutes.patch("/:id", async (c) => {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
-  const body = await c.req.json<{ name?: string; model?: string; stripePaymentMethods?: string[]; stripeTestMode?: boolean }>();
+  const body = await c.req.json<{ name?: string; model?: string; stripePaymentMethods?: string[] }>();
 
   // Apply updates
   if (body.name) {
@@ -376,9 +376,6 @@ projectRoutes.patch("/:id", async (c) => {
   }
   if (body.stripePaymentMethods) {
     project.stripePaymentMethods = body.stripePaymentMethods;
-  }
-  if (body.stripeTestMode !== undefined) {
-    project.stripeTestMode = body.stripeTestMode;
   }
   project.updatedAt = new Date().toISOString();
 
@@ -393,52 +390,66 @@ projectRoutes.patch("/:id", async (c) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Generates/updates src/lib/stripe.ts in the project files.
- * The generated file calls the Worker API for checkout (no secrets on the tenant).
+ * Updates the src/lib/stripe.ts file in the project's current version
+ * with the latest connected account ID and platform publishable key.
+ * This is useful after a user connects Stripe to make the existing shop functional.
  */
 projectRoutes.post("/:id/sync-stripe", async (c) => {
   const userId = c.var.userId;
   const projectId = c.req.param("id");
 
-  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
-  if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
-  if (project.userId !== userId) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
-  if (!project.stripeAccountId) return c.json({ error: "No Stripe account connected", code: "STRIPE_NOT_CONNECTED" }, 400);
+  const project = await c.env.METADATA.get<Project>(
+    `project:${projectId}`,
+    "json"
+  );
 
+  if (!project) {
+    return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  }
+
+  if (project.userId !== userId) {
+    return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  }
+
+  if (!project.stripeAccountId) {
+    return c.json({ error: "No Stripe account connected", code: "STRIPE_NOT_CONNECTED" }, 400);
+  }
+
+  // 1. Read the current version files from R2
   const versionKey = `${projectId}/v${project.currentVersion}/files.json`;
   const versionObject = await c.env.FILES.get(versionKey);
-  if (!versionObject) return c.json({ error: "Version files not found", code: "NOT_FOUND" }, 404);
+
+  if (!versionObject) {
+    return c.json({ error: "Version files not found", code: "NOT_FOUND" }, 404);
+  }
 
   const version = (await versionObject.json()) as Version;
   const files = version.files || [];
 
-  let workerUrl = new URL(c.req.url).origin;
-  if (workerUrl.includes("localhost") || workerUrl.includes("127.0.0.1")) {
-    workerUrl = "https://api-webagt.dock.4esh.nl";
-  }
-  const stripeKey = project.stripeTestMode
-    ? (c.env.STRIPE_TEST_PUBLISHABLE_KEY || c.env.STRIPE_PUBLISHABLE_KEY || "")
-    : (c.env.STRIPE_PUBLISHABLE_KEY || "");
+  // 2. Build the updated stripe.ts content
+  const stripeKey = c.env.STRIPE_PUBLISHABLE_KEY || "";
+  const stripeAccountId = project.stripeAccountId || "";
 
   const stripeTsContent = `import { loadStripe } from '@stripe/stripe-js';
 
-const WORKER_URL = import.meta.env.VITE_WORKER_URL || '${workerUrl}';
 const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '${stripeKey}';
-const PROJECT_ID = import.meta.env.VITE_PROJECT_ID || '${projectId}';
+const STRIPE_ACCOUNT_ID = '${stripeAccountId}';
 
 export const stripePromise = loadStripe(STRIPE_KEY);
 
-const isSandbox = typeof window !== 'undefined' && window.parent !== window;
-
-export async function createCheckoutSession(amount: number, productName: string, successUrl?: string, cancelUrl?: string): Promise<string | null> {
-  const response = await fetch(\`\${WORKER_URL}/api/stripe/checkout_sessions\`, {
+/**
+ * Creates a Stripe checkout session via the built-in API.
+ * Calls /api/checkout on the same origin (handled by the Vite server plugin).
+ */
+export async function createCheckoutSession(amount: number, productName: string, successUrl?: string, cancelUrl?: string) {
+  const response = await fetch('/api/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      projectId: PROJECT_ID,
       amount: Math.round(amount * 100),
       currency: 'eur',
       productName,
+      accountId: STRIPE_ACCOUNT_ID,
       successUrl: successUrl || window.location.origin + '/success',
       cancelUrl: cancelUrl || window.location.origin + '/cart',
     }),
@@ -448,23 +459,22 @@ export async function createCheckoutSession(amount: number, productName: string,
   if (!response.ok || !data.url) {
     throw new Error(data.error || 'Failed to initialize checkout');
   }
-
-  if (isSandbox) {
-    window.open(data.url, '_blank');
-    return null;
-  }
   return data.url;
 }
 `;
 
+  // 3. Update or add src/lib/stripe.ts
   const stripeTsPath = "src/lib/stripe.ts";
   const existingIndex = files.findIndex(f => f.path === stripeTsPath);
+  
   if (existingIndex !== -1) {
     files[existingIndex].content = stripeTsContent;
   } else {
     files.push({ path: stripeTsPath, content: stripeTsContent });
   }
 
+  // 4. Increment project version (optional, but cleaner) or just update current?
+  // Let's create a new version so the user can see it in history as "Stripe Synced"
   const nextVersionNumber = project.currentVersion + 1;
   const now = new Date().toISOString();
 
@@ -482,10 +492,35 @@ export async function createCheckoutSession(amount: number, productName: string,
   project.currentVersion = nextVersionNumber;
   project.updatedAt = now;
 
+  // 5. Save back to KV and R2
   await Promise.all([
     c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project)),
     c.env.FILES.put(`${projectId}/v${nextVersionNumber}/files.json`, JSON.stringify(newVersion))
   ]);
+
+  // 6. If already deployed on Coolify, update env vars so Stripe works on the live site
+  if (project.deployment_uuid) {
+    const COOLIFY_API_KEY = c.env.COOLIFY_API_KEY;
+    const COOLIFY_URL = c.env.COOLIFY_URL || "https://dock.4esh.nl";
+    if (COOLIFY_API_KEY) {
+      try {
+        await fetch(`${COOLIFY_URL}/api/v1/applications/${project.deployment_uuid}/envs/bulk`, {
+          method: "PATCH",
+          headers: { "Authorization": `Bearer ${COOLIFY_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            data: [
+              { key: "STRIPE_SECRET_KEY", value: c.env.STRIPE_SECRET_KEY || "", is_build_time: false, is_preview: false },
+              { key: "STRIPE_ACCOUNT_ID", value: stripeAccountId, is_build_time: false, is_preview: false },
+              { key: "VITE_STRIPE_PUBLISHABLE_KEY", value: stripeKey, is_build_time: false, is_preview: false },
+              { key: "VITE_PROJECT_ID", value: projectId, is_build_time: false, is_preview: false },
+            ]
+          })
+        });
+      } catch (e) {
+        console.warn("Failed to sync Stripe env vars to Coolify (non-fatal):", e);
+      }
+    }
+  }
 
   return c.json({ project, version: nextVersionNumber });
 });
@@ -684,6 +719,9 @@ projectRoutes.post("/:id/publish", async (c) => {
           if (!pkg.scripts.dev) pkg.scripts.dev = "vite --host 0.0.0.0 --port 3000";
           if (!pkg.scripts.build) pkg.scripts.build = "vite build";
           if (!pkg.scripts.start) pkg.scripts.start = "vite preview --host 0.0.0.0 --port 3000";
+          
+          pkg.dependencies = pkg.dependencies || {};
+          if (!pkg.dependencies["stripe"]) pkg.dependencies["stripe"] = "^17.0.0";
 
           pkg.devDependencies = pkg.devDependencies || {};
           if (!pkg.devDependencies["vite"]) pkg.devDependencies["vite"] = "^5.0.0";
@@ -702,11 +740,9 @@ projectRoutes.post("/:id/publish", async (c) => {
         if (content.includes("defineConfig({") && !content.includes("allowedHosts")) {
             content = content.replace("defineConfig({", "defineConfig({ server: { allowedHosts: true }, ");
         }
-      }
-
-      if (f.path === "src/index.css" || f.path === "index.css") {
-        if (!content.includes("@tailwind")) {
-          content = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n${content}`;
+        if (!content.includes("stripeApiPlugin")) {
+          content = `import { stripeApiPlugin } from './stripe-api-plugin';\n` + content;
+          content = content.replace(/plugins:\s*\[/, "plugins: [stripeApiPlugin(), ");
         }
       }
 
@@ -732,9 +768,17 @@ projectRoutes.post("/:id/publish", async (c) => {
         path: "vite.config.ts",
         mode: "100644",
         type: "blob",
-        content: `import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\n\nexport default defineConfig({\n  plugins: [react()],\n  server: {\n    allowedHosts: true\n  }\n})`
+        content: `import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\nimport { stripeApiPlugin } from './stripe-api-plugin'\n\nexport default defineConfig({\n  plugins: [stripeApiPlugin(), react()],\n  server: {\n    allowedHosts: true\n  }\n})`
       });
     }
+
+    // Inject a Stripe checkout API server plugin so deployed apps are self-contained
+    tree.push({
+      path: "stripe-api-plugin.ts",
+      mode: "100644",
+      type: "blob",
+      content: `import type { Plugin } from 'vite';\n\nexport function stripeApiPlugin(): Plugin {\n  return {\n    name: 'stripe-checkout-api',\n    configureServer(server) {\n      server.middlewares.use('/api/checkout', async (req: any, res: any) => {\n        res.setHeader('Access-Control-Allow-Origin', '*');\n        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');\n        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');\n        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }\n        if (req.method !== 'POST') { res.writeHead(405); res.end('Method not allowed'); return; }\n\n        let body = '';\n        req.on('data', (chunk: any) => { body += chunk; });\n        req.on('end', async () => {\n          try {\n            const Stripe = (await import('stripe')).default;\n            const secretKey = process.env.STRIPE_SECRET_KEY;\n            if (!secretKey) { res.writeHead(500); res.end(JSON.stringify({ error: 'STRIPE_SECRET_KEY not configured' })); return; }\n            const stripe = new Stripe(secretKey);\n            const { amount, currency, productName, successUrl, cancelUrl, accountId, paymentMethods } = JSON.parse(body);\n            const fee = Math.round(amount * 0.25);\n            const session = await stripe.checkout.sessions.create({\n              payment_method_types: paymentMethods || ['card', 'ideal'],\n              line_items: [{ price_data: { currency: currency || 'eur', product_data: { name: productName }, unit_amount: amount }, quantity: 1 }],\n              mode: 'payment',\n              success_url: successUrl || req.headers.origin + '/success',\n              cancel_url: cancelUrl || req.headers.origin + '/cart',\n              ...(accountId ? { payment_intent_data: { application_fee_amount: fee, transfer_data: { destination: accountId } } } : {}),\n            });\n            res.writeHead(200, { 'Content-Type': 'application/json' });\n            res.end(JSON.stringify({ url: session.url }));\n          } catch (err: any) {\n            res.writeHead(500, { 'Content-Type': 'application/json' });\n            res.end(JSON.stringify({ error: err.message }));\n          }\n        });\n      });\n    }\n  };\n}\n`
+    });
 
     // Ensure postcss.config.mjs exists for Tailwind v3
     tree.push({
@@ -886,21 +930,17 @@ projectRoutes.post("/:id/publish", async (c) => {
     }
 
     // Set environment variables on the Coolify app
-    // Checkout is handled by the Worker API, so no Stripe secrets needed on the tenant
-    let workerUrl = new URL(c.req.url).origin;
-    if (workerUrl.includes("localhost") || workerUrl.includes("127.0.0.1")) {
-      workerUrl = "https://api-webagt.dock.4esh.nl";
-    }
-
-    const publishableKey = project.stripeTestMode
-      ? (c.env.STRIPE_TEST_PUBLISHABLE_KEY || c.env.STRIPE_PUBLISHABLE_KEY)
-      : c.env.STRIPE_PUBLISHABLE_KEY;
-
     const envVars: { key: string; value: string; is_build_time?: boolean }[] = [
       { key: "VITE_PROJECT_ID", value: projectId },
-      { key: "VITE_WORKER_URL", value: workerUrl },
-      { key: "VITE_STRIPE_PUBLISHABLE_KEY", value: publishableKey || "" },
     ];
+
+    if (project.stripeAccountId) {
+      envVars.push(
+        { key: "STRIPE_SECRET_KEY", value: c.env.STRIPE_SECRET_KEY || "" },
+        { key: "STRIPE_ACCOUNT_ID", value: project.stripeAccountId },
+        { key: "VITE_STRIPE_PUBLISHABLE_KEY", value: c.env.STRIPE_PUBLISHABLE_KEY || "" },
+      );
+    }
 
     try {
       await fetch(`${COOLIFY_URL}/api/v1/applications/${appUuid}/envs/bulk`, {

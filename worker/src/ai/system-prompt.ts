@@ -79,19 +79,6 @@ TECH STACK
 - Default exports for the main App component, named exports for all other components
 
 ═══════════════════════════════════════
-COMMON ERRORS TO AVOID
-═══════════════════════════════════════
-
-These are the most common errors that break generated apps. NEVER make these mistakes:
-
-1. NEVER import non-existent icons from lucide-react (Twitter, Facebook, Instagram, etc. DO NOT EXIST — see LUCIDE-REACT section below)
-2. NEVER use \`import type\` then use the imported item as a value (runtime value vs type)
-3. NEVER forget to export components that are imported by other files
-4. NEVER import from a path that doesn't exist (e.g., importing from "../data" when the file is "../data/index")
-5. NEVER use optional chaining on things you then call as functions without checking
-6. ALWAYS test that your imports match the exact export names from the source file
-
-═══════════════════════════════════════
 CODE QUALITY
 ═══════════════════════════════════════
 
@@ -114,22 +101,11 @@ TURSO DATABASE & SCHEMA (WEBSHOPS ONLY)
 ═══════════════════════════════════════
 
 For webshop projects, you MUST use the following schema and best practices:
-- Tables: \`Category\`, \`Product\`, \`Customer\`, \`Order\`, \`OrderItem\`.
+- Tables: \`Product\`, \`Customer\`, \`Order\`, \`OrderItem\`.
 - Use \`generateId()\` from \`src/lib/db.ts\` for all IDs.
 - Use \`db.batch()\` when inserting an Order and its OrderItems to ensure atomicity.
 - IMPORTANT: Use \`ensureSchema()\` from \`src/lib/db.ts\` at the start of your checkout or app initialization to ensure tables exist.
-- IMPORTANT: Always respect foreign key constraints. Insert parent rows BEFORE child rows:
-  - Insert \`Category\` rows BEFORE \`Product\` rows (Product.categoryId → Category.id)
-  - Insert \`Customer\` rows BEFORE \`Order\` rows (Order.customerId → Customer.id)
-  - Insert \`Order\` rows BEFORE \`OrderItem\` rows (OrderItem.orderId → Order.id)
-- SEEDING: The database may already have data from a previous run. ALWAYS check before inserting:
-  \`\`\`tsx
-  const { rows } = await db.execute("SELECT id, slug FROM Category");
-  if (rows.length === 0) {
-    // Only seed if empty — insert Categories first, then Products using the category IDs
-  }
-  \`\`\`
-  Use \`INSERT OR IGNORE\` or check existence first. NEVER blindly insert rows with UNIQUE slugs — it will crash on duplicate slugs.
+- IMPORTANT: Always create or update the \`Customer\` record BEFORE inserting an \`Order\` that references its ID to avoid "FOREIGN KEY constraint failed".
 
 Recommended Order Flow:
 1. Check if Customer exists by email.
@@ -151,25 +127,6 @@ if (rows.length > 0) {
 }
 // Now safe to insert Order with customerId
 \`\`\`
-
-═══════════════════════════════════════
-STRIPE CONNECT & PAYMENTS
-═══════════════════════════════════════
-
-For webshop projects, payments are handled via Stripe Connect through the platform API.
-- The file \`src/lib/stripe.ts\` is managed automatically by the platform. Do NOT create or modify it.
-- \`src/lib/stripe.ts\` exports:
-  - \`createCheckoutSession(amount, productName, successUrl?, cancelUrl?)\` — calls the platform API, returns a Stripe checkout URL or opens a new tab in sandbox mode. Returns \`null\` if opened in a new tab.
-  - \`stripePromise\` — the initialized Stripe.js instance
-- In your checkout page:
-  \`\`\`tsx
-  const url = await createCheckoutSession(totalAmount, "Order #123");
-  if (url) window.location.href = url; // null means it opened in a new tab (sandbox)
-  \`\`\`
-- NEVER simulate a successful checkout with \`window.alert\`, "demo payment" messages, or a "MOCK/SANDBOX mode" UI. Do NOT build mock payment forms. You MUST actually call \`createCheckoutSession\` when the user clicks the final "Pay" or "Complete Order" button.
-- NEVER try to make requests to local \`/api/checkout\` endpoints. Always use the imported \`createCheckoutSession\` function.
-- If \`createCheckoutSession\` throws an error (e.g., "Stripe account not configured"), catch it and display a clean user-friendly message in the UI: "Payments are not yet configured for this shop. Please configure Stripe Connect in the dashboard." Do NOT show a blocking modal that prevents the checkout UI from rendering.
-- The platform handles the 25% commission and payment methods automatically.
 
 ═══════════════════════════════════════
 STYLING GUIDELINES
@@ -406,37 +363,13 @@ RECOMMENDED DEPENDENCIES
 ═══════════════════════════════════════
 
 Proactively include these dependencies when appropriate:
-- lucide-react — ALWAYS include for icons
+- lucide-react — ALWAYS include for icons (ShoppingCart, Search, Star, Menu, X, Heart, etc.)
 - react-router-dom — ALWAYS include for apps with multiple pages (Home, About, Contact, etc.)
 - recharts — for dashboards, analytics, or any app with charts/graphs
 - date-fns — for apps that display or manipulate dates
 - framer-motion — for apps that benefit from animations and transitions
 
 When including a dependency, always add it to the package.json dependencies object.
-
-═══════════════════════════════════════
-LUCIDE-REACT ICONS — CRITICAL
-═══════════════════════════════════════
-
-NEVER import icons that don't exist in lucide-react. The following social media icons DO NOT EXIST: Twitter, Facebook, Instagram, LinkedIn, Youtube, GitHub, TikTok, Pinterest, Snapchat, WhatsApp, Telegram, Discord, Slack, Reddit.
-
-For social media links, use these SAFE alternatives or plain text/SVG:
-- Use \`<Globe />\` for generic social links
-- Use \`<ExternalLink />\` for outbound links
-- Use \`<Mail />\` for email
-- Use \`<Phone />\` for phone
-- Use \`<MapPin />\` for location
-- Or use simple text links: <a href="#">Twitter</a>, <a href="#">Instagram</a>
-- Or use inline SVGs for brand icons
-
-SAFE lucide-react icons you CAN import (non-exhaustive):
-ShoppingCart, Search, Star, Menu, X, Heart, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
-ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Plus, Minus, Check, AlertCircle, Info, HelpCircle,
-User, Users, Settings, LogOut, LogIn, Eye, EyeOff, Edit, Trash2, Copy, Download, Upload,
-Filter, SlidersHorizontal, Grid, List, Calendar, Clock, MapPin, Phone, Mail, Globe, ExternalLink,
-Home, Package, ShoppingBag, CreditCard, Truck, Shield, ShieldCheck, RotateCcw, RefreshCw,
-Loader2, Image, Camera, Play, Pause, Volume2, Bookmark, Share2, Send, MessageCircle, Bell,
-Sparkles, Zap, Flame, Award, Gift, Tag, Percent, BadgeCheck, Store, Wallet, Receipt, BarChart3
 
 ═══════════════════════════════════════
 ITERATION RULES
@@ -541,7 +474,6 @@ PROJECT CONTEXT
 Project ID: ${project.id}
 Project Name: ${project.name}
 Project Type: ${project.type || "website"}
-Stripe Connected: ${project.stripeAccountId ? "YES" : "NO (The user must first connect Stripe in the Shop Manager)"}
 Platform Backend URL: ${backendUrl}
 `;
 

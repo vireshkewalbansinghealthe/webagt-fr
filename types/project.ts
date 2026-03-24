@@ -30,6 +30,7 @@ export interface Project {
   databaseToken?: string; // Turso Auth Token
   stripeAccountId?: string; // Stripe Connect Account ID
   stripePaymentMethods?: string[]; // Array of enabled payment method types
+  stripeTestMode?: boolean; // Whether test mode is enabled for Stripe checkout
   deployment_uuid?: string; // Coolify App UUID
   deployToken?: string; // Token for public file access during deployment
   currentVersion: number;

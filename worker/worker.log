@@ -105,12 +105,33 @@ env.DEPLOYMENT_REPO ("(hidden)")                             Environment Variabl
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated ⎔ Reloading local server...
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
@@ -188,7 +209,8 @@ ocal server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
- runtime failed to start. There is⎔ Reloading local server...
+�� Local server updated and ready
+⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
@@ -204,10 +226,12 @@ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-text: no
+oading local server...
+⎔ Local server updated and ready
 ⎔ Reloading local server...
-🪵  Logs were written to "/Users/vireshkewalbansing/Library/Preferences/.wrangler/logs/wrangler-2026-03-23_16-35-04_981.log"
-ver updated and ready
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
@@ -317,17 +341,7 @@ g local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-QjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[chat] Parsed 1 files from AI response
-[chat] Creating version v21 with 22 files
-[chat] R2 put SUCCESS: aSyoIzGvO-gX/v21/files.json
-[chat] KV put SUCCESS: project:aSyoIzGvO-gX (v21)
-[chat] Credits deducted. Remaining: -1
-[chat] KV put SUCCESS: chat:aSyoIzGvO-gX (32 messages)
+vO-gX (32 messages)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
@@ -367,17 +381,20 @@ QjGBOOdBT2WKyMz0tAFruoh
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-� Local server updated and ready
-ser: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and read�⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and read�⎔ Reloading local server...
+⎔ Local server updated and read�⎔ Reloading local server...
+⎔ Local server updated and ready
+⎔ Reloading local server...
+⎔ Local server updated and read�⎔ Reloading local server...
+⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+� Local server updated and ready
+oh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
@@ -766,125 +783,168 @@ Finished executing default shop schema on libsql://shop--1nbkhhs-webagt.aws-eu-w
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
-ser: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/credits 200 OK (11ms)
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects 200 OK (17ms)
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects/6lYIGgnTuRDK/thumbnail 200 OK (15ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects/aSyoIzGvO-gX/thumbnail 200 OK (48ms)
-[wrangler:info] GET /api/projects/WYkbhpFNZbMZ/thumbnail 200 OK (52ms)
-[wrangler:info] GET /api/projects/QiaQwykHcbca/thumbnail 200 OK (55ms)
-[wrangler:info] GET /api/projects/b1pULgDWYqS7/thumbnail 200 OK (56ms)
-[wrangler:info] GET /api/projects/E49Qe5_EYnmJ/thumbnail 200 OK (61ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-Attempting to provision Turso database: shop-hvlwucg7
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+Attempting to provision Turso database: shop-tpetu-l7
 [Turso] Using scope: organization webagt
 [Turso] Using group: webagt
-[Turso] Creating database shop-hvlwucg7 in group webagt...
-[Turso] Created DB payload: {"database":{"DbId":"019d1d1a-0201-70b6-9317-cc97caeee3d5","Hostname":"shop-hvlwucg7-webagt.aws-eu-west-1.turso.io","IssuedCertCount":0,"IssuedCertLimit":0,"Name":"shop-hvlwucg7"},"password":"","username":"webagt"}
-[Turso] Fetched DB info: {"database":{"Name":"shop-hvlwucg7","DbId":"019d1d1a-0201-70b6-9317-cc97caeee3d5","Hostname":"shop-hvlwucg7-webagt.aws-eu-west-1.turso.io","is_schema":false,"block_reads":false,"block_writes":false,"allow_attach":false,"delete_protection":false,"regions":["aws-eu-west-1"],"primaryRegion":"aws-eu-west-1","type":"logical","hostname":"shop-hvlwucg7-webagt.aws-eu-west-1.turso.io","version":"tech-preview","group":"webagt","sleeping":false,"archived":false,"schema":null,"parent":null}}
-[Turso] Generating auth token for shop-hvlwucg7...
-[Turso] Successfully generated auth token for shop-hvlwucg7
-Turso database provisioned successfully: libsql://shop-hvlwucg7-webagt.aws-eu-west-1.turso.io
-Executing default shop schema on libsql://shop-hvlwucg7-webagt.aws-eu-west-1.turso.io
-Finished executing default shop schema on libsql://shop-hvlwucg7-webagt.aws-eu-west-1.turso.io
-[wrangler:info] POST /api/projects 201 Created (7106ms)
-[wrangler:info] OPTIONS /api/projects/HVLWUcg7TO6u/files 204 No Content (4ms)
-[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] OPTIONS /api/chat/HVLWUcg7TO6u 204 No Content (10ms)
-[wrangler:info] OPTIONS /api/projects/HVLWUcg7TO6u 204 No Content (9ms)
+[Turso] Creating database shop-tpetu-l7 in group webagt...
+[Turso] Created DB payload: {"database":{"DbId":"019d1f47-2501-7312-a726-5328e37b5019","Hostname":"shop-tpetu-l7-webagt.aws-eu-west-1.turso.io","IssuedCertCount":0,"IssuedCertLimit":0,"Name":"shop-tpetu-l7"},"password":"","username":"webagt"}
+[Turso] Fetched DB info: {"database":{"Name":"shop-tpetu-l7","DbId":"019d1f47-2501-7312-a726-5328e37b5019","Hostname":"shop-tpetu-l7-webagt.aws-eu-west-1.turso.io","is_schema":false,"block_reads":false,"block_writes":false,"allow_attach":false,"delete_protection":false,"regions":["aws-eu-west-1"],"primaryRegion":"aws-eu-west-1","type":"logical","hostname":"shop-tpetu-l7-webagt.aws-eu-west-1.turso.io","version":"tech-preview","group":"webagt","sleeping":false,"archived":false,"schema":null,"parent":null}}
+[Turso] Generating auth token for shop-tpetu-l7...
+[Turso] Successfully generated auth token for shop-tpetu-l7
+Turso database provisioned successfully: libsql://shop-tpetu-l7-webagt.aws-eu-west-1.turso.io
+Executing default shop schema on libsql://shop-tpetu-l7-webagt.aws-eu-west-1.turso.io
+Finished executing default shop schema on libsql://shop-tpetu-l7-webagt.aws-eu-west-1.turso.io
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/credits 200 OK (16ms)
-[wrangler:info] OPTIONS /api/projects/HVLWUcg7TO6u/versions 204 No Content (21ms)
-[wrangler:info] GET /api/chat/HVLWUcg7TO6u 200 OK (23ms)
-[wrangler:info] GET /api/projects/HVLWUcg7TO6u 200 OK (23ms)
-[wrangler:info] GET /api/projects/HVLWUcg7TO6u/files 200 OK (33ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects/HVLWUcg7TO6u/versions 200 OK (19ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] POST /api/chat/HVLWUcg7TO6u 200 OK (50ms)
-[31m✘ [41;31m[[41;97mERROR[41;31m][0m [1mAPICallError [AI_APICallError]: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.[0m
-
-      at null.<anonymous> (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/node_modules/@ai-sdk/provider-utils/src/response-handler.ts:56:16)
-      at async postToApi (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/node_modules/@ai-sdk/provider-utils/src/post-to-api.ts:118:28)
-      at async AnthropicMessagesLanguageModel.doStream (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/node_modules/@ai-sdk/anthropic/src/anthropic-messages-language-model.ts:1248:50)
-      at async fn (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/node_modules/ai/src/generate-text/stream-text.ts:1670:27)
-      at null.<anonymous> (async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ORQ8qk/index.js:64332:24)
-      at async _retryWithExponentialBackoff (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/node_modules/ai/src/util/retry-with-exponential-backoff.ts:96:12)
-      at async streamStep (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/node_modules/ai/src/generate-text/stream-text.ts:1622:17)
-      at async fn (file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/node_modules/ai/src/generate-text/stream-text.ts:2135:9)
-      at null.<anonymous> (async file:///Users/vireshkewalbansing/Repos/webagt-fr/worker/.wrangler/tmp/dev-ORQ8qk/index.js:64332:24) {
-    cause: undefined,
-    url: '[4mhttps://api.anthropic.com/v1/messages'[0m,
-    requestBodyValues: {
-      model: 'claude-sonnet-4-6',
-      max_tokens: 64000,
-      temperature: undefined,
-      top_k: undefined,
-      top_p: undefined,
-      stop_sequences: undefined,
-      system: [ [Object] ],
-      messages: [ [Object] ],
-      tools: undefined,
-      tool_choice: undefined,
-      stream: true
-    },
-    statusCode: 400,
-    responseHeaders: {
-      'anthropic-organization-id': '810b7dbd-8caf-4c57-a075-49234c31425c',
-      'cf-cache-status': 'DYNAMIC',
-      'cf-ray': '9e1154a7e90e06c0-AMS',
-      connection: 'keep-alive',
-      'content-security-policy': "default-src 'none'; frame-ancestors 'none'",
-      'content-type': 'application/json',
-      date: 'Mon, 23 Mar 2026 23:49:06 GMT',
-      'request-id': 'req_011CZLuZ2HTYKAeUhDgsoxnP',
-      server: 'cloudflare',
-      'server-timing': 'x-originResponse;dur=177',
-      'set-cookie': '_cfuvid=1d1k3QIKtnBVR4lZIllRsLbuj5mINXtvK_V8kyjLpCE-1774309745.909901-1.0.1.1-7b6RxhSg_p7siasmvdigYEXeS4WAqVjZxTr8w3XqC8Y; HttpOnly; SameSite=None; Secure; Path=/; Domain=api.anthropic.com',
-      'strict-transport-security': 'max-age=31536000; includeSubDomains; preload',
-      'transfer-encoding': 'chunked',
-      vary: 'Accept-Encoding',
-      'x-envoy-upstream-service-time': '175',
-      'x-robots-tag': 'none',
-      'x-should-retry': 'false'
-    },
-    responseBody: '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."},"request_id":"req_011CZLuZ2HTYKAeUhDgsoxnP"}',
-    isRetryable: false,
-    data: {
-      type: 'error',
-      error: {
-        type: 'invalid_request_error',
-        message: 'Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.'
-      }
-    },
-    Symbol(vercel.ai.error): true,
-    Symbol(vercel.ai.error.AI_APICallError): true
-  }
-
-
-[chat] Parsed 0 files from AI response
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 13 files from AI response
+[chat] Creating version v1 with 14 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v1/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v1)
 [chat] Credits deducted. Remaining: -1
-[chat] KV put SUCCESS: chat:HVLWUcg7TO6u (2 messages)
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (2 messages)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] GET /api/projects/HVLWUcg7TO6u/versions 200 OK (7ms)
-[wrangler:info] OPTIONS /api/projects/HVLWUcg7TO6u/thumbnail 204 No Content (2ms)
 [auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
-[wrangler:info] POST /api/projects/HVLWUcg7TO6u/thumbnail 200 OK (8ms)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 ⎔ Reloading local server...
+⎔ Local server updated and ready
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 8 files from AI response
+[chat] Creating version v2 with 21 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v2/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v2)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (4 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+⎔ Reloading local server...
+⎔ Local server updated and ready
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 4 files from AI response
+[chat] Creating version v3 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v3/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v3)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (6 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v4 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v4/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v4)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (8 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v5 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v5/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v5)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (10 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v6 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v6/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v6)
+[chat] Credits deducted.⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
+] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 2 files from AI response
+[chat] Creating version v7 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v7/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v7)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (14 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
+[chat] Parsed 1 files from AI response
+[chat] Creating version v8 with 22 files
+[chat] R2 put SUCCESS: TpEtU-L7H0-f/v8/files.json
+[chat] KV put SUCCESS: project:TpEtU-L7H0-f (v8)
+[chat] Credits deducted. Remaining: -1
+[chat] KV put SUCCESS: chat:TpEtU-L7H0-f (16 messages)
+[auth] Authenticated user: user_3BJSQjGBOOdBT2WKyMz0tAFruoh
 ⎔ Reloading local server...
 ⎔ Local server updated and ready
 ⎔ Reloading local server...

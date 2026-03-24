@@ -156,7 +156,7 @@ export function createApiClient(getToken: GetTokenFunction) {
        * @param data - Fields to update (name and/or model)
        * @returns Object with the updated project
        */
-      update: (id: string, data: { name?: string; model?: string; stripePaymentMethods?: string[] }) =>
+      update: (id: string, data: { name?: string; model?: string; stripePaymentMethods?: string[]; stripeTestMode?: boolean }) =>
         authenticatedFetch<{ project: Project }>(
           getToken,
           `/api/projects/${id}`,

@@ -23,6 +23,7 @@ export interface Project {
   databaseToken?: string;
   stripeAccountId?: string;
   stripePaymentMethods?: string[];
+  stripeTestMode?: boolean;
   deployment_uuid?: string;
   deployToken?: string;
   currentVersion: number;

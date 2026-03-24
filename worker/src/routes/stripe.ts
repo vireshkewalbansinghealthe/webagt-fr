@@ -16,10 +16,15 @@ const stripeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 /**
  * Helper to initialize Stripe client.
  */
-function getStripeClient(c: any): Stripe {
-  const secretKey = c.env.STRIPE_SECRET_KEY;
+function getStripeClient(c: any, isTestMode: boolean = false): Stripe {
+  // If Test Mode is enabled for the project, use the TEST secret key.
+  // Otherwise, use the LIVE secret key (or whatever STRIPE_SECRET_KEY is configured to).
+  const secretKey = isTestMode 
+    ? (c.env.STRIPE_TEST_SECRET_KEY || c.env.STRIPE_SECRET_KEY) 
+    : c.env.STRIPE_SECRET_KEY;
+    
   if (!secretKey) {
-    throw new Error("STRIPE_SECRET_KEY is not configured.");
+    throw new Error("Stripe secret key is not configured.");
   }
   return new Stripe(secretKey, {
     apiVersion: "2025-01-27.acacia", // Use the latest API version or your desired version
@@ -125,14 +130,14 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
       return c.json({ error: "Missing required checkout session parameters" }, 400);
     }
 
-    const stripe = getStripeClient(c);
-
     // Get the project to find the connected account ID and preferred payment methods
     const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
     
     if (!project) {
       return c.json({ error: "Project not found" }, 404);
     }
+
+    const stripe = getStripeClient(c, project.stripeTestMode);
 
     // Use the project's connected account ID if not provided or to ensure security
     if (!accountId && project.stripeAccountId) {

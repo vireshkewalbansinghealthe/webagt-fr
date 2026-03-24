@@ -42,6 +42,8 @@ export interface Env {
   /** Stripe integration for Webshops */
   STRIPE_SECRET_KEY?: string;
   STRIPE_PUBLISHABLE_KEY?: string;
+  STRIPE_TEST_SECRET_KEY?: string;
+  STRIPE_TEST_PUBLISHABLE_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
   /** Svix signing secret for verifying Clerk billing webhooks */
   CLERK_WEBHOOK_SECRET: string;

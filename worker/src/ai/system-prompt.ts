@@ -122,7 +122,14 @@ For webshop projects, you MUST use the following schema and best practices:
   - Insert \`Category\` rows BEFORE \`Product\` rows (Product.categoryId → Category.id)
   - Insert \`Customer\` rows BEFORE \`Order\` rows (Order.customerId → Customer.id)
   - Insert \`Order\` rows BEFORE \`OrderItem\` rows (OrderItem.orderId → Order.id)
-- When seeding products: ALWAYS create Category records first with \`generateId()\`, then use those IDs as \`categoryId\` when inserting Products. NEVER use a category name string as categoryId.
+- SEEDING: The database may already have data from a previous run. ALWAYS check before inserting:
+  \`\`\`tsx
+  const { rows } = await db.execute("SELECT id, slug FROM Category");
+  if (rows.length === 0) {
+    // Only seed if empty — insert Categories first, then Products using the category IDs
+  }
+  \`\`\`
+  Use \`INSERT OR IGNORE\` or check existence first. NEVER blindly insert rows with UNIQUE slugs — it will crash on duplicate slugs.
 
 Recommended Order Flow:
 1. Check if Customer exists by email.
@@ -159,6 +166,7 @@ For webshop projects, payments are handled via Stripe Connect through the platfo
   const url = await createCheckoutSession(totalAmount, "Order #123");
   if (url) window.location.href = url; // null means it opened in a new tab (sandbox)
   \`\`\`
+- NEVER simulate a successful checkout with \`window.alert\` or "demo payment" messages. You MUST actually call \`createCheckoutSession\` when the user clicks the final "Pay" or "Complete Order" button.
 - If \`createCheckoutSession\` throws, show a friendly error (e.g., "Payments are being set up. Please try again later."). Do NOT show a blocking modal that prevents the checkout UI from rendering.
 - The platform handles the 25% commission and payment methods automatically.
 

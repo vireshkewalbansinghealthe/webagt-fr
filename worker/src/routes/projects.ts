@@ -364,7 +364,7 @@ projectRoutes.patch("/:id", async (c) => {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
-  const body = await c.req.json<{ name?: string; model?: string; stripePaymentMethods?: string[] }>();
+  const body = await c.req.json<{ name?: string; model?: string; stripePaymentMethods?: string[]; stripeTestMode?: boolean }>();
 
   // Apply updates
   if (body.name) {
@@ -376,6 +376,9 @@ projectRoutes.patch("/:id", async (c) => {
   }
   if (body.stripePaymentMethods) {
     project.stripePaymentMethods = body.stripePaymentMethods;
+  }
+  if (body.stripeTestMode !== undefined) {
+    project.stripeTestMode = body.stripeTestMode;
   }
   project.updatedAt = new Date().toISOString();
 
@@ -413,7 +416,9 @@ projectRoutes.post("/:id/sync-stripe", async (c) => {
   if (workerUrl.includes("localhost") || workerUrl.includes("127.0.0.1")) {
     workerUrl = "https://api-webagt.dock.4esh.nl";
   }
-  const stripeKey = c.env.STRIPE_PUBLISHABLE_KEY || "";
+  const stripeKey = project.stripeTestMode
+    ? (c.env.STRIPE_TEST_PUBLISHABLE_KEY || c.env.STRIPE_PUBLISHABLE_KEY || "")
+    : (c.env.STRIPE_PUBLISHABLE_KEY || "");
 
   const stripeTsContent = `import { loadStripe } from '@stripe/stripe-js';
 
@@ -887,10 +892,14 @@ projectRoutes.post("/:id/publish", async (c) => {
       workerUrl = "https://api-webagt.dock.4esh.nl";
     }
 
+    const publishableKey = project.stripeTestMode
+      ? (c.env.STRIPE_TEST_PUBLISHABLE_KEY || c.env.STRIPE_PUBLISHABLE_KEY)
+      : c.env.STRIPE_PUBLISHABLE_KEY;
+
     const envVars: { key: string; value: string; is_build_time?: boolean }[] = [
       { key: "VITE_PROJECT_ID", value: projectId },
       { key: "VITE_WORKER_URL", value: workerUrl },
-      { key: "VITE_STRIPE_PUBLISHABLE_KEY", value: c.env.STRIPE_PUBLISHABLE_KEY || "" },
+      { key: "VITE_STRIPE_PUBLISHABLE_KEY", value: publishableKey || "" },
     ];
 
     try {

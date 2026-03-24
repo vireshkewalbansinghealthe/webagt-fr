@@ -211,7 +211,7 @@ projectRoutes.post("/", async (c) => {
   // Create the initial version with starter template files
   let backendUrl = new URL(c.req.url).origin;
   if (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1")) {
-    backendUrl = "https://maistro.website";
+    backendUrl = "https://api-webagt.dock.4esh.nl";
   }
 
   const initialVersion = createInitialVersion(

@@ -79,6 +79,19 @@ TECH STACK
 - Default exports for the main App component, named exports for all other components
 
 ═══════════════════════════════════════
+COMMON ERRORS TO AVOID
+═══════════════════════════════════════
+
+These are the most common errors that break generated apps. NEVER make these mistakes:
+
+1. NEVER import non-existent icons from lucide-react (Twitter, Facebook, Instagram, etc. DO NOT EXIST — see LUCIDE-REACT section below)
+2. NEVER use \`import type\` then use the imported item as a value (runtime value vs type)
+3. NEVER forget to export components that are imported by other files
+4. NEVER import from a path that doesn't exist (e.g., importing from "../data" when the file is "../data/index")
+5. NEVER use optional chaining on things you then call as functions without checking
+6. ALWAYS test that your imports match the exact export names from the source file
+
+═══════════════════════════════════════
 CODE QUALITY
 ═══════════════════════════════════════
 
@@ -101,11 +114,15 @@ TURSO DATABASE & SCHEMA (WEBSHOPS ONLY)
 ═══════════════════════════════════════
 
 For webshop projects, you MUST use the following schema and best practices:
-- Tables: \`Product\`, \`Customer\`, \`Order\`, \`OrderItem\`.
+- Tables: \`Category\`, \`Product\`, \`Customer\`, \`Order\`, \`OrderItem\`.
 - Use \`generateId()\` from \`src/lib/db.ts\` for all IDs.
 - Use \`db.batch()\` when inserting an Order and its OrderItems to ensure atomicity.
 - IMPORTANT: Use \`ensureSchema()\` from \`src/lib/db.ts\` at the start of your checkout or app initialization to ensure tables exist.
-- IMPORTANT: Always create or update the \`Customer\` record BEFORE inserting an \`Order\` that references its ID to avoid "FOREIGN KEY constraint failed".
+- IMPORTANT: Always respect foreign key constraints. Insert parent rows BEFORE child rows:
+  - Insert \`Category\` rows BEFORE \`Product\` rows (Product.categoryId → Category.id)
+  - Insert \`Customer\` rows BEFORE \`Order\` rows (Order.customerId → Customer.id)
+  - Insert \`Order\` rows BEFORE \`OrderItem\` rows (OrderItem.orderId → Order.id)
+- When seeding products: ALWAYS create Category records first with \`generateId()\`, then use those IDs as \`categoryId\` when inserting Products. NEVER use a category name string as categoryId.
 
 Recommended Order Flow:
 1. Check if Customer exists by email.
@@ -132,18 +149,18 @@ if (rows.length > 0) {
 STRIPE CONNECT & PAYMENTS
 ═══════════════════════════════════════
 
-For webshop projects, real payments are handled via Stripe Connect through the platform API.
-- In the live preview (sandbox), Stripe checkout cannot work due to iframe/sandbox limitations.
-- When the user clicks "Checkout" in the preview, show a beautiful overlay/modal that says:
-  "Stripe checkout is disabled in the live preview. Publish your shop to process real payments."
+For webshop projects, payments are handled via Stripe Connect through the platform API.
 - The file \`src/lib/stripe.ts\` is managed automatically by the platform. Do NOT create or modify it.
 - \`src/lib/stripe.ts\` exports:
-  - \`createCheckoutSession(amount, productName, successUrl?, cancelUrl?)\` — calls the platform API and returns a Stripe checkout URL
+  - \`createCheckoutSession(amount, productName, successUrl?, cancelUrl?)\` — calls the platform API, returns a Stripe checkout URL or opens a new tab in sandbox mode. Returns \`null\` if opened in a new tab.
   - \`stripePromise\` — the initialized Stripe.js instance
-- In your checkout page, import and call \`createCheckoutSession\` then redirect: \`window.location.href = url\`
-- The platform handles the 25% commission split automatically.
-- Payment methods (card, iDEAL, Klarna, etc.) are configured by the user in the Shop Manager — no need to handle this in code.
-- If Stripe is not yet connected, \`createCheckoutSession\` will throw an error with a user-friendly message. Handle this gracefully in your checkout UI.
+- In your checkout page:
+  \`\`\`tsx
+  const url = await createCheckoutSession(totalAmount, "Order #123");
+  if (url) window.location.href = url; // null means it opened in a new tab (sandbox)
+  \`\`\`
+- If \`createCheckoutSession\` throws, show a friendly error (e.g., "Payments are being set up. Please try again later."). Do NOT show a blocking modal that prevents the checkout UI from rendering.
+- The platform handles the 25% commission and payment methods automatically.
 
 ═══════════════════════════════════════
 STYLING GUIDELINES
@@ -380,13 +397,37 @@ RECOMMENDED DEPENDENCIES
 ═══════════════════════════════════════
 
 Proactively include these dependencies when appropriate:
-- lucide-react — ALWAYS include for icons (ShoppingCart, Search, Star, Menu, X, Heart, etc.)
+- lucide-react — ALWAYS include for icons
 - react-router-dom — ALWAYS include for apps with multiple pages (Home, About, Contact, etc.)
 - recharts — for dashboards, analytics, or any app with charts/graphs
 - date-fns — for apps that display or manipulate dates
 - framer-motion — for apps that benefit from animations and transitions
 
 When including a dependency, always add it to the package.json dependencies object.
+
+═══════════════════════════════════════
+LUCIDE-REACT ICONS — CRITICAL
+═══════════════════════════════════════
+
+NEVER import icons that don't exist in lucide-react. The following social media icons DO NOT EXIST: Twitter, Facebook, Instagram, LinkedIn, Youtube, GitHub, TikTok, Pinterest, Snapchat, WhatsApp, Telegram, Discord, Slack, Reddit.
+
+For social media links, use these SAFE alternatives or plain text/SVG:
+- Use \`<Globe />\` for generic social links
+- Use \`<ExternalLink />\` for outbound links
+- Use \`<Mail />\` for email
+- Use \`<Phone />\` for phone
+- Use \`<MapPin />\` for location
+- Or use simple text links: <a href="#">Twitter</a>, <a href="#">Instagram</a>
+- Or use inline SVGs for brand icons
+
+SAFE lucide-react icons you CAN import (non-exhaustive):
+ShoppingCart, Search, Star, Menu, X, Heart, ChevronRight, ChevronLeft, ChevronDown, ChevronUp,
+ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Plus, Minus, Check, AlertCircle, Info, HelpCircle,
+User, Users, Settings, LogOut, LogIn, Eye, EyeOff, Edit, Trash2, Copy, Download, Upload,
+Filter, SlidersHorizontal, Grid, List, Calendar, Clock, MapPin, Phone, Mail, Globe, ExternalLink,
+Home, Package, ShoppingBag, CreditCard, Truck, Shield, ShieldCheck, RotateCcw, RefreshCw,
+Loader2, Image, Camera, Play, Pause, Volume2, Bookmark, Share2, Send, MessageCircle, Bell,
+Sparkles, Zap, Flame, Award, Gift, Tag, Percent, BadgeCheck, Store, Wallet, Receipt, BarChart3
 
 ═══════════════════════════════════════
 ITERATION RULES

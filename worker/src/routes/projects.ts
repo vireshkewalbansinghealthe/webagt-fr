@@ -423,7 +423,9 @@ const PROJECT_ID = import.meta.env.VITE_PROJECT_ID || '${projectId}';
 
 export const stripePromise = loadStripe(STRIPE_KEY);
 
-export async function createCheckoutSession(amount: number, productName: string, successUrl?: string, cancelUrl?: string) {
+const isSandbox = typeof window !== 'undefined' && window.parent !== window;
+
+export async function createCheckoutSession(amount: number, productName: string, successUrl?: string, cancelUrl?: string): Promise<string | null> {
   const response = await fetch(\`\${WORKER_URL}/api/stripe/checkout_sessions\`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -440,6 +442,11 @@ export async function createCheckoutSession(amount: number, productName: string,
   const data = await response.json();
   if (!response.ok || !data.url) {
     throw new Error(data.error || 'Failed to initialize checkout');
+  }
+
+  if (isSandbox) {
+    window.open(data.url, '_blank');
+    return null;
   }
   return data.url;
 }

@@ -166,7 +166,8 @@ For webshop projects, payments are handled via Stripe Connect through the platfo
   const url = await createCheckoutSession(totalAmount, "Order #123");
   if (url) window.location.href = url; // null means it opened in a new tab (sandbox)
   \`\`\`
-- NEVER simulate a successful checkout with \`window.alert\` or "demo payment" messages. You MUST actually call \`createCheckoutSession\` when the user clicks the final "Pay" or "Complete Order" button.
+- NEVER simulate a successful checkout with \`window.alert\`, "demo payment" messages, or a "MOCK/SANDBOX mode" UI. Do NOT build mock payment forms. You MUST actually call \`createCheckoutSession\` when the user clicks the final "Pay" or "Complete Order" button.
+- NEVER try to make requests to local \`/api/checkout\` endpoints. Always use the imported \`createCheckoutSession\` function.
 - If \`createCheckoutSession\` throws an error (e.g., "Stripe account not configured"), catch it and display a clean user-friendly message in the UI: "Payments are not yet configured for this shop. Please configure Stripe Connect in the dashboard." Do NOT show a blocking modal that prevents the checkout UI from rendering.
 - The platform handles the 25% commission and payment methods automatically.
 

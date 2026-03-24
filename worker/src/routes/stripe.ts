@@ -286,7 +286,7 @@ stripeRoutes.post("/webhook", async (c) => {
     let event: Stripe.Event;
 
     if (webhookSecret && sig) {
-      event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+      event = await stripe.webhooks.constructEventAsync(body, sig, webhookSecret);
     } else {
       event = JSON.parse(body) as Stripe.Event;
     }
@@ -334,6 +334,8 @@ stripeRoutes.post("/webhook", async (c) => {
         for (const key of projects.keys) {
           const proj = await c.env.METADATA.get<Project>(key.name, "json");
           if (proj?.stripeAccountId === account.id) {
+            proj.updatedAt = new Date().toISOString();
+            await c.env.METADATA.put(key.name, JSON.stringify(proj));
             break;
           }
         }

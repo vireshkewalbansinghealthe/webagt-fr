@@ -292,7 +292,8 @@ stripeRoutes.post("/webhook", async (c) => {
     }
 
     switch (event.type) {
-      case "checkout.session.completed": {
+      case "checkout.session.completed":
+      case "checkout.session.async_payment_succeeded": {
         const session = event.data.object as Stripe.Checkout.Session;
         const projectId = session.metadata?.projectId;
 
@@ -308,14 +309,14 @@ stripeRoutes.post("/webhook", async (c) => {
               });
 
               await db.execute({
-                sql: `INSERT INTO "Order" (id, status, totalAmount, currency, stripeSessionId, createdAt) 
-                      VALUES (?, 'PAID', ?, ?, ?, datetime('now'))
-                      ON CONFLICT(id) DO UPDATE SET status = 'PAID'`,
+                sql: `INSERT INTO [Order] (id, status, totalAmount, createdAt)
+                      VALUES (?, 'PAID', ?, datetime('now'))
+                      ON CONFLICT(id) DO UPDATE SET
+                        status = 'PAID',
+                        totalAmount = excluded.totalAmount`,
                 args: [
                   session.id,
                   (session.amount_total || 0) / 100,
-                  session.currency || "eur",
-                  session.id,
                 ],
               });
             } catch (dbErr) {

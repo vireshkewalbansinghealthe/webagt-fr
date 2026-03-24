@@ -190,9 +190,9 @@ export function GenerationProgress({
 
       {/* File list */}
       <div className="divide-y divide-border/10">
-        {files.map((file) => (
+        {files.map((file, i) => (
           <div
-            key={file.path}
+            key={`${file.path}-${i}`}
             className={cn(
               "flex items-center gap-2.5 px-3.5 py-1.5 transition-colors",
               file.status === "writing" && isStreaming && "bg-primary/5"

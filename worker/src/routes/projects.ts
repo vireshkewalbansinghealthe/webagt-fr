@@ -699,6 +699,12 @@ projectRoutes.post("/:id/publish", async (c) => {
         }
       }
 
+      if (f.path === "src/index.css" || f.path === "index.css") {
+        if (!content.includes("@tailwind")) {
+          content = `@tailwind base;\n@tailwind components;\n@tailwind utilities;\n\n${content}`;
+        }
+      }
+
       tree.push({
         path: f.path,
         mode: "100644",

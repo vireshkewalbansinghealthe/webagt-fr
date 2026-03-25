@@ -26,14 +26,440 @@ import type { Project, Version } from "../types/project";
 import { createInitialVersion } from "../ai/default-project";
 import { getCredits, FREE_PROJECT_LIMIT } from "../services/credits";
 import { sanitizeProjectName } from "../services/sanitize";
-
-import { createTursoDatabase, createWebshopSchema } from "../services/turso";
+import { createTursoDatabase, createWebshopSchema, executeTursoSQL } from "../services/turso";
+import {
+  createStripeConnectedAccount,
+  getStripePublishConfig,
+  syncCoolifyStripeConfiguration,
+  type PaymentMode,
+} from "../services/stripe-connect";
+import {
+  getResendDomainDetails,
+  upsertResendDomain,
+  verifyResendDomain,
+  type EmailDnsRecord,
+} from "../services/resend-domain";
+import type { ChatMessage, ChatSession } from "../types/chat";
 
 /**
  * Create a Hono router with typed bindings and variables.
  * The auth middleware sets `c.var.userId` before these handlers run.
  */
 const projectRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+const TAILWIND_CDN_SNIPPET =
+  `<script src="https://cdn.tailwindcss.com"></script>`;
+
+function ensureTailwindCdn(indexHtml: string): string {
+  if (indexHtml.includes("cdn.tailwindcss.com")) {
+    return indexHtml;
+  }
+
+  if (indexHtml.includes("</head>")) {
+    return indexHtml.replace("</head>", `  ${TAILWIND_CDN_SNIPPET}\n</head>`);
+  }
+
+  return `${TAILWIND_CDN_SNIPPET}\n${indexHtml}`;
+}
+
+function isValidEmail(email?: string): email is string {
+  if (!email) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+function normalizeOwnerEmails(project: Project): string[] {
+  const source = [
+    ...(project.ownerNotificationEmails || []),
+    ...(project.ownerNotificationEmail ? [project.ownerNotificationEmail] : []),
+  ];
+
+  const normalized = source
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0 && isValidEmail(email));
+
+  return Array.from(new Set(normalized));
+}
+
+function normalizeDomain(input?: string): string | undefined {
+  if (!input) return undefined;
+  const normalized = input
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/\/.*$/, "");
+  if (!normalized) return undefined;
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/i.test(normalized) ? normalized : undefined;
+}
+
+function buildEmailSettingsResponse(
+  project: Project,
+  dnsRecords: EmailDnsRecord[] = [],
+) {
+  const ownerEmails = normalizeOwnerEmails(project);
+  return {
+    ownerNotificationEmail: ownerEmails[0] || "",
+    ownerNotificationEmails: ownerEmails,
+    orderCustomerEmailsEnabled: project.orderCustomerEmailsEnabled !== false,
+    emailSenderMode: project.emailSenderMode || "platform",
+    emailDomain: project.emailDomain || "",
+    emailDomainStatus: project.emailDomainStatus || "unverified",
+    emailLastVerificationAt: project.emailLastVerificationAt,
+    emailLastError: project.emailLastError,
+    dnsRecords,
+  };
+}
+
+function escapeSql(value: string): string {
+  return value.replace(/'/g, "''");
+}
+
+async function seedTemplateCatalogIfNeeded(
+  dbUrl: string | undefined,
+  dbToken: string | undefined,
+  templateId: string | undefined,
+) {
+  if (!dbUrl || !dbToken) return;
+  if (!templateId || templateId === "blank-ai") return;
+
+  if (templateId !== "pardole_parfum_vite" && templateId !== "pardole-parfum") {
+    return;
+  }
+
+  const categories = [
+    { id: "cat-dames", name: "Dames", slug: "dames" },
+    { id: "cat-heren", name: "Heren", slug: "heren" },
+    { id: "cat-unisex", name: "Unisex", slug: "unisex" },
+  ];
+
+  const products = [
+    {
+      id: "prd-309",
+      categoryId: "cat-dames",
+      name: "309",
+      slug: "309",
+      description: "Designer-inspired parfum met warme en elegante noten.",
+      price: 24.95,
+      image: "https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=800&q=80",
+      featured: 1,
+      inventory: 120,
+      rating: 4.9,
+      reviews: 847,
+    },
+    {
+      id: "prd-105",
+      categoryId: "cat-heren",
+      name: "105",
+      slug: "105",
+      description: "Krachtige heren geur met kruidige en houtachtige basis.",
+      price: 24.95,
+      image: "https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=800&q=80",
+      featured: 1,
+      inventory: 110,
+      rating: 4.8,
+      reviews: 789,
+    },
+    {
+      id: "prd-210",
+      categoryId: "cat-unisex",
+      name: "210",
+      slug: "210",
+      description: "Unisex premium blend met amber, musk en vanille.",
+      price: 24.95,
+      image: "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=800&q=80",
+      featured: 1,
+      inventory: 95,
+      rating: 4.9,
+      reviews: 412,
+    },
+  ];
+
+  const categorySql = categories
+    .map(
+      (cat) =>
+        `INSERT OR IGNORE INTO [Category] (id, name, slug, description, image) VALUES ('${escapeSql(
+          cat.id,
+        )}', '${escapeSql(cat.name)}', '${escapeSql(cat.slug)}', '', '');`,
+    )
+    .join("\n");
+
+  const productSql = products
+    .map((product) => {
+      const imagesJson = JSON.stringify([product.image]);
+      return `INSERT OR IGNORE INTO [Product] (id, categoryId, name, slug, description, price, images, featured, inventory, stock, status, rating, reviews) VALUES ('${escapeSql(
+        product.id,
+      )}', '${escapeSql(product.categoryId)}', '${escapeSql(product.name)}', '${escapeSql(
+        product.slug,
+      )}', '${escapeSql(product.description)}', ${product.price}, '${escapeSql(
+        imagesJson,
+      )}', ${product.featured}, ${product.inventory}, ${product.inventory}, 'ACTIVE', ${product.rating}, ${product.reviews});`;
+    })
+    .join("\n");
+
+  await executeTursoSQL(dbUrl, dbToken, `${categorySql}\n${productSql}`);
+}
+
+const TEMPLATE_LABELS: Record<string, string> = {
+  "pardole-parfum": "Koning Parfum",
+  "pardole_parfum_vite": "Koning Parfum (Vite)",
+};
+
+function buildTemplateWelcomeMessage(
+  templateId: string | undefined,
+  now: string,
+): ChatMessage | null {
+  if (!templateId || templateId === "blank-ai") {
+    return null;
+  }
+
+  const templateName = TEMPLATE_LABELS[templateId] || "this template";
+  return {
+    id: `msg-${nanoid(10)}`,
+    role: "assistant",
+    timestamp: now,
+    content: `Thanks for using our awesome ${templateName} template! I have cloned it into your new sandbox and opened it for you.\n\nIs there anything you want me to change first?\n1) Rename the store\n2) Update branding (logo, colors, fonts)\n3) Refresh hero text and homepage copy`,
+    suggestions: [
+      "1) Change the store name and brand text",
+      "2) Update branding (logo, colors, fonts)",
+      "3) Improve hero section and homepage copy",
+    ],
+  };
+}
+
+function buildManagedStripeFiles(
+  stripeConfig: ReturnType<typeof getStripePublishConfig>,
+): { paymentsTsContent: string; stripeTsContent: string } {
+  const paymentsTsContent = `type PaymentMode = "off" | "test" | "live";
+
+interface CheckoutPayload {
+  items: Array<{
+    productId?: string;
+    name: string;
+    unitAmount: number;
+    quantity: number;
+    image?: string;
+    isVirtual?: boolean;
+  }>;
+  successUrl?: string;
+  cancelUrl?: string;
+  requiresShipping?: boolean;
+}
+
+interface PaymentState {
+  mode: PaymentMode;
+  canCheckout: boolean;
+  headline: string;
+  message: string;
+  ctaLabel: string;
+}
+
+interface StripeRequirements {
+  currentlyDue: string[];
+  eventuallyDue: string[];
+  pastDue: string[];
+  pendingVerification: string[];
+  disabledReason: string | null;
+}
+
+export interface StripeAccountStatus {
+  accountId: string;
+  type: string;
+  mode: Exclude<PaymentMode, "off">;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  transferCapabilityActive: boolean;
+  requiresAction: boolean;
+  isReady: boolean;
+  summary: string;
+  requirements: StripeRequirements;
+}
+
+const paymentMode = '${stripeConfig.mode}' as PaymentMode;
+
+export function getPaymentState(): PaymentState {
+  if (paymentMode === "live") {
+    return {
+      mode: "live",
+      canCheckout: true,
+      headline: "Live payments are active",
+      message: "Customers can place real orders and Stripe will route payouts to the connected account.",
+      ctaLabel: "Buy now",
+    };
+  }
+
+  if (paymentMode === "test") {
+    return {
+      mode: "test",
+      canCheckout: true,
+      headline: "Test mode is active",
+      message: "Use Stripe test cards to validate checkout before going live.",
+      ctaLabel: "Test checkout",
+    };
+  }
+
+  return {
+    mode: "off",
+    canCheckout: false,
+    headline: "Publish to test payments",
+    message: "Payments are not available in the live preview. Publish your shop to test checkout with Stripe.",
+    ctaLabel: "Publish to test payments",
+  };
+}
+
+function summarizeStripeStatus(status: StripeAccountStatus): string {
+  if (status.requirements.currentlyDue.length > 0) {
+    return "Stripe still needs: " + status.requirements.currentlyDue.join(", ");
+  }
+
+  if (!status.detailsSubmitted) {
+    return "Finish Stripe onboarding to submit your connected account details.";
+  }
+
+  if (!status.chargesEnabled || !status.payoutsEnabled || !status.transferCapabilityActive) {
+    return "Stripe account setup is incomplete. Review the connected account before accepting payments.";
+  }
+
+  if (status.requirements.pendingVerification.length > 0) {
+    return "Stripe is reviewing submitted information for this connected account.";
+  }
+
+  return "Stripe is connected and ready to accept payments.";
+}
+
+export async function getStripeAccountStatus(): Promise<StripeAccountStatus | null> {
+  if (paymentMode === "off") {
+    return null;
+  }
+
+  const response = await fetch('/api/stripe/account-status');
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to load Stripe account status');
+  }
+
+  const status: StripeAccountStatus = {
+    accountId: data.accountId,
+    type: data.type || 'unknown',
+    mode: data.mode,
+    detailsSubmitted: Boolean(data.detailsSubmitted),
+    chargesEnabled: Boolean(data.chargesEnabled),
+    payoutsEnabled: Boolean(data.payoutsEnabled),
+    transferCapabilityActive: Boolean(data.transferCapabilityActive),
+    requiresAction: Boolean(data.requiresAction),
+    isReady: Boolean(data.isReady),
+    summary: '',
+    requirements: {
+      currentlyDue: data.requirements?.currentlyDue || [],
+      eventuallyDue: data.requirements?.eventuallyDue || [],
+      pastDue: data.requirements?.pastDue || [],
+      pendingVerification: data.requirements?.pendingVerification || [],
+      disabledReason: data.requirements?.disabledReason || null,
+    },
+  };
+
+  status.summary = data.summary || summarizeStripeStatus(status);
+  return status;
+}
+
+export async function startStripeOnboarding(returnUrl?: string) {
+  if (paymentMode === "off") {
+    throw new Error('Payments are disabled for this shop.');
+  }
+
+  const response = await fetch('/api/stripe/account-onboarding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      returnUrl: returnUrl || window.location.href,
+      refreshUrl: window.location.href,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.url) {
+    throw new Error(data.error || 'Failed to open Stripe onboarding');
+  }
+
+  return data.url as string;
+}
+
+export async function beginCheckout({ items, successUrl, cancelUrl, requiresShipping = false }: CheckoutPayload) {
+  const state = getPaymentState();
+  if (!state.canCheckout) {
+    throw new Error(state.message);
+  }
+
+  const normalizedItems = items
+    .map((item) => ({
+      ...item,
+      unitAmount: Math.max(1, Math.round(Number(item.unitAmount) || 0)),
+      quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+    }))
+    .filter((item) => item.name && Number.isFinite(item.unitAmount) && item.unitAmount > 0);
+
+  if (normalizedItems.length === 0) {
+    throw new Error('No valid checkout items found.');
+  }
+
+  const response = await fetch('/api/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      items: normalizedItems,
+      currency: 'eur',
+      successUrl: successUrl || window.location.origin + '/success',
+      cancelUrl: cancelUrl || window.location.origin + '/cart',
+      requiresShipping,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.url) {
+    throw new Error(data.error || 'Failed to initialize checkout');
+  }
+  return data.url as string;
+}
+
+export const stripePromise = Promise.resolve(null);
+`;
+
+  const stripeTsContent = `import {
+  beginCheckout,
+  getPaymentState,
+  getStripeAccountStatus,
+  startStripeOnboarding,
+  stripePromise,
+} from './payments';
+
+export { getPaymentState, getStripeAccountStatus, startStripeOnboarding, stripePromise };
+
+export async function createCheckoutSession(
+  items: Array<{ productId?: string; name: string; unitAmount: number; quantity: number; image?: string; isVirtual?: boolean }>,
+  successUrl?: string,
+  cancelUrl?: string,
+  requiresShipping?: boolean,
+) {
+  return beginCheckout({ items, successUrl, cancelUrl, requiresShipping });
+}
+`;
+
+  return { paymentsTsContent, stripeTsContent };
+}
+
+function resolveBackendUrl(env: Env, requestUrl: string): string {
+  const configured = env.PUBLIC_WORKER_URL?.trim();
+  if (configured) {
+    return configured.replace(/\/+$/, "");
+  }
+
+  const requestOrigin = new URL(requestUrl).origin;
+  if (requestOrigin.includes("localhost") || requestOrigin.includes("127.0.0.1")) {
+    return "https://api-webagt.dock.4esh.nl";
+  }
+
+  return requestOrigin;
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/projects — List all projects for the authenticated user
@@ -103,6 +529,193 @@ projectRoutes.get("/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/projects/:id/email-settings — Read order email settings
+// ---------------------------------------------------------------------------
+projectRoutes.get("/:id/email-settings", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) {
+    return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  }
+  if (project.userId !== userId) {
+    return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  }
+
+  let dnsRecords: EmailDnsRecord[] = [];
+  if (project.emailDomainId && c.env.RESEND_API_KEY) {
+    try {
+      const domainInfo = await getResendDomainDetails(c.env, project.emailDomainId);
+      project.emailDomainStatus = domainInfo.status;
+      project.emailSenderMode =
+        domainInfo.status === "verified" ? "owner_verified" : "platform";
+      project.emailLastVerificationAt = new Date().toISOString();
+      dnsRecords = domainInfo.records;
+      await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+    } catch (error: any) {
+      project.emailLastError = error?.message || "Failed to fetch domain status";
+      await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+    }
+  }
+
+  return c.json(buildEmailSettingsResponse(project, dnsRecords));
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/projects/:id/email-settings — Update order email settings
+// ---------------------------------------------------------------------------
+projectRoutes.patch("/:id/email-settings", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) {
+    return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  }
+  if (project.userId !== userId) {
+    return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  }
+
+  const body = await c.req.json<{
+    ownerNotificationEmail?: string;
+    ownerNotificationEmails?: string[];
+    orderCustomerEmailsEnabled?: boolean;
+    emailDomain?: string;
+  }>();
+
+  if (
+    body.ownerNotificationEmails !== undefined ||
+    body.ownerNotificationEmail !== undefined
+  ) {
+    const incomingEmails =
+      body.ownerNotificationEmails !== undefined
+        ? body.ownerNotificationEmails
+        : body.ownerNotificationEmail
+          ? [body.ownerNotificationEmail]
+          : [];
+
+    const normalized = incomingEmails
+      .map((email) => (email || "").trim().toLowerCase())
+      .filter((email) => email.length > 0);
+
+    for (const email of normalized) {
+      if (!isValidEmail(email)) {
+        return c.json(
+          { error: `Invalid owner notification email: ${email}`, code: "VALIDATION_ERROR" },
+          400,
+        );
+      }
+    }
+
+    const unique = Array.from(new Set(normalized));
+    project.ownerNotificationEmails = unique.length > 0 ? unique : undefined;
+    project.ownerNotificationEmail = unique[0];
+  }
+
+  if (body.orderCustomerEmailsEnabled !== undefined) {
+    project.orderCustomerEmailsEnabled = body.orderCustomerEmailsEnabled;
+  }
+
+  if (body.emailDomain !== undefined) {
+    const normalizedDomain = normalizeDomain(body.emailDomain);
+    if (body.emailDomain.trim() && !normalizedDomain) {
+      return c.json(
+        { error: "Invalid email domain", code: "VALIDATION_ERROR" },
+        400,
+      );
+    }
+
+    if (!normalizedDomain) {
+      project.emailDomain = undefined;
+      project.emailDomainId = undefined;
+      project.emailDomainStatus = "unverified";
+      project.emailSenderMode = "platform";
+    } else if (normalizedDomain !== project.emailDomain) {
+      project.emailDomain = normalizedDomain;
+      project.emailDomainId = undefined;
+      project.emailDomainStatus = "pending";
+      project.emailSenderMode = "platform";
+      project.emailLastError = undefined;
+    }
+  }
+
+  project.updatedAt = new Date().toISOString();
+  await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+
+  return c.json(buildEmailSettingsResponse(project));
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/projects/:id/email-domain/verify — Verify Resend email domain
+// ---------------------------------------------------------------------------
+projectRoutes.post("/:id/email-domain/verify", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) {
+    return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  }
+  if (project.userId !== userId) {
+    return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  }
+  if (!project.emailDomain) {
+    return c.json(
+      {
+        error: "Set an email domain before requesting verification",
+        code: "VALIDATION_ERROR",
+      },
+      400,
+    );
+  }
+  if (!c.env.RESEND_API_KEY) {
+    return c.json(
+      { error: "Resend is not configured on the server", code: "SERVER_ERROR" },
+      500,
+    );
+  }
+
+  try {
+    const domainResult = await upsertResendDomain(
+      c.env,
+      project.emailDomain,
+      project.emailDomainId,
+    );
+
+    // Trigger verification check each time user requests refresh.
+    const verifiedResult = await verifyResendDomain(c.env, domainResult.domainId);
+
+    project.emailDomainId = verifiedResult.domainId;
+    project.emailDomainStatus = verifiedResult.status;
+    project.emailSenderMode =
+      verifiedResult.status === "verified" ? "owner_verified" : "platform";
+    project.emailLastVerificationAt = new Date().toISOString();
+    project.emailLastError = undefined;
+    project.updatedAt = new Date().toISOString();
+    await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+
+    return c.json(buildEmailSettingsResponse(project, verifiedResult.records));
+  } catch (error: any) {
+    project.emailDomainStatus = "failed";
+    project.emailSenderMode = "platform";
+    project.emailLastVerificationAt = new Date().toISOString();
+    project.emailLastError = error?.message || "Domain verification failed";
+    project.updatedAt = new Date().toISOString();
+    await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+
+    return c.json(
+      {
+        error: project.emailLastError,
+        code: "EMAIL_DOMAIN_VERIFY_FAILED",
+        settings: buildEmailSettingsResponse(project),
+      },
+      400,
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/projects — Create a new project
 // ---------------------------------------------------------------------------
 
@@ -122,6 +735,8 @@ projectRoutes.post("/", async (c) => {
     model: string;
     description?: string;
     type?: "website" | "webshop";
+    templateId?: string;
+    ownerNotificationEmail?: string;
   }>();
 
   // Validate and sanitize project name
@@ -160,6 +775,8 @@ projectRoutes.post("/", async (c) => {
   
   let databaseUrl = undefined;
   let databaseToken = undefined;
+  let stripeTestAccountId = undefined;
+  let stripeLiveAccountId = undefined;
 
   // Provision Turso database if it's a webshop
   if (body.type === "webshop") {
@@ -180,6 +797,11 @@ projectRoutes.post("/", async (c) => {
         await new Promise(resolve => setTimeout(resolve, 2000));
         try {
           await createWebshopSchema(databaseUrl, databaseToken);
+          await seedTemplateCatalogIfNeeded(
+            databaseUrl,
+            databaseToken,
+            body.templateId as string | undefined,
+          );
           console.log(`Finished executing default shop schema on ${databaseUrl}`);
         } catch (schemaErr) {
           console.error(`[Project Create] Failed to execute shop schema on ${databaseUrl}:`, schemaErr);
@@ -192,6 +814,20 @@ projectRoutes.post("/", async (c) => {
       // Don't fail project creation if DB provisioning fails completely, just log it
       // Users can still build a shop, they just won't have a working Turso DB instance
     }
+
+    try {
+      const testAccount = await createStripeConnectedAccount(c.env, "test");
+      stripeTestAccountId = testAccount.id;
+    } catch (error) {
+      console.error("[Project Create] Failed to provision Stripe test account", error);
+    }
+
+    try {
+      const liveAccount = await createStripeConnectedAccount(c.env, "live");
+      stripeLiveAccountId = liveAccount.id;
+    } catch (error) {
+      console.error("[Project Create] Failed to provision Stripe live account", error);
+    }
   }
 
   // Create the project metadata
@@ -201,18 +837,27 @@ projectRoutes.post("/", async (c) => {
     name: sanitizedName,
     model: body.model || "gpt-4o-mini",
     type: body.type || "website",
+    templateId: body.templateId,
     databaseUrl,
     databaseToken,
+    stripeAccountId: stripeTestAccountId,
+    stripeTestAccountId,
+    stripeLiveAccountId,
+    paymentMode: "off",
+    ownerNotificationEmail: body.ownerNotificationEmail?.trim().toLowerCase() || undefined,
+    ownerNotificationEmails: body.ownerNotificationEmail?.trim()
+      ? [body.ownerNotificationEmail.trim().toLowerCase()]
+      : undefined,
+    orderCustomerEmailsEnabled: true,
+    emailSenderMode: "platform",
+    emailDomainStatus: "unverified",
     currentVersion: 0,
     createdAt: now,
     updatedAt: now,
   };
 
   // Create the initial version with starter template files
-  let backendUrl = new URL(c.req.url).origin;
-  if (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1")) {
-    backendUrl = "https://maistro.website";
-  }
+  const backendUrl = resolveBackendUrl(c.env, c.req.url);
 
   const initialVersion = createInitialVersion(
     project.name,
@@ -221,7 +866,9 @@ projectRoutes.post("/", async (c) => {
     project.type,
     databaseUrl && databaseToken ? { url: databaseUrl, token: databaseToken } : undefined,
     c.env.STRIPE_PUBLISHABLE_KEY || "",
-    backendUrl
+    backendUrl,
+    undefined,
+    body.templateId as string | undefined
   );
 
   // Store everything in parallel: KV metadata + R2 files + user index update
@@ -230,6 +877,15 @@ projectRoutes.post("/", async (c) => {
     "json"
   );
   const updatedIds = [projectId, ...(existingIds ?? [])];
+  const templateWelcomeMessage = buildTemplateWelcomeMessage(body.templateId, now);
+  const initialChatSession: ChatSession | null = templateWelcomeMessage
+    ? {
+        projectId,
+        messages: [templateWelcomeMessage],
+        createdAt: now,
+        updatedAt: now,
+      }
+    : null;
 
   await Promise.all([
     // Store project metadata in KV
@@ -246,6 +902,15 @@ projectRoutes.post("/", async (c) => {
       `${projectId}/v0/files.json`,
       JSON.stringify(initialVersion)
     ),
+
+    ...(initialChatSession
+      ? [
+          c.env.METADATA.put(
+            `chat:${projectId}`,
+            JSON.stringify(initialChatSession),
+          ),
+        ]
+      : []),
   ]);
 
   return c.json({ project }, 201);
@@ -364,7 +1029,21 @@ projectRoutes.patch("/:id", async (c) => {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
-  const body = await c.req.json<{ name?: string; model?: string; stripePaymentMethods?: string[] }>();
+  const body = await c.req.json<{
+    name?: string;
+    model?: string;
+    stripePaymentMethods?: string[];
+    paymentMode?: "off" | "test" | "live";
+    disconnectStripe?: boolean;
+    disconnectStripeMode?: "test" | "live" | "all";
+  }>();
+  const shouldSyncStripeDeployment =
+    Boolean(project.deployment_uuid) &&
+    (
+      body.paymentMode !== undefined ||
+      Boolean(body.disconnectStripe) ||
+      body.disconnectStripeMode !== undefined
+    );
 
   // Apply updates
   if (body.name) {
@@ -377,7 +1056,32 @@ projectRoutes.patch("/:id", async (c) => {
   if (body.stripePaymentMethods) {
     project.stripePaymentMethods = body.stripePaymentMethods;
   }
+  if (body.paymentMode) {
+    project.paymentMode = body.paymentMode;
+  }
+  if (body.disconnectStripe || body.disconnectStripeMode === "all") {
+    project.stripeAccountId = undefined;
+    project.stripeTestAccountId = undefined;
+    project.stripeLiveAccountId = undefined;
+    project.paymentMode = "off";
+  } else if (body.disconnectStripeMode === "test") {
+    project.stripeTestAccountId = undefined;
+    if (project.paymentMode === "test") {
+      project.paymentMode = "off";
+      project.stripeAccountId = project.stripeLiveAccountId;
+    }
+  } else if (body.disconnectStripeMode === "live") {
+    project.stripeLiveAccountId = undefined;
+    if (project.paymentMode === "live") {
+      project.paymentMode = "off";
+      project.stripeAccountId = project.stripeTestAccountId;
+    }
+  }
   project.updatedAt = new Date().toISOString();
+
+  if (shouldSyncStripeDeployment) {
+    await syncCoolifyStripeConfiguration(c.env, project);
+  }
 
   // Persist updated metadata
   await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
@@ -411,7 +1115,7 @@ projectRoutes.post("/:id/sync-stripe", async (c) => {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
-  if (!project.stripeAccountId) {
+  if (!project.stripeAccountId && !project.stripeTestAccountId && !project.stripeLiveAccountId) {
     return c.json({ error: "No Stripe account connected", code: "STRIPE_NOT_CONNECTED" }, 400);
   }
 
@@ -427,31 +1131,198 @@ projectRoutes.post("/:id/sync-stripe", async (c) => {
   const files = version.files || [];
 
   // 2. Build the updated stripe.ts content
-  const stripeKey = c.env.STRIPE_PUBLISHABLE_KEY || "";
-  const stripeAccountId = project.stripeAccountId || "";
+  const stripeConfig = getStripePublishConfig(c.env, project);
+  const stripeKey = stripeConfig.publishableKey || c.env.STRIPE_PUBLISHABLE_KEY || "";
+  const stripeAccountId =
+    stripeConfig.accountId ||
+    project.stripeTestAccountId ||
+    project.stripeLiveAccountId ||
+    project.stripeAccountId ||
+    "";
 
-  const stripeTsContent = `import { loadStripe } from '@stripe/stripe-js';
+  const paymentsTsContent = `type PaymentMode = "off" | "test" | "live";
 
-const STRIPE_KEY = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '${stripeKey}';
-const STRIPE_ACCOUNT_ID = '${stripeAccountId}';
+interface CheckoutPayload {
+  items: Array<{
+    productId?: string;
+    name: string;
+    unitAmount: number;
+    quantity: number;
+    image?: string;
+    isVirtual?: boolean;
+  }>;
+  successUrl?: string;
+  cancelUrl?: string;
+  requiresShipping?: boolean;
+}
 
-export const stripePromise = loadStripe(STRIPE_KEY);
+interface PaymentState {
+  mode: PaymentMode;
+  canCheckout: boolean;
+  headline: string;
+  message: string;
+  ctaLabel: string;
+}
 
-/**
- * Creates a Stripe checkout session via the built-in API.
- * Calls /api/checkout on the same origin (handled by the Vite server plugin).
- */
-export async function createCheckoutSession(amount: number, productName: string, successUrl?: string, cancelUrl?: string) {
+interface StripeRequirements {
+  currentlyDue: string[];
+  eventuallyDue: string[];
+  pastDue: string[];
+  pendingVerification: string[];
+  disabledReason: string | null;
+}
+
+export interface StripeAccountStatus {
+  accountId: string;
+  type: string;
+  mode: Exclude<PaymentMode, "off">;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  transferCapabilityActive: boolean;
+  requiresAction: boolean;
+  isReady: boolean;
+  summary: string;
+  requirements: StripeRequirements;
+}
+
+const paymentMode = '${stripeConfig.mode}' as PaymentMode;
+
+export function getPaymentState(): PaymentState {
+  if (paymentMode === "live") {
+    return {
+      mode: "live",
+      canCheckout: true,
+      headline: "Live payments are active",
+      message: "Customers can place real orders and Stripe will route payouts to the connected account.",
+      ctaLabel: "Buy now",
+    };
+  }
+
+  if (paymentMode === "test") {
+    return {
+      mode: "test",
+      canCheckout: true,
+      headline: "Test mode is active",
+      message: "Use Stripe test cards to validate checkout before going live.",
+      ctaLabel: "Test checkout",
+    };
+  }
+
+  return {
+    mode: "off",
+    canCheckout: false,
+    headline: "Publish to test payments",
+    message: "Payments are not available in the live preview. Publish your shop to test checkout with Stripe.",
+    ctaLabel: "Publish to test payments",
+  };
+}
+
+function summarizeStripeStatus(status: StripeAccountStatus): string {
+  if (status.requirements.currentlyDue.length > 0) {
+    return "Stripe still needs: " + status.requirements.currentlyDue.join(", ");
+  }
+
+  if (!status.detailsSubmitted) {
+    return "Finish Stripe onboarding to submit your connected account details.";
+  }
+
+  if (!status.chargesEnabled || !status.payoutsEnabled || !status.transferCapabilityActive) {
+    return "Stripe account setup is incomplete. Review the connected account before accepting payments.";
+  }
+
+  if (status.requirements.pendingVerification.length > 0) {
+    return "Stripe is reviewing submitted information for this connected account.";
+  }
+
+  return "Stripe is connected and ready to accept payments.";
+}
+
+export async function getStripeAccountStatus(): Promise<StripeAccountStatus | null> {
+  if (paymentMode === "off") {
+    return null;
+  }
+
+  const response = await fetch('/api/stripe/account-status');
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || 'Failed to load Stripe account status');
+  }
+
+  const status: StripeAccountStatus = {
+    accountId: data.accountId,
+    type: data.type || 'unknown',
+    mode: data.mode,
+    detailsSubmitted: Boolean(data.detailsSubmitted),
+    chargesEnabled: Boolean(data.chargesEnabled),
+    payoutsEnabled: Boolean(data.payoutsEnabled),
+    transferCapabilityActive: Boolean(data.transferCapabilityActive),
+    requiresAction: Boolean(data.requiresAction),
+    isReady: Boolean(data.isReady),
+    summary: '',
+    requirements: {
+      currentlyDue: data.requirements?.currentlyDue || [],
+      eventuallyDue: data.requirements?.eventuallyDue || [],
+      pastDue: data.requirements?.pastDue || [],
+      pendingVerification: data.requirements?.pendingVerification || [],
+      disabledReason: data.requirements?.disabledReason || null,
+    },
+  };
+
+  status.summary = data.summary || summarizeStripeStatus(status);
+  return status;
+}
+
+export async function startStripeOnboarding(returnUrl?: string) {
+  if (paymentMode === "off") {
+    throw new Error('Payments are disabled for this shop.');
+  }
+
+  const response = await fetch('/api/stripe/account-onboarding', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      returnUrl: returnUrl || window.location.href,
+      refreshUrl: window.location.href,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.url) {
+    throw new Error(data.error || 'Failed to open Stripe onboarding');
+  }
+
+  return data.url as string;
+}
+
+export async function beginCheckout({ items, successUrl, cancelUrl, requiresShipping = false }: CheckoutPayload) {
+  const state = getPaymentState();
+  if (!state.canCheckout) {
+    throw new Error(state.message);
+  }
+
+  const normalizedItems = items
+    .map((item) => ({
+      ...item,
+      unitAmount: Math.max(1, Math.round(Number(item.unitAmount) || 0)),
+      quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+    }))
+    .filter((item) => item.name && Number.isFinite(item.unitAmount) && item.unitAmount > 0);
+
+  if (normalizedItems.length === 0) {
+    throw new Error('No valid checkout items found.');
+  }
+
   const response = await fetch('/api/checkout', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      amount: Math.round(amount * 100),
+      items: normalizedItems,
       currency: 'eur',
-      productName,
-      accountId: STRIPE_ACCOUNT_ID,
       successUrl: successUrl || window.location.origin + '/success',
       cancelUrl: cancelUrl || window.location.origin + '/cart',
+      requiresShipping,
     }),
   });
 
@@ -459,16 +1330,46 @@ export async function createCheckoutSession(amount: number, productName: string,
   if (!response.ok || !data.url) {
     throw new Error(data.error || 'Failed to initialize checkout');
   }
-  return data.url;
+  return data.url as string;
+}
+
+export const stripePromise = Promise.resolve(null);
+`;
+
+  const stripeTsContent = `import {
+  beginCheckout,
+  getPaymentState,
+  getStripeAccountStatus,
+  startStripeOnboarding,
+  stripePromise,
+} from './payments';
+
+export { getPaymentState, getStripeAccountStatus, startStripeOnboarding, stripePromise };
+
+export async function createCheckoutSession(
+  items: Array<{ productId?: string; name: string; unitAmount: number; quantity: number; image?: string; isVirtual?: boolean }>,
+  successUrl?: string,
+  cancelUrl?: string,
+  requiresShipping?: boolean,
+) {
+  return beginCheckout({ items, successUrl, cancelUrl, requiresShipping });
 }
 `;
 
-  // 3. Update or add src/lib/stripe.ts
+  // 3. Update or add managed payment helper files
+  const paymentsTsPath = "src/lib/payments.ts";
   const stripeTsPath = "src/lib/stripe.ts";
-  const existingIndex = files.findIndex(f => f.path === stripeTsPath);
-  
-  if (existingIndex !== -1) {
-    files[existingIndex].content = stripeTsContent;
+  const paymentsIndex = files.findIndex(f => f.path === paymentsTsPath);
+  const stripeIndex = files.findIndex(f => f.path === stripeTsPath);
+
+  if (paymentsIndex !== -1) {
+    files[paymentsIndex].content = paymentsTsContent;
+  } else {
+    files.push({ path: paymentsTsPath, content: paymentsTsContent });
+  }
+
+  if (stripeIndex !== -1) {
+    files[stripeIndex].content = stripeTsContent;
   } else {
     files.push({ path: stripeTsPath, content: stripeTsContent });
   }
@@ -483,7 +1384,7 @@ export async function createCheckoutSession(amount: number, productName: string,
     prompt: "Synced Stripe configuration",
     model: project.model,
     files: files,
-    changedFiles: [stripeTsPath],
+    changedFiles: [paymentsTsPath, stripeTsPath],
     type: "manual",
     createdAt: now,
     fileCount: files.length,
@@ -498,28 +1399,9 @@ export async function createCheckoutSession(amount: number, productName: string,
     c.env.FILES.put(`${projectId}/v${nextVersionNumber}/files.json`, JSON.stringify(newVersion))
   ]);
 
-  // 6. If already deployed on Coolify, update env vars so Stripe works on the live site
+  // 6. If already deployed on Coolify, update env vars and redeploy so Stripe works on the live site
   if (project.deployment_uuid) {
-    const COOLIFY_API_KEY = c.env.COOLIFY_API_KEY;
-    const COOLIFY_URL = c.env.COOLIFY_URL || "https://dock.4esh.nl";
-    if (COOLIFY_API_KEY) {
-      try {
-        await fetch(`${COOLIFY_URL}/api/v1/applications/${project.deployment_uuid}/envs/bulk`, {
-          method: "PATCH",
-          headers: { "Authorization": `Bearer ${COOLIFY_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            data: [
-              { key: "STRIPE_SECRET_KEY", value: c.env.STRIPE_SECRET_KEY || "", is_build_time: false, is_preview: false },
-              { key: "STRIPE_ACCOUNT_ID", value: stripeAccountId, is_build_time: false, is_preview: false },
-              { key: "VITE_STRIPE_PUBLISHABLE_KEY", value: stripeKey, is_build_time: false, is_preview: false },
-              { key: "VITE_PROJECT_ID", value: projectId, is_build_time: false, is_preview: false },
-            ]
-          })
-        });
-      } catch (e) {
-        console.warn("Failed to sync Stripe env vars to Coolify (non-fatal):", e);
-      }
-    }
+    await syncCoolifyStripeConfiguration(c.env, project);
   }
 
   return c.json({ project, version: nextVersionNumber });
@@ -650,6 +1532,7 @@ projectRoutes.post("/:id/publish", async (c) => {
 
   const COOLIFY_API_KEY = c.env.COOLIFY_API_KEY;
   const COOLIFY_URL = c.env.COOLIFY_URL || "https://dock.4esh.nl";
+  const backendUrl = resolveBackendUrl(c.env, c.req.url);
 
   if (!COOLIFY_API_KEY) {
     return c.json({ error: "Deployment environment variables missing. Add them to .dev.vars or env.", code: "SERVER_ERROR" }, 500);
@@ -661,9 +1544,21 @@ projectRoutes.post("/:id/publish", async (c) => {
 
     const res = await c.env.FILES.get(`${projectId}/v${project.currentVersion}/files.json`);
     const filesData = await res?.json<{ files: any[] }>();
-    const files = filesData?.files || [];
+    const files = [...(filesData?.files || [])];
     
     if (files.length === 0) return c.json({ error: "No files to publish", code: "NOT_FOUND" }, 400);
+    const stripeConfig = getStripePublishConfig(c.env, project);
+    const { paymentsTsContent, stripeTsContent } = buildManagedStripeFiles(stripeConfig);
+    const upsertFile = (path: string, content: string) => {
+      const idx = files.findIndex((file) => file.path === path);
+      if (idx >= 0) {
+        files[idx] = { ...files[idx], content };
+      } else {
+        files.push({ path, content });
+      }
+    };
+    upsertFile("src/lib/payments.ts", paymentsTsContent);
+    upsertFile("src/lib/stripe.ts", stripeTsContent);
 
     const githubHeaders = {
       Authorization: `token ${c.env.DEPLOYMENT_GITHUB_TOKEN}`,
@@ -746,6 +1641,10 @@ projectRoutes.post("/:id/publish", async (c) => {
         }
       }
 
+      if (f.path === "index.html") {
+        content = ensureTailwindCdn(content);
+      }
+
       tree.push({
         path: f.path,
         mode: "100644",
@@ -759,7 +1658,7 @@ projectRoutes.post("/:id/publish", async (c) => {
         path: "index.html",
         mode: "100644",
         type: "blob",
-        content: `<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n<title>Web AGT App</title>\n</head>\n<body>\n<div id="root"></div>\n<script type="module" src="/src/index.tsx"></script>\n</body>\n</html>`
+        content: ensureTailwindCdn(`<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n<title>Web AGT App</title>\n</head>\n<body>\n<div id="root"></div>\n<script type="module" src="/src/index.tsx"></script>\n</body>\n</html>`)
       });
     }
 
@@ -777,7 +1676,261 @@ projectRoutes.post("/:id/publish", async (c) => {
       path: "stripe-api-plugin.ts",
       mode: "100644",
       type: "blob",
-      content: `import type { Plugin } from 'vite';\n\nexport function stripeApiPlugin(): Plugin {\n  return {\n    name: 'stripe-checkout-api',\n    configureServer(server) {\n      server.middlewares.use('/api/checkout', async (req: any, res: any) => {\n        res.setHeader('Access-Control-Allow-Origin', '*');\n        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');\n        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');\n        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }\n        if (req.method !== 'POST') { res.writeHead(405); res.end('Method not allowed'); return; }\n\n        let body = '';\n        req.on('data', (chunk: any) => { body += chunk; });\n        req.on('end', async () => {\n          try {\n            const Stripe = (await import('stripe')).default;\n            const secretKey = process.env.STRIPE_SECRET_KEY;\n            if (!secretKey) { res.writeHead(500); res.end(JSON.stringify({ error: 'STRIPE_SECRET_KEY not configured' })); return; }\n            const stripe = new Stripe(secretKey);\n            const { amount, currency, productName, successUrl, cancelUrl, accountId, paymentMethods } = JSON.parse(body);\n            const fee = Math.round(amount * 0.25);\n            const session = await stripe.checkout.sessions.create({\n              payment_method_types: paymentMethods || ['card', 'ideal'],\n              line_items: [{ price_data: { currency: currency || 'eur', product_data: { name: productName }, unit_amount: amount }, quantity: 1 }],\n              mode: 'payment',\n              success_url: successUrl || req.headers.origin + '/success',\n              cancel_url: cancelUrl || req.headers.origin + '/cart',\n              ...(accountId ? { payment_intent_data: { application_fee_amount: fee, transfer_data: { destination: accountId } } } : {}),\n            });\n            res.writeHead(200, { 'Content-Type': 'application/json' });\n            res.end(JSON.stringify({ url: session.url }));\n          } catch (err: any) {\n            res.writeHead(500, { 'Content-Type': 'application/json' });\n            res.end(JSON.stringify({ error: err.message }));\n          }\n        });\n      });\n    }\n  };\n}\n`
+      content: `import type { Plugin } from 'vite';
+
+type StripeMode = 'test' | 'live';
+type PaymentMode = 'off' | 'test' | 'live';
+
+function writeJson(res: any, status: number, body: unknown) {
+  res.writeHead(status, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(body));
+}
+
+function getOrigin(req: any) {
+  const protocol = req.headers['x-forwarded-proto'] || 'https';
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  return host ? protocol + '://' + host : 'http://localhost:3000';
+}
+
+function getDashboardUrl(mode: StripeMode, accountId: string) {
+  return mode === 'live'
+    ? 'https://dashboard.stripe.com/connect/accounts/' + accountId
+    : 'https://dashboard.stripe.com/test/connect/accounts/' + accountId;
+}
+
+function hasTransferCapability(account: any) {
+  const capabilities = account?.capabilities || {};
+  return capabilities.transfers === 'active' || capabilities.legacy_payments === 'active';
+}
+
+function buildAccountStatus(account: any, mode: StripeMode) {
+  const requirements = account?.requirements || {};
+  const currentlyDue = requirements.currently_due || [];
+  const pastDue = requirements.past_due || [];
+  const pendingVerification = requirements.pending_verification || [];
+  const eventuallyDue = requirements.eventually_due || [];
+  const disabledReason = requirements.disabled_reason || null;
+  const transferCapabilityActive = hasTransferCapability(account);
+  const isReady =
+    Boolean(account?.details_submitted) &&
+    Boolean(account?.charges_enabled) &&
+    Boolean(account?.payouts_enabled) &&
+    transferCapabilityActive &&
+    currentlyDue.length === 0 &&
+    pastDue.length === 0 &&
+    !disabledReason;
+
+  let summary = 'Stripe is connected and ready to accept payments.';
+  if (currentlyDue.length > 0) {
+    summary = 'Stripe still needs: ' + currentlyDue.join(', ');
+  } else if (!account?.details_submitted) {
+    summary = 'Finish Stripe onboarding to submit your connected account details.';
+  } else if (!account?.charges_enabled || !account?.payouts_enabled || !transferCapabilityActive) {
+    summary = 'Stripe account setup is incomplete. Review the connected account before accepting payments.';
+  } else if (pendingVerification.length > 0) {
+    summary = 'Stripe is reviewing submitted information for this connected account.';
+  }
+
+  return {
+    accountId: account.id,
+    type: account.type || 'unknown',
+    mode,
+    detailsSubmitted: Boolean(account?.details_submitted),
+    chargesEnabled: Boolean(account?.charges_enabled),
+    payoutsEnabled: Boolean(account?.payouts_enabled),
+    transferCapabilityActive,
+    requiresAction: !isReady,
+    isReady,
+    summary,
+    requirements: {
+      currentlyDue,
+      eventuallyDue,
+      pastDue,
+      pendingVerification,
+      disabledReason,
+    },
+  };
+}
+
+async function readJson(req: any) {
+  let body = '';
+  await new Promise<void>((resolve, reject) => {
+    req.on('data', (chunk: any) => {
+      body += chunk;
+    });
+    req.on('end', () => resolve());
+    req.on('error', (error: any) => reject(error));
+  });
+
+  return body ? JSON.parse(body) : {};
+}
+
+export function stripeApiPlugin(): Plugin {
+  return {
+    name: 'stripe-checkout-api',
+    configureServer(server) {
+      server.middlewares.use('/api/stripe/account-status', async (req: any, res: any) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+        if (req.method !== 'GET') { res.writeHead(405); res.end('Method not allowed'); return; }
+
+        try {
+          const paymentMode = (process.env.VITE_PAYMENT_MODE || 'off') as PaymentMode;
+          if (paymentMode === 'off') {
+            writeJson(res, 400, { error: 'Payments are disabled for this shop', code: 'PAYMENTS_DISABLED' });
+            return;
+          }
+
+          const Stripe = (await import('stripe')).default;
+          const secretKey = process.env.STRIPE_SECRET_KEY;
+          const connectedAccountId = process.env.STRIPE_ACCOUNT_ID;
+
+          if (!secretKey) { writeJson(res, 500, { error: 'STRIPE_SECRET_KEY not configured' }); return; }
+          if (!connectedAccountId) { writeJson(res, 400, { error: 'No Stripe account connected', code: 'STRIPE_NOT_CONNECTED' }); return; }
+
+          const stripe = new Stripe(secretKey, { apiVersion: '2025-01-27.acacia' });
+          const account = await stripe.accounts.retrieve(connectedAccountId);
+          if ('deleted' in account) {
+            writeJson(res, 404, { error: 'Stripe account not found', code: 'STRIPE_ACCOUNT_NOT_FOUND' });
+            return;
+          }
+
+          writeJson(res, 200, buildAccountStatus(account, paymentMode));
+        } catch (err: any) {
+          writeJson(res, 500, { error: err.message || 'Failed to load Stripe account status' });
+        }
+      });
+
+      server.middlewares.use('/api/stripe/account-onboarding', async (req: any, res: any) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+        if (req.method !== 'POST') { res.writeHead(405); res.end('Method not allowed'); return; }
+
+        try {
+          const paymentMode = (process.env.VITE_PAYMENT_MODE || 'off') as PaymentMode;
+          if (paymentMode === 'off') {
+            writeJson(res, 400, { error: 'Payments are disabled for this shop', code: 'PAYMENTS_DISABLED' });
+            return;
+          }
+
+          const Stripe = (await import('stripe')).default;
+          const secretKey = process.env.STRIPE_SECRET_KEY;
+          const connectedAccountId = process.env.STRIPE_ACCOUNT_ID;
+
+          if (!secretKey) { writeJson(res, 500, { error: 'STRIPE_SECRET_KEY not configured' }); return; }
+          if (!connectedAccountId) { writeJson(res, 400, { error: 'No Stripe account connected', code: 'STRIPE_NOT_CONNECTED' }); return; }
+
+          const stripe = new Stripe(secretKey, { apiVersion: '2025-01-27.acacia' });
+          const account = await stripe.accounts.retrieve(connectedAccountId);
+          if ('deleted' in account) {
+            writeJson(res, 404, { error: 'Stripe account not found', code: 'STRIPE_ACCOUNT_NOT_FOUND' });
+            return;
+          }
+
+          const body = await readJson(req);
+          if (account.type === 'standard') {
+            writeJson(res, 200, { url: getDashboardUrl(paymentMode, connectedAccountId) });
+            return;
+          }
+
+          const origin = getOrigin(req);
+          const returnUrl = body.returnUrl || origin;
+          const refreshUrl = body.refreshUrl || returnUrl;
+          const accountLink = await stripe.accountLinks.create({
+            account: connectedAccountId,
+            refresh_url: refreshUrl,
+            return_url: returnUrl,
+            type: 'account_onboarding',
+          });
+
+          writeJson(res, 200, { url: accountLink.url });
+        } catch (err: any) {
+          writeJson(res, 500, { error: err.message || 'Failed to open Stripe onboarding' });
+        }
+      });
+
+      server.middlewares.use('/api/checkout', async (req: any, res: any) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+        if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+        if (req.method !== 'POST') { res.writeHead(405); res.end('Method not allowed'); return; }
+
+        try {
+          const paymentMode = (process.env.VITE_PAYMENT_MODE || 'off') as PaymentMode;
+          if (paymentMode === 'off') {
+            writeJson(res, 400, { error: 'Payments are disabled for this shop', code: 'PAYMENTS_DISABLED' });
+            return;
+          }
+
+          const Stripe = (await import('stripe')).default;
+          const secretKey = process.env.STRIPE_SECRET_KEY;
+          const connectedAccountId = process.env.STRIPE_ACCOUNT_ID;
+          const commissionPercent = Number(process.env.PLATFORM_COMMISSION_PERCENT || '25');
+
+          if (!secretKey) { writeJson(res, 500, { error: 'STRIPE_SECRET_KEY not configured' }); return; }
+          if (!connectedAccountId) { writeJson(res, 400, { error: 'No Stripe account connected', code: 'STRIPE_NOT_CONNECTED' }); return; }
+
+          const stripe = new Stripe(secretKey, { apiVersion: '2025-01-27.acacia' });
+          const account = await stripe.accounts.retrieve(connectedAccountId);
+          if ('deleted' in account) {
+            writeJson(res, 404, { error: 'Stripe account not found', code: 'STRIPE_ACCOUNT_NOT_FOUND' });
+            return;
+          }
+
+          const accountStatus = buildAccountStatus(account, paymentMode);
+          if (!accountStatus.isReady) {
+            writeJson(res, 400, {
+              error: accountStatus.summary,
+              code: 'STRIPE_ONBOARDING_INCOMPLETE',
+              account: accountStatus,
+            });
+            return;
+          }
+
+          const { items, currency, successUrl, cancelUrl, requiresShipping } = await readJson(req);
+          const projectId = process.env.VITE_PROJECT_ID;
+          const fallbackOrigin = getOrigin(req);
+
+          const upstream = await fetch('${backendUrl}/api/stripe/checkout_sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              projectId,
+              items,
+              currency: currency || 'eur',
+              successUrl: successUrl || fallbackOrigin + '/success',
+              cancelUrl: cancelUrl || fallbackOrigin + '/cart',
+              requiresShipping: Boolean(requiresShipping),
+            }),
+          });
+
+          const raw = await upstream.text();
+          let payload: any = null;
+          try {
+            payload = raw ? JSON.parse(raw) : {};
+          } catch {
+            const looksLikeHtml = /^\s*<!doctype html>/i.test(raw) || /^\s*<html/i.test(raw);
+            payload = {
+              error: looksLikeHtml
+                ? 'Checkout backend is misconfigured and returned HTML instead of JSON. Set PUBLIC_WORKER_URL to your public worker API URL and republish.'
+                : (raw || 'Failed to initialize checkout'),
+            };
+          }
+
+          writeJson(res, upstream.status, payload);
+        } catch (err: any) {
+          writeJson(res, 500, { error: err.message || 'Failed to initialize checkout' });
+        }
+      });
+    }
+  };
+}
+`
     });
 
     // Ensure postcss.config.mjs exists for Tailwind v3
@@ -929,47 +2082,7 @@ projectRoutes.post("/:id/publish", async (c) => {
       });
     }
 
-    // Set environment variables on the Coolify app
-    const envVars: { key: string; value: string; is_build_time?: boolean }[] = [
-      { key: "VITE_PROJECT_ID", value: projectId },
-    ];
-
-    if (project.stripeAccountId) {
-      envVars.push(
-        { key: "STRIPE_SECRET_KEY", value: c.env.STRIPE_SECRET_KEY || "" },
-        { key: "STRIPE_ACCOUNT_ID", value: project.stripeAccountId },
-        { key: "VITE_STRIPE_PUBLISHABLE_KEY", value: c.env.STRIPE_PUBLISHABLE_KEY || "" },
-      );
-    }
-
-    try {
-      await fetch(`${COOLIFY_URL}/api/v1/applications/${appUuid}/envs/bulk`, {
-        method: "PATCH", headers: coolifyHeaders,
-        body: JSON.stringify({
-          data: envVars.map(e => ({
-            key: e.key,
-            value: e.value,
-            is_build_time: e.is_build_time ?? false,
-            is_preview: false,
-          }))
-        })
-      });
-    } catch (envErr) {
-      console.warn("Failed to set env vars on Coolify (non-fatal):", envErr);
-    }
-
-    const deployRes = await fetch(`${COOLIFY_URL}/api/v1/deploy`, {
-      method: "POST", headers: coolifyHeaders,
-      body: JSON.stringify({ uuid: appUuid })
-    });
-    
-    if (!deployRes.ok) {
-        const errTxt = await deployRes.text();
-        throw new Error(`Failed to trigger deployment: ${errTxt}`);
-    }
-    
-    const deployData = await deployRes.json() as any;
-    const deploymentUuid = deployData?.deployments?.[0]?.deployment_uuid || null;
+    const deploymentUuid = await syncCoolifyStripeConfiguration(c.env, project);
 
     return c.json({ success: true, url: `https://${domain}`, deploymentUuid });
   } catch (error: any) {

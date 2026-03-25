@@ -18,6 +18,382 @@
  */
 
 import type { ProjectFile, Version } from "../types/project";
+import { getPardoleParfumFiles } from "./templates/pardole-parfum";
+
+/**
+ * Returns the starter files for a named template, or null if unknown.
+ * templateId values must match AVAILABLE_TEMPLATES ids in the frontend.
+ */
+export function getTemplateFiles(templateId: string): ProjectFile[] | null {
+  switch (templateId) {
+    case "pardole_parfum_vite":
+    case "pardole-parfum":
+      return getPardoleParfumFiles();
+    default:
+      return null;
+  }
+}
+
+function dirname(path: string): string {
+  const index = path.lastIndexOf("/");
+  if (index === -1) return "";
+  return path.slice(0, index);
+}
+
+function relativePath(fromDir: string, toPath: string): string {
+  const from = fromDir.split("/").filter(Boolean);
+  const to = toPath.split("/").filter(Boolean);
+
+  let i = 0;
+  while (i < from.length && i < to.length && from[i] === to[i]) {
+    i += 1;
+  }
+
+  const up = from.length - i;
+  const down = to.slice(i);
+  const relative = `${up > 0 ? "../".repeat(up) : ""}${down.join("/")}`;
+  if (!relative || relative.startsWith("../")) return relative || ".";
+  return `./${relative}`;
+}
+
+function rewriteAtAliasImportsForSandbox(files: ProjectFile[]): ProjectFile[] {
+  return files.map((file) => {
+    if (!/\.(ts|tsx|js|jsx)$/.test(file.path)) {
+      return file;
+    }
+
+    const fromDir = dirname(file.path);
+    const rewriteImportPath = (aliasTarget: string) => {
+      const targetPath = `src/${aliasTarget}`;
+      return relativePath(fromDir, targetPath);
+    };
+
+    const content = file.content
+      .replace(/from\s+(['"])@\/([^'"]+)\1/g, (_m, quote: string, target: string) => {
+        return `from ${quote}${rewriteImportPath(target)}${quote}`;
+      })
+      .replace(/import\(\s*(['"])@\/([^'"]+)\1\s*\)/g, (_m, quote: string, target: string) => {
+        return `import(${quote}${rewriteImportPath(target)}${quote})`;
+      });
+
+    return { ...file, content };
+  });
+}
+
+function upsertFile(files: ProjectFile[], incoming: ProjectFile): ProjectFile[] {
+  const index = files.findIndex((f) => f.path === incoming.path);
+  if (index === -1) {
+    return [...files, incoming];
+  }
+  const next = [...files];
+  next[index] = incoming;
+  return next;
+}
+
+function mergePackageJsonDependencies(basePkgText: string, infraPkgText: string): string {
+  try {
+    const basePkg = JSON.parse(basePkgText);
+    const infraPkg = JSON.parse(infraPkgText);
+
+    basePkg.dependencies = {
+      ...(basePkg.dependencies || {}),
+      ...(infraPkg.dependencies || {}),
+    };
+    basePkg.devDependencies = {
+      ...(basePkg.devDependencies || {}),
+      ...(infraPkg.devDependencies || {}),
+    };
+
+    return JSON.stringify(basePkg, null, 2) + "\n";
+  } catch {
+    return basePkgText;
+  }
+}
+
+function mergeWebshopInfrastructureFiles(
+  templateFiles: ProjectFile[],
+  webshopInfraFiles: ProjectFile[],
+): ProjectFile[] {
+  let merged = [...templateFiles];
+
+  const infraDb = webshopInfraFiles.find((f) => f.path === "src/lib/db.ts");
+  if (infraDb) merged = upsertFile(merged, infraDb);
+
+  const infraPayments = webshopInfraFiles.find((f) => f.path === "src/lib/payments.ts");
+  if (infraPayments) merged = upsertFile(merged, infraPayments);
+
+  const basePkg = merged.find((f) => f.path === "package.json");
+  const infraPkg = webshopInfraFiles.find((f) => f.path === "package.json");
+  if (basePkg && infraPkg) {
+    merged = upsertFile(merged, {
+      path: "package.json",
+      content: mergePackageJsonDependencies(basePkg.content, infraPkg.content),
+    });
+  }
+
+  return merged;
+}
+
+function buildDynamicTemplateDataModule(): ProjectFile {
+  return {
+    path: "src/lib/data.ts",
+    content: `import { useSyncExternalStore } from 'react';
+import { db } from './db';
+
+export interface Product {
+  id: string;
+  name: string;
+  inspiredBy: string;
+  price: number;
+  originalPrice?: number;
+  category: 'dames' | 'heren' | 'unisex' | 'niche' | 'extract' | 'exclusive';
+  isBestseller?: boolean;
+  isNew?: boolean;
+  isSoldOut?: boolean;
+  rating: number;
+  reviewCount: number;
+  image: string;
+  notes: {
+    top: string[];
+    heart: string[];
+    base: string[];
+  };
+  description: string;
+  size: string;
+  longevity: string;
+  sillage: string;
+  isVirtual?: boolean;
+}
+
+export interface Category {
+  id: string;
+  name: string;
+  slug: string;
+  image: string;
+  count: number;
+  description: string;
+}
+
+const FALLBACK_PRODUCTS: Product[] = [
+  {
+    id: '309',
+    name: '309',
+    inspiredBy: 'Designer inspired',
+    price: 24.95,
+    category: 'dames',
+    isBestseller: true,
+    rating: 4.9,
+    reviewCount: 847,
+    image: 'https://images.unsplash.com/photo-1592945403244-b3fbafd7f539?w=800&q=80',
+    notes: { top: ['Mandarin'], heart: ['Jasmine'], base: ['Vanilla'] },
+    description: 'Een elegante geur met premium geurbeleving.',
+    size: '50ml',
+    longevity: '8-10 uur',
+    sillage: 'Sterk',
+  },
+  {
+    id: '105',
+    name: '105',
+    inspiredBy: 'Designer inspired',
+    price: 24.95,
+    category: 'heren',
+    isBestseller: true,
+    rating: 4.8,
+    reviewCount: 789,
+    image: 'https://images.unsplash.com/photo-1585386959984-a4155224a1ad?w=800&q=80',
+    notes: { top: ['Pink Pepper'], heart: ['Lavender'], base: ['Sandalwood'] },
+    description: 'Kruidige heren geur met moderne uitstraling.',
+    size: '50ml',
+    longevity: '8-10 uur',
+    sillage: 'Matig tot sterk',
+  },
+  {
+    id: '210',
+    name: '210',
+    inspiredBy: 'Designer inspired',
+    price: 24.95,
+    category: 'unisex',
+    isBestseller: true,
+    rating: 4.9,
+    reviewCount: 412,
+    image: 'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?w=800&q=80',
+    notes: { top: ['Bergamot'], heart: ['Tonka'], base: ['Amber'] },
+    description: 'Unisex blend met zachte warme noten.',
+    size: '50ml',
+    longevity: '10-12 uur',
+    sillage: 'Intens',
+  },
+];
+
+function mapCategory(raw: string | null | undefined): Product['category'] {
+  const v = (raw || '').toLowerCase();
+  if (v === 'dames' || v === 'heren' || v === 'unisex' || v === 'niche' || v === 'extract' || v === 'exclusive') {
+    return v as Product['category'];
+  }
+  return 'unisex';
+}
+
+function parseImages(value: unknown): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean).map(String);
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean).map(String);
+    } catch {
+      return value ? [value] : [];
+    }
+  }
+  return [];
+}
+
+function rowToObject(row: any, columns?: string[]): Record<string, any> {
+  if (Array.isArray(row) && columns) {
+    const out: Record<string, any> = {};
+    columns.forEach((col, i) => {
+      out[col] = row[i];
+    });
+    return out;
+  }
+  return row || {};
+}
+
+async function fetchProductsFromDb(): Promise<Product[]> {
+  try {
+    const result = await db.execute(
+      "SELECT id, name, price, description, category, categoryId, images, rating, reviews, featured, inventory, stock, originalPrice, compareAtPrice, isVirtual FROM Product ORDER BY createdAt DESC LIMIT 60"
+    );
+    const rows = (result.rows || []).map((row: any) => rowToObject(row, result.columns));
+    if (!rows.length) {
+      return FALLBACK_PRODUCTS;
+    }
+
+    return rows.map((row: any) => {
+      const images = parseImages(row.images);
+      const image = images[0] || 'https://images.unsplash.com/photo-1541643600914-78b084683702?w=800&q=80';
+      const category = mapCategory(row.category ?? row.categoryId);
+      const stock = Number(row.stock ?? row.inventory ?? 0);
+      const soldOut = Number.isFinite(stock) ? stock <= 0 : false;
+      const rating = Number(row.rating ?? 4.8);
+      const reviewCount = Number(row.reviews ?? 0);
+
+      return {
+        id: String(row.id ?? crypto.randomUUID()),
+        name: String(row.name ?? 'Parfum'),
+        inspiredBy: 'Designer inspired',
+        price: Number(row.price ?? 24.95),
+        originalPrice:
+          row.compareAtPrice != null
+            ? Number(row.compareAtPrice)
+            : row.originalPrice != null
+              ? Number(row.originalPrice)
+              : undefined,
+        category,
+        isBestseller: Boolean(row.featured ?? true),
+        isNew: false,
+        isSoldOut: soldOut,
+        isVirtual: Boolean(row.isVirtual),
+        rating: Number.isFinite(rating) ? rating : 4.8,
+        reviewCount: Number.isFinite(reviewCount) ? reviewCount : 0,
+        image,
+        notes: { top: ['Bergamot'], heart: ['Jasmine'], base: ['Amber'] },
+        description: String(row.description ?? 'Premium parfum'),
+        size: '50ml',
+        longevity: '8-10 uur',
+        sillage: 'Matig',
+      } as Product;
+    });
+  } catch {
+    return FALLBACK_PRODUCTS;
+  }
+}
+
+const categoryMeta: Record<Product['category'], { name: string; description: string }> = {
+  dames: { name: 'Dames', description: 'Elegante geuren voor iedere gelegenheid.' },
+  heren: { name: 'Heren', description: 'Krachtige en verfijnde heren parfums.' },
+  unisex: { name: 'Unisex', description: 'Moderne geuren voor iedereen.' },
+  niche: { name: 'Niche', description: 'Unieke composities voor kenners.' },
+  extract: { name: 'Extract', description: 'Hoge concentratie voor langdurige impact.' },
+  exclusive: { name: 'Exclusive', description: 'Premium selectie met statement geuren.' },
+};
+
+function buildCategories(products: Product[]): Category[] {
+  return (Object.keys(categoryMeta) as Product['category'][])
+    .map((slug) => ({
+      id: slug,
+      slug,
+      name: categoryMeta[slug].name,
+      description: categoryMeta[slug].description,
+      count: products.filter((p) => p.category === slug).length,
+      image: products.find((p) => p.category === slug)?.image || 'https://images.unsplash.com/photo-1541643600914-78b084683702?w=800&q=80',
+    }))
+    .filter((c) => c.count > 0);
+}
+
+type CatalogSnapshot = {
+  products: Product[];
+  categories: Category[];
+};
+
+const listeners = new Set<() => void>();
+let hasStartedCatalogHydration = false;
+let catalog: CatalogSnapshot = {
+  products: FALLBACK_PRODUCTS,
+  categories: buildCategories(FALLBACK_PRODUCTS),
+};
+
+function emitCatalogChange() {
+  listeners.forEach((listener) => listener());
+}
+
+function subscribeToCatalog(listener: () => void) {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+function getCatalogSnapshot(): CatalogSnapshot {
+  return catalog;
+}
+
+async function hydrateCatalog() {
+  const products = await fetchProductsFromDb();
+  catalog = {
+    products,
+    categories: buildCategories(products),
+  };
+  emitCatalogChange();
+}
+
+function ensureCatalogHydration() {
+  if (hasStartedCatalogHydration) return;
+  hasStartedCatalogHydration = true;
+  void hydrateCatalog();
+}
+
+export function useCatalog(): CatalogSnapshot {
+  ensureCatalogHydration();
+  return useSyncExternalStore(subscribeToCatalog, getCatalogSnapshot, getCatalogSnapshot);
+}
+
+export function getCatalog(): CatalogSnapshot {
+  ensureCatalogHydration();
+  return getCatalogSnapshot();
+}
+
+export const reviews = [
+  { id: 'r1', name: 'Sanne', location: 'Amsterdam', title: 'Top kwaliteit', text: 'Super fijne geur en snelle levering.', rating: 5, product: '309', date: '2 dagen geleden', verified: true },
+  { id: 'r2', name: 'Milan', location: 'Utrecht', title: 'Blijft lang hangen', text: 'Voor deze prijs echt premium.', rating: 5, product: '105', date: '5 dagen geleden', verified: true },
+  { id: 'r3', name: 'Nora', location: 'Rotterdam', title: 'Nieuwe favoriet', text: 'Mooie balans en veel complimenten.', rating: 4, product: '210', date: '1 week geleden', verified: true },
+];
+
+export const announcementMessages = [
+  'Voor 17:30 besteld, morgen in huis',
+  'Gratis verzending vanaf €50',
+  'Betaal achteraf met Klarna',
+];
+`,
+  };
+}
 
 /**
  * Generates the default set of files for a new project.
@@ -52,6 +428,40 @@ export default function App() {
   );
 }
 `,
+    },
+    {
+      path: "index.html",
+      content: `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${projectName}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
+`
+    },
+    {
+      path: "index.html",
+      content: `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${projectName}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/index.tsx"></script>
+  </body>
+</html>
+`
     },
     {
       path: "src/index.tsx",
@@ -135,12 +545,33 @@ function getWebshopProjectFiles(
   return [
     {
       path: "src/App.tsx",
-      content: `import React, { useEffect, useState } from "react";
+      content: `import React, { useEffect, useMemo, useState } from "react";
 import { db } from "./lib/db";
+import {
+  beginCheckout,
+  getPaymentState,
+  getStripeAccountStatus,
+  startStripeOnboarding,
+  type StripeAccountStatus,
+} from "./lib/payments";
+
+interface Product {
+  id: string;
+  name: string;
+  price: number;
+  images?: string;
+}
 
 export default function App() {
-  const [products, setProducts] = useState<any[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [checkoutLoadingId, setCheckoutLoadingId] = useState<string | null>(null);
+  const [checkoutMessage, setCheckoutMessage] = useState<string | null>(null);
+  const paymentState = useMemo(() => getPaymentState(), []);
+  const [stripeStatus, setStripeStatus] = useState<StripeAccountStatus | null>(null);
+  const [stripeStatusLoading, setStripeStatusLoading] = useState(paymentState.mode !== "off");
+  const [stripeStatusError, setStripeStatusError] = useState<string | null>(null);
+  const [onboardingLoading, setOnboardingLoading] = useState(false);
 
   useEffect(() => {
     async function loadProducts() {
@@ -168,28 +599,206 @@ export default function App() {
     loadProducts();
   }, []);
 
+  useEffect(() => {
+    if (paymentState.mode === "off") {
+      setStripeStatusLoading(false);
+      return;
+    }
+
+    refreshStripeStatus();
+  }, [paymentState.mode]);
+
+  async function refreshStripeStatus() {
+    if (paymentState.mode === "off") {
+      setStripeStatus(null);
+      setStripeStatusError(null);
+      setStripeStatusLoading(false);
+      return;
+    }
+
+    try {
+      setStripeStatusLoading(true);
+      setStripeStatusError(null);
+      const status = await getStripeAccountStatus();
+      setStripeStatus(status);
+    } catch (error: any) {
+      setStripeStatusError(error.message || "Failed to load Stripe account status.");
+    } finally {
+      setStripeStatusLoading(false);
+    }
+  }
+
+  async function handleStripeOnboarding() {
+    try {
+      setOnboardingLoading(true);
+      const url = await startStripeOnboarding(window.location.href);
+      window.location.href = url;
+    } catch (error: any) {
+      setCheckoutMessage(error.message || "Failed to start Stripe onboarding.");
+    } finally {
+      setOnboardingLoading(false);
+    }
+  }
+
+  async function handleCheckout(product: Product) {
+    setCheckoutMessage(null);
+
+    if (!paymentState.canCheckout) {
+      setCheckoutMessage(paymentState.message);
+      return;
+    }
+
+    try {
+      setCheckoutLoadingId(product.id);
+      const url = await beginCheckout({
+        items: [
+          {
+            productId: String(product.id),
+            name: product.name,
+            unitAmount: Math.round(Number(product.price) * 100),
+            quantity: 1,
+            image: product.images ? JSON.parse(product.images)[0] : undefined,
+            isVirtual: false,
+          },
+        ],
+        successUrl: window.location.origin,
+        cancelUrl: window.location.origin,
+        requiresShipping: true,
+      });
+      window.location.href = url;
+    } catch (error: any) {
+      setCheckoutMessage(error.message || "Checkout failed. Please try again.");
+    } finally {
+      setCheckoutLoadingId(null);
+    }
+  }
+
+  const paymentTone =
+    paymentState.mode === "live"
+      ? "border-green-200 bg-green-50 text-green-900"
+      : paymentState.mode === "test"
+        ? "border-blue-200 bg-blue-50 text-blue-900"
+        : "border-amber-200 bg-amber-50 text-amber-900";
+
+  const stripeTone =
+    stripeStatus?.isReady
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : "border-orange-200 bg-orange-50 text-orange-900";
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-6xl mx-auto">
         <header className="flex justify-between items-center mb-12">
           <h1 className="text-4xl font-black tracking-tight text-gray-900">
-            \${projectName}
+            ${projectName}
           </h1>
           <button className="bg-black text-white px-6 py-2.5 rounded-full font-medium hover:bg-gray-800 transition-colors">
             Cart (0)
           </button>
         </header>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center mb-12">
-          <div className="text-4xl mb-4">🚀</div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            Your Webshop Backend is Live!
-          </h2>
-          <p className="text-gray-500 max-w-lg mx-auto">
-            A real Turso database has been provisioned and connected. 
-            Describe your store in the chat, and the AI will generate the full frontend and insert real products into your database!
-          </p>
+        <div className="grid gap-4 md:grid-cols-[1.4fr,0.8fr] mb-12">
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-10">
+            <div className="text-4xl mb-4">🚀</div>
+            <h2 className="text-2xl font-bold text-gray-900 mb-2">
+              Your webshop backend is live
+            </h2>
+            <p className="text-gray-500 max-w-xl">
+              A real Turso database has been provisioned and connected. Describe your
+              store in the chat, and the AI will generate the storefront while reusing the
+              built-in payments adapter instead of hand-rolling checkout logic.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            <div className={"rounded-2xl border p-6 shadow-sm " + paymentTone}>
+              <div className="text-xs font-semibold uppercase tracking-[0.24em] mb-3">
+                Payments
+              </div>
+              <h3 className="text-xl font-bold mb-2">{paymentState.headline}</h3>
+              <p className="text-sm leading-6 opacity-90">{paymentState.message}</p>
+              <div className="mt-4 inline-flex rounded-full bg-white/70 px-3 py-1 text-xs font-semibold uppercase tracking-[0.24em]">
+                Mode: {paymentState.mode}
+              </div>
+            </div>
+
+            {paymentState.mode !== "off" && (
+              <div className={"rounded-2xl border p-6 shadow-sm " + stripeTone}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-[0.24em] mb-3">
+                      Stripe Connect
+                    </div>
+                    <h3 className="text-xl font-bold mb-2">
+                      {stripeStatus?.isReady ? "Connected account ready" : "Account setup required"}
+                    </h3>
+                  </div>
+                  <button
+                    onClick={refreshStripeStatus}
+                    disabled={stripeStatusLoading}
+                    className="rounded-full border border-current/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] transition hover:bg-white/60 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {stripeStatusLoading ? "Checking..." : "Refresh"}
+                  </button>
+                </div>
+
+                {stripeStatusError ? (
+                  <p className="text-sm leading-6 opacity-90">{stripeStatusError}</p>
+                ) : stripeStatusLoading ? (
+                  <p className="text-sm leading-6 opacity-90">Checking the connected Stripe account before enabling checkout.</p>
+                ) : stripeStatus ? (
+                  <>
+                    <p className="text-sm leading-6 opacity-90">
+                      {stripeStatus.isReady
+                        ? "Charges, payouts, and transfer capability are active for this connected account."
+                        : stripeStatus.summary}
+                    </p>
+
+                    <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold uppercase tracking-[0.18em]">
+                      <span className="rounded-full bg-white/70 px-3 py-1">
+                        Account: {stripeStatus.accountId}
+                      </span>
+                      <span className="rounded-full bg-white/70 px-3 py-1">
+                        Charges: {stripeStatus.chargesEnabled ? "on" : "off"}
+                      </span>
+                      <span className="rounded-full bg-white/70 px-3 py-1">
+                        Payouts: {stripeStatus.payoutsEnabled ? "on" : "off"}
+                      </span>
+                    </div>
+
+                    {stripeStatus.requirements.currentlyDue.length > 0 && (
+                      <p className="mt-4 text-sm leading-6 opacity-90">
+                        Still needed: {stripeStatus.requirements.currentlyDue.join(", ")}
+                      </p>
+                    )}
+
+                    {!stripeStatus.isReady && (
+                      <button
+                        onClick={handleStripeOnboarding}
+                        disabled={onboardingLoading}
+                        className="mt-4 rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {onboardingLoading
+                          ? "Opening Stripe..."
+                          : stripeStatus.type === "standard"
+                            ? "Open Stripe dashboard"
+                            : "Complete onboarding"}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-sm leading-6 opacity-90">No connected Stripe account was found for this shop.</p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
+
+        {checkoutMessage && (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+            {checkoutMessage}
+          </div>
+        )}
 
         <div>
           <h3 className="text-xl font-bold text-gray-900 mb-6 flex items-center gap-2">
@@ -232,6 +841,13 @@ export default function App() {
                   <div className="p-4">
                     <h4 className="font-semibold text-gray-900 mb-1 line-clamp-1">{product.name}</h4>
                     <p className="text-green-600 font-bold">€{product.price?.toFixed(2)}</p>
+                    <button
+                      onClick={() => handleCheckout(product)}
+                      disabled={checkoutLoadingId === product.id}
+                      className="mt-4 w-full rounded-full bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {checkoutLoadingId === product.id ? "Starting checkout..." : paymentState.ctaLabel}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -273,10 +889,201 @@ export function generateSlug(name: string): string {
 export async function ensureSchema() {
   await db.batch([
     "CREATE TABLE IF NOT EXISTS Customer (id TEXT PRIMARY KEY, email TEXT UNIQUE, firstName TEXT, lastName TEXT, address TEXT, city TEXT, country TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)",
-    "CREATE TABLE IF NOT EXISTS [Order] (id TEXT PRIMARY KEY, customerId TEXT, totalAmount REAL, status TEXT, orderNumber TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customerId) REFERENCES Customer(id))",
+    "CREATE TABLE IF NOT EXISTS [Order] (id TEXT PRIMARY KEY, customerId TEXT, totalAmount REAL, status TEXT, orderNumber TEXT, shippingAddress TEXT, billingAddress TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customerId) REFERENCES Customer(id))",
     "CREATE TABLE IF NOT EXISTS OrderItem (id TEXT PRIMARY KEY, orderId TEXT, productId TEXT, quantity INTEGER, price REAL, FOREIGN KEY(orderId) REFERENCES [Order](id), FOREIGN KEY(productId) REFERENCES Product(id))",
-    "CREATE TABLE IF NOT EXISTS Product (id TEXT PRIMARY KEY, name TEXT, description TEXT, price REAL, stock INTEGER, category TEXT, images TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)"
+    "CREATE TABLE IF NOT EXISTS Product (id TEXT PRIMARY KEY, name TEXT, description TEXT, price REAL, stock INTEGER, category TEXT, sku TEXT, isVirtual INTEGER DEFAULT 0, images TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)"
   ], "write");
+}
+`
+    },
+    {
+      path: "src/lib/payments.ts",
+      content: `type PaymentMode = "off" | "test" | "live";
+
+interface CheckoutPayload {
+  items: Array<{
+    productId?: string;
+    name: string;
+    unitAmount: number;
+    quantity: number;
+    image?: string;
+    isVirtual?: boolean;
+  }>;
+  successUrl?: string;
+  cancelUrl?: string;
+  requiresShipping?: boolean;
+}
+
+interface PaymentState {
+  mode: PaymentMode;
+  canCheckout: boolean;
+  headline: string;
+  message: string;
+  ctaLabel: string;
+}
+
+interface StripeRequirements {
+  currentlyDue: string[];
+  eventuallyDue: string[];
+  pastDue: string[];
+  pendingVerification: string[];
+  disabledReason: string | null;
+}
+
+export interface StripeAccountStatus {
+  accountId: string;
+  type: string;
+  mode: Exclude<PaymentMode, "off">;
+  detailsSubmitted: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  transferCapabilityActive: boolean;
+  requiresAction: boolean;
+  isReady: boolean;
+  summary: string;
+  requirements: StripeRequirements;
+}
+
+const paymentMode = "off" as PaymentMode;
+
+export function getPaymentState(): PaymentState {
+  if (paymentMode === "live") {
+    return {
+      mode: "live",
+      canCheckout: true,
+      headline: "Live payments are active",
+      message: "Customers can place real orders and Stripe will route payouts to the connected account.",
+      ctaLabel: "Buy now",
+    };
+  }
+
+  if (paymentMode === "test") {
+    return {
+      mode: "test",
+      canCheckout: true,
+      headline: "Test mode is active",
+      message: "Use Stripe test cards to validate checkout, webhooks, and order creation before going live.",
+      ctaLabel: "Test checkout",
+    };
+  }
+
+  return {
+    mode: "off",
+    canCheckout: false,
+    headline: "Publish to test payments",
+    message: "Payments are not available in the live preview. Publish your shop to test checkout with Stripe.",
+    ctaLabel: "Publish to test payments",
+  };
+}
+
+function summarizeStripeStatus(status: StripeAccountStatus): string {
+  if (status.requirements.currentlyDue.length > 0) {
+    return "Stripe still needs: " + status.requirements.currentlyDue.join(", ");
+  }
+
+  if (!status.detailsSubmitted) {
+    return "Finish Stripe onboarding to submit your connected account details.";
+  }
+
+  if (!status.chargesEnabled || !status.payoutsEnabled || !status.transferCapabilityActive) {
+    return "Stripe account setup is incomplete. Review the connected account before accepting payments.";
+  }
+
+  if (status.requirements.pendingVerification.length > 0) {
+    return "Stripe is reviewing submitted information for this connected account.";
+  }
+
+  return "Stripe is connected and ready to accept payments.";
+}
+
+export async function getStripeAccountStatus(): Promise<StripeAccountStatus | null> {
+  if (paymentMode === "off") {
+    return null;
+  }
+
+  const response = await fetch("/api/stripe/account-status");
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Failed to load Stripe account status");
+  }
+
+  const status: StripeAccountStatus = {
+    accountId: data.accountId,
+    type: data.type || "unknown",
+    mode: data.mode,
+    detailsSubmitted: Boolean(data.detailsSubmitted),
+    chargesEnabled: Boolean(data.chargesEnabled),
+    payoutsEnabled: Boolean(data.payoutsEnabled),
+    transferCapabilityActive: Boolean(data.transferCapabilityActive),
+    requiresAction: Boolean(data.requiresAction),
+    isReady: Boolean(data.isReady),
+    summary: "",
+    requirements: {
+      currentlyDue: data.requirements?.currentlyDue || [],
+      eventuallyDue: data.requirements?.eventuallyDue || [],
+      pastDue: data.requirements?.pastDue || [],
+      pendingVerification: data.requirements?.pendingVerification || [],
+      disabledReason: data.requirements?.disabledReason || null,
+    },
+  };
+
+  status.summary = data.summary || summarizeStripeStatus(status);
+  return status;
+}
+
+export async function startStripeOnboarding(returnUrl?: string) {
+  if (paymentMode === "off") {
+    throw new Error("Payments are disabled for this shop.");
+  }
+
+  const response = await fetch("/api/stripe/account-onboarding", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      returnUrl: returnUrl || window.location.href,
+      refreshUrl: window.location.href,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.url) {
+    throw new Error(data.error || "Failed to open Stripe onboarding");
+  }
+
+  return data.url as string;
+}
+
+export async function beginCheckout({
+  items,
+  successUrl,
+  cancelUrl,
+  requiresShipping = false,
+}: CheckoutPayload) {
+  const state = getPaymentState();
+
+  if (!state.canCheckout) {
+    throw new Error(state.message);
+  }
+
+  const response = await fetch("/api/checkout", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      items,
+      currency: "eur",
+      successUrl: successUrl || window.location.origin,
+      cancelUrl: cancelUrl || window.location.origin,
+      requiresShipping,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok || !data.url) {
+    throw new Error(data.error || "Failed to initialize checkout");
+  }
+
+  return data.url as string;
 }
 `
     },
@@ -332,8 +1139,6 @@ body {
             react: "^18.2.0",
             "react-dom": "^18.2.0",
             "@libsql/client": "latest",
-            "@stripe/stripe-js": "latest",
-            "@stripe/react-stripe-js": "latest",
             "lucide-react": "latest",
           },
           devDependencies: {
@@ -367,15 +1172,47 @@ export function createInitialVersion(
   dbConfig?: { url: string; token: string },
   stripeKey: string = "",
   backendUrl: string = "http://localhost:8787",
-  stripeAccountId?: string
+  stripeAccountId?: string,
+  templateId?: string
 ): Version {
-  const files = type === "webshop" && dbConfig
-    ? getWebshopProjectFiles(projectName, projectId, dbConfig.url, dbConfig.token, stripeKey, backendUrl, stripeAccountId)
-    : getDefaultProjectFiles(projectName);
-  
+  // If a named template is requested, use its files directly (fast remix)
+  let files: ProjectFile[];
+  if (templateId && templateId !== "blank-ai") {
+    const templateFiles = getTemplateFiles(templateId);
+    if (templateFiles) {
+      files = rewriteAtAliasImportsForSandbox(templateFiles);
+
+      // Keep template UX, but always include scratch webshop infra for parity:
+      // Turso client + payments adapter + required deps.
+      if (type === "webshop") {
+        const webshopInfra = getWebshopProjectFiles(
+          projectName,
+          projectId,
+          dbConfig?.url || "",
+          dbConfig?.token || "",
+          stripeKey,
+          backendUrl,
+          stripeAccountId,
+        );
+        files = mergeWebshopInfrastructureFiles(files, webshopInfra);
+        if (dbConfig) {
+          files = upsertFile(files, buildDynamicTemplateDataModule());
+        }
+      }
+    } else {
+      files = getDefaultProjectFiles(projectName);
+    }
+  } else if (type === "webshop" && dbConfig) {
+    files = getWebshopProjectFiles(projectName, projectId, dbConfig.url, dbConfig.token, stripeKey, backendUrl, stripeAccountId);
+  } else {
+    files = getDefaultProjectFiles(projectName);
+  }
+
   return {
     versionNumber: 0,
-    prompt: "Initial project setup",
+    prompt: templateId && templateId !== "blank-ai"
+      ? `Remixed from template: ${templateId}`
+      : "Initial project setup",
     model,
     files,
     changedFiles: files.map((file) => file.path),

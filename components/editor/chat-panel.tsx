@@ -15,7 +15,7 @@
 
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, ImageAttachment } from "@/types/chat";
 import { MessageBubble } from "./message-bubble";
 import { ChatInput } from "./chat-input";
@@ -68,6 +68,7 @@ export function ChatPanel({
   userPlan,
 }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [draftMessage, setDraftMessage] = useState<{ id: number; text: string } | null>(null);
 
   /** Check if the currently selected model supports vision (image input) */
   const selectedModel = getModelById(selectedModelId);
@@ -80,6 +81,25 @@ export function ChatPanel({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
+
+  function getSuggestionDraft(suggestion: string): string | null {
+    if (suggestion.includes("Change the store name")) {
+      return "Rename the store to ";
+    }
+    if (suggestion.includes("Update branding")) {
+      return "Update the branding like this:\n- New brand name: \n- Logo direction: \n- Colors: \n- Fonts: ";
+    }
+    return null;
+  }
+
+  function handleSuggestionClick(suggestion: string) {
+    const draft = getSuggestionDraft(suggestion);
+    if (draft) {
+      setDraftMessage({ id: Date.now(), text: draft });
+      return;
+    }
+    onSendMessage(suggestion);
+  }
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -138,6 +158,11 @@ export function ChatPanel({
                 message.role === "user" &&
                 index === messages.length - 2
               }
+              onSuggestionClick={
+                !isStreaming && index === messages.length - 1
+                  ? handleSuggestionClick
+                  : undefined
+              }
             />
           ))}
 
@@ -172,6 +197,7 @@ export function ChatPanel({
             creditsRemaining={creditsRemaining}
             isCreditsExhausted={isCreditsExhausted}
             supportsVision={supportsVision}
+            draftMessage={draftMessage}
           />
         </div>
       )}

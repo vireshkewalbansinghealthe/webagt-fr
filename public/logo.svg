@@ -1,22 +1,62 @@
 <svg width="180" height="180" viewBox="0 0 180 180" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="180" height="180" rx="40" fill="url(#paint0_linear)"/>
-  
-  <!-- Left diagonal (W left part) -->
-  <path d="M40 50L60 130L90 70" stroke="white" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-  
-  <!-- Right diagonal (W right part) -->
-  <path d="M90 70L120 130L140 50" stroke="white" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Background -->
+  <rect width="180" height="180" rx="40" fill="url(#bg)"/>
 
-  <!-- Horizontal bar (A crossbar) -->
-  <path d="M65 105H115" stroke="white" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-  
-  <circle cx="90" cy="50" r="12" fill="#00D4FF"/>
+  <!-- Subtle inner frame ring -->
+  <rect x="6" y="6" width="168" height="168" rx="34" stroke="url(#frame)" stroke-width="1.5" stroke-opacity="0.5"/>
+
+  <!-- Soft glow orbs -->
+  <circle cx="148" cy="44" r="36" fill="url(#glow_top)" fill-opacity="0.7"/>
+  <circle cx="38" cy="152" r="40" fill="url(#glow_bot)" fill-opacity="0.4"/>
+
+  <!-- Main W mark -->
+  <path
+    d="M34 50L58 130C61 139 73 140 77 131L90 100L103 131C107 140 119 139 122 130L146 50"
+    stroke="url(#mark)"
+    stroke-width="17"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+
+  <!-- Small sparkle / checkmark accent top-right -->
+  <path
+    d="M106 62L117 73L137 53"
+    stroke="#FFF8EE"
+    stroke-width="9"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-opacity="0.92"
+  />
 
   <defs>
-    <linearGradient id="paint0_linear" x1="0" y1="0" x2="180" y2="180" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#020024"/>
-      <stop offset="0.3" stop-color="#090979"/>
-      <stop offset="1" stop-color="#00D4FF"/>
+    <linearGradient id="bg" x1="18" y1="12" x2="162" y2="168" gradientUnits="userSpaceOnUse">
+      <stop offset="0"    stop-color="#1A0C08"/>
+      <stop offset="0.45" stop-color="#180F14"/>
+      <stop offset="1"    stop-color="#0F1018"/>
     </linearGradient>
+
+    <linearGradient id="frame" x1="20" y1="16" x2="158" y2="166" gradientUnits="userSpaceOnUse">
+      <stop offset="0"   stop-color="#F59E0B"/>
+      <stop offset="0.5" stop-color="#EC4899"/>
+      <stop offset="1"   stop-color="#8B5CF6"/>
+    </linearGradient>
+
+    <linearGradient id="mark" x1="34" y1="50" x2="146" y2="130" gradientUnits="userSpaceOnUse">
+      <stop offset="0"   stop-color="#FCD34D"/>
+      <stop offset="0.4" stop-color="#F97316"/>
+      <stop offset="0.8" stop-color="#EC4899"/>
+      <stop offset="1"   stop-color="#A855F7"/>
+    </linearGradient>
+
+    <radialGradient id="glow_top" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(148 44) rotate(90) scale(36)">
+      <stop stop-color="#F59E0B"/>
+      <stop offset="1" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow_bot" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse"
+      gradientTransform="translate(38 152) rotate(90) scale(40)">
+      <stop stop-color="#A855F7"/>
+      <stop offset="1" stop-color="#A855F7" stop-opacity="0"/>
+    </radialGradient>
   </defs>
 </svg>

@@ -43,6 +43,8 @@ export interface MessageBubbleProps {
   isStreaming?: boolean;
   /** Whether the AI is currently processing this auto-heal request */
   isAutoHealInProgress?: boolean;
+  /** Called when user clicks a suggestion chip */
+  onSuggestionClick?: (suggestion: string) => void;
 }
 
 /**
@@ -50,6 +52,7 @@ export interface MessageBubbleProps {
  * Used to strip raw file tags from AI messages before display.
  */
 const FILE_TAG_REGEX = /<file\s+path="[^"]+">\n?[\s\S]*?\n?<\/file>/g;
+const SUGGESTIONS_TAG_REGEX = /<suggestions>[\s\S]*?<\/suggestions>/g;
 
 /**
  * Regex to match partial/incomplete <file> blocks during streaming.
@@ -69,6 +72,7 @@ const PARTIAL_FILE_REGEX = /<file\s+path="[^"]+">[\s\S]*$/;
 function stripFileTags(content: string, isStreaming: boolean): string {
   let cleaned = content
     .replace(FILE_TAG_REGEX, "")
+    .replace(SUGGESTIONS_TAG_REGEX, "")
     .replace(/\n{3,}/g, "\n\n");
 
   // Strip partial/incomplete <file> blocks (opening tag without closing tag).
@@ -154,7 +158,7 @@ function formatTime(timestamp: string): string {
  * @param message - The ChatMessage object to display
  * @param isStreaming - Shows progress indicators if true
  */
-export function MessageBubble({ message, isStreaming, isAutoHealInProgress }: MessageBubbleProps) {
+export function MessageBubble({ message, isStreaming, isAutoHealInProgress, onSuggestionClick }: MessageBubbleProps) {
   /** Tracks which image is open in the lightbox (null = closed) */
   const [selectedImage, setSelectedImage] = useState<ImageAttachment | null>(null);
 
@@ -271,10 +275,11 @@ export function MessageBubble({ message, isStreaming, isAutoHealInProgress }: Me
           isUser ? "items-end" : "items-start"
         )}
       >
-        {/* Model badge for AI messages */}
+        {/* Agent badge for AI messages */}
         {!isUser && message.model && (
-          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
-            {formatModelName(message.model)}
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal gap-1 items-center">
+            <img src="/logo.svg" className="size-3 rounded-sm" alt="" />
+            WebAGT
           </Badge>
         )}
 
@@ -353,6 +358,34 @@ export function MessageBubble({ message, isStreaming, isAutoHealInProgress }: Me
                 isStreaming={!!isStreaming}
                 changedFiles={message.changedFiles}
               />
+            )}
+
+            {/* Suggestion chips — shown after streaming finishes */}
+            {!isStreaming && message.suggestions && message.suggestions.length > 0 && onSuggestionClick && (
+              <div className="flex flex-col gap-1.5 pt-1">
+                {message.suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => onSuggestionClick(s)}
+                    className={cn(
+                      "flex items-center gap-2 rounded-xl border px-3 py-2 text-left text-xs transition-all duration-150 hover:scale-[1.01] active:scale-[0.99]",
+                      i === (message.suggestions!.length - 1)
+                        ? "border-dashed border-border/50 bg-transparent text-muted-foreground hover:border-primary/30 hover:text-foreground"
+                        : "border-border/40 bg-card/60 text-foreground hover:border-primary/30 hover:bg-primary/5"
+                    )}
+                  >
+                    <span className={cn(
+                      "flex size-4 shrink-0 items-center justify-center rounded-full text-[9px] font-bold",
+                      i === (message.suggestions!.length - 1)
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-primary/10 text-primary"
+                    )}>
+                      {i + 1}
+                    </span>
+                    {s}
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}

@@ -18,6 +18,7 @@
 import Link from "next/link";
 import { SignedIn, SignedOut } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
+import { NavUserInfo } from "./nav-user-info";
 
 /**
  * Navbar renders the top navigation bar on the landing page.
@@ -33,19 +34,49 @@ export function Navbar() {
           className="flex items-center gap-3 text-lg font-bold tracking-tight text-white group"
         >
           <div className="relative size-9 overflow-hidden rounded-xl border border-white/10 bg-black shadow-2xl transition-all duration-300 group-hover:scale-105 group-hover:border-white/20">
-            <img src="/logo.png" alt="Web AGT" className="size-full object-cover" />
+            <img src="/logo.svg" alt="WebAGT" className="size-full object-cover" />
           </div>
           <div className="flex flex-col">
             <span className="font-outfit text-base font-bold leading-none tracking-tight">
-              Web AGT
+              WebAGT
             </span>
             <span className="font-outfit text-[10px] font-medium text-white/50 leading-none mt-1 uppercase tracking-widest">
-              The AI Webshop Builder
+              Prompt to live storefront
             </span>
           </div>
         </Link>
 
-        {/* Auth buttons */}
+        {/* Nav links */}
+        <div className="hidden sm:flex items-center gap-6 mr-4">
+          <Link
+            href="/pricing"
+            className="text-sm font-medium text-white/60 hover:text-white transition-colors"
+          >
+            Pricing
+          </Link>
+          <SignedIn>
+            <Link
+              href="/dashboard"
+              className="text-sm font-medium text-white/60 hover:text-white transition-colors"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/analytics"
+              className="text-sm font-medium text-white/60 hover:text-white transition-colors"
+            >
+              Analytics
+            </Link>
+            <Link
+              href="/settings"
+              className="text-sm font-medium text-white/60 hover:text-white transition-colors"
+            >
+              Settings
+            </Link>
+          </SignedIn>
+        </div>
+
+        {/* Auth buttons / profile */}
         <div className="flex items-center gap-3">
           <SignedOut>
             <Button
@@ -66,13 +97,7 @@ export function Navbar() {
           </SignedOut>
 
           <SignedIn>
-            <Button
-              size="sm"
-              className="bg-white text-black hover:bg-white/90"
-              asChild
-            >
-              <Link href="/dashboard">Dashboard</Link>
-            </Button>
+            <NavUserInfo />
           </SignedIn>
         </div>
       </nav>

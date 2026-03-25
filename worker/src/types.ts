@@ -43,6 +43,14 @@ export interface Env {
   STRIPE_SECRET_KEY?: string;
   STRIPE_PUBLISHABLE_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_SECRET_KEY_TEST?: string;
+  STRIPE_PUBLISHABLE_KEY_TEST?: string;
+  STRIPE_WEBHOOK_SECRET_TEST?: string;
+  STRIPE_SECRET_KEY_LIVE?: string;
+  STRIPE_PUBLISHABLE_KEY_LIVE?: string;
+  STRIPE_WEBHOOK_SECRET_LIVE?: string;
+  STRIPE_CLIENT_ID?: string;
+  PLATFORM_COMMISSION_PERCENT?: string;
   /** Svix signing secret for verifying Clerk billing webhooks */
   CLERK_WEBHOOK_SECRET: string;
   /** Frontend URL for CORS — defaults to localhost:3000 in dev */
@@ -53,6 +61,10 @@ export interface Env {
   COOLIFY_URL?: string;
   DEPLOYMENT_GITHUB_TOKEN?: string;
   DEPLOYMENT_REPO?: string;
+  RESEND_API_KEY?: string;
+  PLATFORM_EMAIL_FROM?: string;
+  PLATFORM_REPLY_TO_FALLBACK?: string;
+  PUBLIC_WORKER_URL?: string;
 }
 
 /**

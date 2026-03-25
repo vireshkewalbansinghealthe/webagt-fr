@@ -311,6 +311,10 @@ export async function executeTursoSQL(dbUrl: string, authToken: string, sql: str
   if (Array.isArray(result)) {
     result.forEach((res, i) => {
       if (res.error) {
+        const message = String(res.error.message || res.error || "");
+        if (message.toLowerCase().includes("duplicate column name")) {
+          return;
+        }
         console.error(`[Turso Statement Error] Statement ${i}: ${statements[i]}`, res.error);
         throw new Error(`Statement ${i} failed: ${res.error.message}`);
       }
@@ -352,10 +356,12 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       price REAL NOT NULL,
       originalPrice REAL, -- aka compareAtPrice
       compareAtPrice REAL,
+      sku TEXT,
       images TEXT, -- JSON array of URLs
       featured INTEGER DEFAULT 0,
       inventory INTEGER DEFAULT 0,
       stock INTEGER DEFAULT 0, -- alias for inventory
+      isVirtual INTEGER DEFAULT 0,
       status TEXT DEFAULT 'ACTIVE',
       rating REAL DEFAULT 0,
       reviews INTEGER DEFAULT 0,
@@ -380,7 +386,7 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
     CREATE TABLE IF NOT EXISTS [OrderItem] (
       id TEXT PRIMARY KEY,
       orderId TEXT NOT NULL,
-      productId TEXT NOT NULL,
+      productId TEXT,
       quantity INTEGER NOT NULL,
       unitPrice REAL NOT NULL,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -388,6 +394,11 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       FOREIGN KEY (orderId) REFERENCES [Order](id),
       FOREIGN KEY (productId) REFERENCES [Product](id)
     );
+
+    ALTER TABLE [Product] ADD COLUMN sku TEXT;
+    ALTER TABLE [Product] ADD COLUMN isVirtual INTEGER DEFAULT 0;
+    ALTER TABLE [Order] ADD COLUMN shippingAddress TEXT;
+    ALTER TABLE [Order] ADD COLUMN billingAddress TEXT;
   `;
 
   await executeTursoSQL(dbUrl, authToken, schema);

@@ -169,8 +169,10 @@ import type { ChatMessage, ChatSession } from "../types/chat";
 import { buildSystemPrompt, prepareChatHistory } from "../ai/system-prompt";
 import {
   parseFilesFromResponse,
+  filterUnsafeGeneratedFiles,
   mergeFiles,
   extractExplanation,
+  extractSuggestions,
 } from "../ai/file-parser";
 
 import { getModel, MODEL_REGISTRY, DEFAULT_MODEL } from "../ai/providers";
@@ -304,9 +306,12 @@ chatRoutes.post("/:projectId", async (c) => {
   const chatHistory = chatSession?.messages || [];
 
   // --- 6. Build the AI prompt with context management ---
-  let backendUrl = new URL(c.req.url).origin;
-  if (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1")) {
-    backendUrl = "https://maistro.website";
+  const configuredBackendUrl = c.env.PUBLIC_WORKER_URL?.trim();
+  let backendUrl = configuredBackendUrl
+    ? configuredBackendUrl.replace(/\/+$/, "")
+    : new URL(c.req.url).origin;
+  if (!configuredBackendUrl && (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1"))) {
+    backendUrl = "https://api-webagt.dock.4esh.nl";
   }
   const systemPrompt = buildSystemPrompt(project, existingFiles, backendUrl);
 
@@ -407,20 +412,31 @@ chatRoutes.post("/:projectId", async (c) => {
 
       // --- 8. Parse files from the complete response ---
       const parsedFiles = parseFilesFromResponse(fullResponse);
-      const changedFilePaths = parsedFiles.map((f) => f.path);
-      console.log(`[chat] Parsed ${parsedFiles.length} files from AI response`);
+      const { acceptedFiles, rejectedFiles } =
+        filterUnsafeGeneratedFiles(parsedFiles);
+      const changedFilePaths = acceptedFiles.map((f) => f.path);
+      console.log(
+        `[chat] Parsed ${parsedFiles.length} files from AI response (${acceptedFiles.length} accepted, ${rejectedFiles.length} rejected)`,
+      );
+      if (rejectedFiles.length > 0) {
+        console.warn(
+          `[chat] Rejected unsafe generated files: ${rejectedFiles
+            .map((file) => `${file.path} (${file.reason})`)
+            .join(", ")}`,
+        );
+      }
 
       // If the AI returned no files, just send the text as explanation
       // This handles cases where the AI only provides advice without code
       const mergedFiles =
-        parsedFiles.length > 0
-          ? mergeFiles(existingFiles, parsedFiles)
+        acceptedFiles.length > 0
+          ? mergeFiles(existingFiles, acceptedFiles)
           : existingFiles;
 
       // --- 9. Store new version in R2 (only if files changed) ---
       let newVersionNumber = project.currentVersion;
 
-      if (parsedFiles.length > 0) {
+      if (acceptedFiles.length > 0) {
         newVersionNumber = project.currentVersion + 1;
         console.log(
           `[chat] Creating version v${newVersionNumber} with ${mergedFiles.length} files`,
@@ -479,7 +495,14 @@ chatRoutes.post("/:projectId", async (c) => {
       );
 
       // --- 11. Save chat messages to KV ---
-      const explanationText = extractExplanation(fullResponse);
+      const blockedChangeNote =
+        rejectedFiles.length > 0
+          ? `\n\nBlocked unsafe AI file changes: ${rejectedFiles
+              .map((file) => `\`${file.path}\` (${file.reason})`)
+              .join(", ")}.`
+          : "";
+      const explanationText =
+        extractExplanation(fullResponse) + blockedChangeNote;
 
       const newUserMessage: ChatMessage = {
         id: `msg-${Date.now()}-user`,
@@ -489,14 +512,17 @@ chatRoutes.post("/:projectId", async (c) => {
         images: images.length > 0 ? images : undefined,
       };
 
+      const suggestions = extractSuggestions(fullResponse);
+
       const newAssistantMessage: ChatMessage = {
         id: `msg-${Date.now()}-assistant`,
         role: "assistant",
         content: explanationText,
         timestamp: new Date().toISOString(),
-        versionNumber: parsedFiles.length > 0 ? newVersionNumber : undefined,
+        versionNumber: acceptedFiles.length > 0 ? newVersionNumber : undefined,
         model: modelId,
-        changedFiles: parsedFiles.length > 0 ? changedFilePaths : undefined,
+        changedFiles: acceptedFiles.length > 0 ? changedFilePaths : undefined,
+        suggestions: suggestions.length > 0 ? suggestions : undefined,
       };
 
       const updatedChatSession: ChatSession = {
@@ -521,7 +547,7 @@ chatRoutes.post("/:projectId", async (c) => {
 
       // --- 12. Send final events ---
       // Send parsed files so the client can update Sandpack + Monaco
-      if (parsedFiles.length > 0) {
+      if (acceptedFiles.length > 0) {
         await stream.writeSSE({
           event: "files",
           data: JSON.stringify({ files: mergedFiles }),

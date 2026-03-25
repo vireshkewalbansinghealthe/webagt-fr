@@ -19,3 +19,7 @@ export { CreateProjectDialog } from "./create-project-dialog";
 export type { CreateProjectData, CreateProjectDialogProps } from "./create-project-dialog";
 export { ProjectPreview } from "./project-preview";
 export type { ProjectPreviewProps } from "./project-preview";
+export { ProjectTable } from "./project-table";
+export type { ProjectTableProps } from "./project-table";
+export { TemplatePicker } from "./template-picker";
+export type { TemplateDefinition, TemplatePickerProps } from "./template-picker";

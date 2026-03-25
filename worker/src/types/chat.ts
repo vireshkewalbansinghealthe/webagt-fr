@@ -42,6 +42,7 @@ export interface ChatMessage {
   model?: string;
   changedFiles?: string[];
   images?: ImageAttachment[];
+  suggestions?: string[];
 }
 
 /**

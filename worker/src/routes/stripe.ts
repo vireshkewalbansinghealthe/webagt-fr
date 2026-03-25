@@ -10,20 +10,155 @@ import { Hono } from "hono";
 import Stripe from "stripe";
 import type { Env, AppVariables } from "../types";
 import type { Project } from "../types/project";
+import {
+  buildStripeAccountStatus,
+  createStripeConnectedAccount,
+  getProjectPaymentMode,
+  getStripeAccountIdForMode,
+  getStripeClient,
+  resolveStripeMode,
+  type PaymentMode,
+  type StripeMode,
+  syncCoolifyStripeConfiguration,
+} from "../services/stripe-connect";
+import {
+  sendCustomerPaidEmailForSession,
+  sendOwnerOrderEmailForSession,
+} from "../services/order-emails";
 
 const stripeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
-/**
- * Helper to initialize Stripe client.
- */
-function getStripeClient(c: any): Stripe {
-  const secretKey = c.env.STRIPE_SECRET_KEY;
-  if (!secretKey) {
-    throw new Error("STRIPE_SECRET_KEY is not configured.");
+interface CheckoutCartItem {
+  productId?: string;
+  name: string;
+  unitAmount: number;
+  quantity: number;
+  image?: string;
+  isVirtual?: boolean;
+}
+
+interface StoredCheckoutPayload {
+  projectId: string;
+  items: CheckoutCartItem[];
+  requiresShipping: boolean;
+  createdAt: string;
+}
+
+function buildOrderNumber(sessionId: string): string {
+  return `ORD-${sessionId.slice(-8).toUpperCase()}`;
+}
+
+function normalizeCartItems(body: {
+  items?: Array<{
+    productId?: string;
+    name?: string;
+    unitAmount?: number;
+    quantity?: number;
+    image?: string;
+    isVirtual?: boolean;
+  }>;
+  amount?: number;
+  productName?: string;
+}): CheckoutCartItem[] {
+  if (Array.isArray(body.items) && body.items.length > 0) {
+    return body.items
+      .filter((item) => item && item.name && Number(item.unitAmount) > 0)
+      .map((item) => ({
+        productId: item.productId,
+        name: String(item.name),
+        unitAmount: Math.round(Number(item.unitAmount)),
+        quantity: Math.max(1, Math.round(Number(item.quantity) || 1)),
+        image: item.image,
+        isVirtual: Boolean(item.isVirtual),
+      }));
   }
-  return new Stripe(secretKey, {
-    apiVersion: "2025-01-27.acacia", // Use the latest API version or your desired version
+
+  if (body.amount && body.productName) {
+    return [
+      {
+        name: String(body.productName),
+        unitAmount: Math.round(Number(body.amount)),
+        quantity: 1,
+        isVirtual: false,
+      },
+    ];
+  }
+
+  return [];
+}
+
+function serializeAddress(address: Stripe.Address | null | undefined, name?: string | null) {
+  if (!address && !name) return null;
+  return JSON.stringify({
+    name: name || undefined,
+    line1: address?.line1 || undefined,
+    line2: address?.line2 || undefined,
+    city: address?.city || undefined,
+    state: address?.state || undefined,
+    postalCode: address?.postal_code || undefined,
+    country: address?.country || undefined,
   });
+}
+
+function getPlatformCommissionPercent(c: any): number {
+  const parsed = Number.parseFloat(c.env.PLATFORM_COMMISSION_PERCENT || "25");
+  if (!Number.isFinite(parsed)) return 25;
+  return Math.max(0, Math.min(100, parsed));
+}
+
+const MANAGED_WEBHOOK_EVENTS: Stripe.WebhookEndpointCreateParams.EnabledEvent[] = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+];
+
+function getModeWebhookSecrets(env: Env, mode: StripeMode): string[] {
+  return Array.from(
+    new Set(
+      [
+        mode === "live" ? env.STRIPE_WEBHOOK_SECRET_LIVE : env.STRIPE_WEBHOOK_SECRET_TEST,
+        env.STRIPE_WEBHOOK_SECRET,
+      ].filter(Boolean),
+    ),
+  ) as string[];
+}
+
+async function getStoredWebhookSecret(env: Env, mode: StripeMode): Promise<string | null> {
+  return (
+    (await env.METADATA.get(`stripe:webhook-secret:${mode}`)) ||
+    (await env.METADATA.get("stripe:webhook-secret")) ||
+    null
+  );
+}
+
+async function ensureManagedWebhookEndpoint(
+  env: Env,
+  mode: StripeMode,
+  requestUrl: string,
+): Promise<void> {
+  const knownSecrets = [
+    ...getModeWebhookSecrets(env, mode),
+    await getStoredWebhookSecret(env, mode),
+  ].filter(Boolean) as string[];
+
+  const webhookUrl = new URL("/api/stripe/webhook", requestUrl).toString();
+  const stripe = getStripeClient(env, mode);
+  const endpoints = await stripe.webhookEndpoints.list({ limit: 100 });
+  const hasMatchingEndpoint = endpoints.data.some((endpoint) => endpoint.url === webhookUrl);
+
+  if (hasMatchingEndpoint && knownSecrets.length > 0) {
+    return;
+  }
+
+  const created = await stripe.webhookEndpoints.create({
+    url: webhookUrl,
+    enabled_events: MANAGED_WEBHOOK_EVENTS,
+    description: `WebAGT managed checkout webhook (${mode})`,
+    api_version: "2026-02-25.clover",
+  });
+
+  if (created.secret) {
+    await env.METADATA.put(`stripe:webhook-secret:${mode}`, created.secret);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -31,31 +166,33 @@ function getStripeClient(c: any): Stripe {
 // ---------------------------------------------------------------------------
 stripeRoutes.post("/accounts", async (c) => {
   try {
-    const { projectId } = await c.req.json();
+    const { projectId, mode } = await c.req.json<{ projectId?: string; mode?: StripeMode }>();
     if (!projectId) {
       return c.json({ error: "projectId is required" }, 400);
     }
 
-    const stripe = getStripeClient(c);
-
-    // Create the Express account
-    const account = await stripe.accounts.create({
-      type: "express",
-      capabilities: {
-        card_payments: { requested: true },
-        transfers: { requested: true },
-      },
-    });
+    const stripeMode = resolveStripeMode(mode);
+    const account = await createStripeConnectedAccount(c.env, stripeMode);
 
     // Save the account.id in the project's metadata
     const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
     if (project) {
-      project.stripeAccountId = account.id;
+      if (stripeMode === "live") {
+        project.stripeLiveAccountId = account.id;
+      } else {
+        project.stripeTestAccountId = account.id;
+      }
+      if (!project.stripeAccountId || getProjectPaymentMode(project) === stripeMode) {
+        project.stripeAccountId = account.id;
+      }
       project.updatedAt = new Date().toISOString();
+      if (project.deployment_uuid) {
+        await syncCoolifyStripeConfiguration(c.env, project);
+      }
       await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
     }
 
-    return c.json({ accountId: account.id });
+    return c.json({ accountId: account.id, mode: stripeMode });
   } catch (error: any) {
     console.error("Error creating Stripe account:", error);
     return c.json({ error: error.message }, 500);
@@ -67,7 +204,12 @@ stripeRoutes.post("/accounts", async (c) => {
 // ---------------------------------------------------------------------------
 stripeRoutes.post("/account_links", async (c) => {
   try {
-    const { accountId, refreshUrl, returnUrl } = await c.req.json();
+    const { accountId, refreshUrl, returnUrl, mode } = await c.req.json<{
+      accountId?: string;
+      refreshUrl?: string;
+      returnUrl?: string;
+      mode?: StripeMode;
+    }>();
 
     if (!accountId || !refreshUrl || !returnUrl) {
       return c.json(
@@ -76,7 +218,7 @@ stripeRoutes.post("/account_links", async (c) => {
       );
     }
 
-    const stripe = getStripeClient(c);
+    const stripe = getStripeClient(c.env, resolveStripeMode(mode));
 
     const accountLink = await stripe.accountLinks.create({
       account: accountId,
@@ -96,10 +238,13 @@ stripeRoutes.post("/account_links", async (c) => {
 // POST /api/stripe/checkout_sessions — Create a Checkout Session with 25% fee
 // ---------------------------------------------------------------------------
 stripeRoutes.options("/checkout_sessions", (c) => {
-  return c.text("", 204, {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
   });
 });
 
@@ -117,15 +262,14 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
       cancelUrl,
       returnUrl, // Added for embedded checkout
       uiMode = "hosted", // "hosted" or "embedded"
+      requiresShipping,
     } = body;
 
-    let accountId = body.accountId;
+    const checkoutItems = normalizeCartItems(body);
 
-    if (!projectId || !amount || !currency || !productName) {
+    if (!projectId || checkoutItems.length === 0 || !currency) {
       return c.json({ error: "Missing required checkout session parameters" }, 400);
     }
-
-    const stripe = getStripeClient(c);
 
     // Get the project to find the connected account ID and preferred payment methods
     const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
@@ -134,37 +278,90 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
       return c.json({ error: "Project not found" }, 404);
     }
 
-    // Use the project's connected account ID if not provided or to ensure security
-    if (!accountId && project.stripeAccountId) {
-      accountId = project.stripeAccountId;
+    if (!project.deployment_uuid) {
+      return c.json(
+        {
+          error: "Publish your shop before accepting payments.",
+          code: "SHOP_NOT_PUBLISHED",
+        },
+        400,
+      );
     }
+
+    const paymentMode = getProjectPaymentMode(project);
+    if (paymentMode === "off") {
+      return c.json(
+        {
+          error: "Payments are currently disabled for this shop.",
+          code: "PAYMENTS_DISABLED",
+        },
+        400,
+      );
+    }
+
+    const stripeMode: StripeMode = paymentMode === "live" ? "live" : "test";
+    const stripe = getStripeClient(c.env, stripeMode);
+    const accountId = getStripeAccountIdForMode(project, stripeMode);
 
     if (!accountId) {
-      return c.json({ error: "No Stripe account connected to this project. Please connect Stripe in the Shop Manager." }, 400);
+      return c.json(
+        {
+          error: "No Stripe account connected to this project. Please connect Stripe in the Shop Manager.",
+          code: "STRIPE_NOT_CONNECTED",
+        },
+        400,
+      );
     }
 
-    // Calculate the 25% application fee amount (in the smallest currency unit, e.g., cents)
-    const applicationFeeAmount = Math.round(amount * 0.25);
+    const account = await stripe.accounts.retrieve(accountId);
+    if ("deleted" in account) {
+      return c.json({ error: "Stripe account not found", code: "STRIPE_ACCOUNT_NOT_FOUND" }, 404);
+    }
+
+    const accountStatus = buildStripeAccountStatus(account);
+    if (!accountStatus.is_ready) {
+      return c.json(
+        {
+          error: "Stripe onboarding must be completed before this shop can accept payments.",
+          code: "STRIPE_ONBOARDING_INCOMPLETE",
+          account: accountStatus,
+        },
+        400,
+      );
+    }
+
+    await ensureManagedWebhookEndpoint(c.env, stripeMode, c.req.url);
+
+    const applicationFeeAmount = Math.round(
+      checkoutItems.reduce((sum, item) => sum + item.unitAmount * item.quantity, 0) *
+        (getPlatformCommissionPercent(c) / 100),
+    );
 
     const paymentMethods = project?.stripePaymentMethods || ["card", "ideal"];
 
     const sessionPayload: Stripe.Checkout.SessionCreateParams = {
       ui_mode: uiMode as "hosted" | "embedded",
       payment_method_types: paymentMethods as Stripe.Checkout.SessionCreateParams.PaymentMethodType[],
-      line_items: [
-        {
-          price_data: {
-            currency: currency,
-            product_data: {
-              name: productName,
-            },
-            unit_amount: amount,
+      line_items: checkoutItems.map((item) => ({
+        price_data: {
+          currency,
+          product_data: {
+            name: item.name,
+            images: item.image ? [item.image] : undefined,
           },
-          quantity: 1,
+          unit_amount: item.unitAmount,
         },
-      ],
+        quantity: item.quantity,
+      })),
       mode: "payment",
-      metadata: { projectId },
+      customer_creation: "always",
+      billing_address_collection: "required",
+      metadata: {
+        projectId,
+        paymentMode: stripeMode,
+        requiresShipping: String(Boolean(requiresShipping)),
+        orderNumber: buildOrderNumber(`pending_${Date.now().toString(36)}`),
+      },
       payment_intent_data: {
         application_fee_amount: applicationFeeAmount,
         transfer_data: {
@@ -172,6 +369,12 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
         },
       },
     };
+
+    if (requiresShipping) {
+      sessionPayload.shipping_address_collection = {
+        allowed_countries: ["NL", "BE", "DE", "FR", "ES", "IT", "AT", "DK", "SE", "IE", "PT", "LU", "GB", "US", "CA"],
+      };
+    }
 
     if (uiMode === "embedded") {
       sessionPayload.return_url = returnUrl || successUrl || "https://example.com/success";
@@ -181,6 +384,26 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
     }
 
     const session = await stripe.checkout.sessions.create(sessionPayload);
+
+    await c.env.METADATA.put(
+      `checkout:${projectId}:${session.id}`,
+      JSON.stringify({
+        projectId,
+        items: checkoutItems,
+        requiresShipping: Boolean(requiresShipping),
+        createdAt: new Date().toISOString(),
+      } satisfies StoredCheckoutPayload),
+      { expirationTtl: 60 * 60 * 24 * 2 },
+    );
+
+    await stripe.checkout.sessions.update(session.id, {
+      metadata: {
+        projectId,
+        paymentMode: stripeMode,
+        requiresShipping: String(Boolean(requiresShipping)),
+        orderNumber: buildOrderNumber(session.id),
+      },
+    });
 
     if (uiMode === "embedded") {
       return c.json({ clientSecret: session.client_secret, sessionId: session.id });
@@ -199,17 +422,14 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
 stripeRoutes.get("/accounts/:id", async (c) => {
   try {
     const accountId = c.req.param("id");
-    const stripe = getStripeClient(c);
+    const stripe = getStripeClient(c.env, resolveStripeMode(c.req.query("mode")));
 
     const account = await stripe.accounts.retrieve(accountId);
+    if ("deleted" in account) {
+      return c.json({ error: "Stripe account not found", code: "STRIPE_ACCOUNT_NOT_FOUND" }, 404);
+    }
 
-    return c.json({
-      id: account.id,
-      details_submitted: account.details_submitted,
-      charges_enabled: account.charges_enabled,
-      payouts_enabled: account.payouts_enabled,
-      capabilities: account.capabilities,
-    });
+    return c.json(buildStripeAccountStatus(account));
   } catch (error: any) {
     console.error("Error retrieving Stripe account:", error);
     return c.json({ error: error.message }, 500);
@@ -222,7 +442,7 @@ stripeRoutes.get("/accounts/:id", async (c) => {
 stripeRoutes.get("/accounts/:id/balance", async (c) => {
   try {
     const accountId = c.req.param("id");
-    const stripe = getStripeClient(c);
+    const stripe = getStripeClient(c.env, resolveStripeMode(c.req.query("mode")));
 
     const balance = await stripe.balance.retrieve({
       stripeAccount: accountId,
@@ -241,7 +461,7 @@ stripeRoutes.get("/accounts/:id/balance", async (c) => {
 stripeRoutes.get("/accounts/:id/payouts", async (c) => {
   try {
     const accountId = c.req.param("id");
-    const stripe = getStripeClient(c);
+    const stripe = getStripeClient(c.env, resolveStripeMode(c.req.query("mode")));
 
     const payouts = await stripe.payouts.list(
       { limit: 10 },
@@ -261,7 +481,8 @@ stripeRoutes.get("/accounts/:id/payouts", async (c) => {
 stripeRoutes.post("/accounts/:id/login_links", async (c) => {
   try {
     const accountId = c.req.param("id");
-    const stripe = getStripeClient(c);
+    const body = await c.req.json<{ mode?: StripeMode }>().catch(() => ({}) as { mode?: StripeMode });
+    const stripe = getStripeClient(c.env, resolveStripeMode(body.mode));
 
     const loginLink = await stripe.accounts.createLoginLink(accountId);
 
@@ -272,21 +493,212 @@ stripeRoutes.post("/accounts/:id/login_links", async (c) => {
   }
 });
 
+async function upsertOrderFromSession(
+  project: Project,
+  env: Env,
+  session: Stripe.Checkout.Session,
+  markPaid: boolean,
+) {
+  if (!project.databaseUrl || !project.databaseToken) {
+    return;
+  }
+
+  const stored = await env.METADATA.get<StoredCheckoutPayload>(
+    `checkout:${project.id}:${session.id}`,
+    "json",
+  );
+
+  const fallbackUnitAmount = Math.round((session.amount_total || 0) / Math.max(1, 1));
+  const items =
+    stored?.items && stored.items.length > 0
+      ? stored.items
+      : [
+          {
+            name: session.metadata?.productName || project.name,
+            unitAmount: fallbackUnitAmount,
+            quantity: 1,
+            isVirtual: false,
+          },
+        ];
+
+  const { createClient } = await import("@libsql/client/web");
+  const db = createClient({
+    url: project.databaseUrl,
+    authToken: project.databaseToken,
+  });
+
+  const customerEmail =
+    session.customer_details?.email || session.customer_email || undefined;
+  const customerName = session.customer_details?.name || "";
+  const [firstName, ...restName] = customerName.trim().split(/\s+/).filter(Boolean);
+  const lastName = restName.join(" ");
+
+  let customerId: string | null = null;
+  if (customerEmail) {
+    const existingCustomer = await db.execute({
+      sql: "SELECT id FROM Customer WHERE email = ? LIMIT 1",
+      args: [customerEmail],
+    });
+    customerId =
+      existingCustomer.rows[0] && "id" in (existingCustomer.rows[0] as any)
+        ? String((existingCustomer.rows[0] as any).id)
+        : null;
+
+    if (!customerId) {
+      customerId = crypto.randomUUID();
+      await db.execute({
+        sql: `INSERT INTO Customer (id, email, firstName, lastName, phone, createdAt, updatedAt)
+              VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+        args: [
+          customerId,
+          customerEmail,
+          firstName || null,
+          lastName || null,
+          session.customer_details?.phone || null,
+        ],
+      });
+    } else {
+      await db.execute({
+        sql: `UPDATE Customer
+              SET firstName = COALESCE(?, firstName),
+                  lastName = COALESCE(?, lastName),
+                  phone = COALESCE(?, phone),
+                  updatedAt = datetime('now')
+              WHERE id = ?`,
+        args: [
+          firstName || null,
+          lastName || null,
+          session.customer_details?.phone || null,
+          customerId,
+        ],
+      });
+    }
+  }
+
+  const orderNumber = session.metadata?.orderNumber || buildOrderNumber(session.id);
+  const shippingDetails = (session as Stripe.Checkout.Session & {
+    shipping_details?: {
+      address?: Stripe.Address | null;
+      name?: string | null;
+    } | null;
+  }).shipping_details;
+  const shippingAddress = serializeAddress(
+    shippingDetails?.address,
+    shippingDetails?.name,
+  );
+  const billingAddress = serializeAddress(
+    session.customer_details?.address,
+    session.customer_details?.name,
+  );
+  const orderStatus = markPaid ? "PAID" : "PENDING";
+
+  await db.execute({
+    sql: `INSERT INTO [Order] (id, orderNumber, customerId, status, totalAmount, shippingAddress, billingAddress, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+          ON CONFLICT(id) DO UPDATE SET
+            orderNumber = excluded.orderNumber,
+            customerId = excluded.customerId,
+            status = excluded.status,
+            totalAmount = excluded.totalAmount,
+            shippingAddress = excluded.shippingAddress,
+            billingAddress = excluded.billingAddress,
+            updatedAt = datetime('now')`,
+    args: [
+      session.id,
+      orderNumber,
+      customerId,
+      orderStatus,
+      (session.amount_total || 0) / 100,
+      shippingAddress,
+      billingAddress,
+    ],
+  });
+
+  await db.execute({
+    sql: "DELETE FROM OrderItem WHERE orderId = ?",
+    args: [session.id],
+  });
+
+  for (const item of items) {
+    if (!item.productId) {
+      continue;
+    }
+    await db.execute({
+      sql: `INSERT INTO OrderItem (id, orderId, productId, quantity, unitPrice, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, datetime('now'), datetime('now'))`,
+      args: [
+        crypto.randomUUID(),
+        session.id,
+        item.productId,
+        item.quantity,
+        item.unitAmount / 100,
+      ],
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // POST /api/stripe/webhook — Handle Stripe webhook events
 // ---------------------------------------------------------------------------
 stripeRoutes.post("/webhook", async (c) => {
   c.header("Access-Control-Allow-Origin", "*");
   try {
-    const stripe = getStripeClient(c);
     const body = await c.req.text();
     const sig = c.req.header("stripe-signature");
-    const webhookSecret = c.env.STRIPE_WEBHOOK_SECRET;
 
     let event: Stripe.Event;
 
-    if (webhookSecret && sig) {
-      event = await stripe.webhooks.constructEventAsync(body, sig, webhookSecret);
+    if (sig) {
+      const storedSecrets = (
+        await Promise.all([
+          getStoredWebhookSecret(c.env, "test"),
+          getStoredWebhookSecret(c.env, "live"),
+        ])
+      ).filter(Boolean) as string[];
+
+      const secrets = Array.from(
+        new Set(
+          [
+            c.env.STRIPE_WEBHOOK_SECRET_LIVE,
+            c.env.STRIPE_WEBHOOK_SECRET_TEST,
+            c.env.STRIPE_WEBHOOK_SECRET,
+            ...storedSecrets,
+          ].filter(Boolean),
+        ),
+      ) as string[];
+
+      if (secrets.length === 0) {
+        return c.json({ error: "Stripe webhook secret is not configured." }, 400);
+      }
+
+      let parsedEvent: Stripe.Event | null = null;
+      let lastError: Error | null = null;
+      const webhookSecretKey =
+        c.env.STRIPE_SECRET_KEY_TEST ||
+        c.env.STRIPE_SECRET_KEY_LIVE ||
+        c.env.STRIPE_SECRET_KEY;
+
+      if (!webhookSecretKey) {
+        return c.json({ error: "Stripe secret key is not configured." }, 400);
+      }
+
+      for (const secret of secrets) {
+        try {
+          const stripe = new Stripe(webhookSecretKey, {
+            apiVersion: "2026-02-25.clover",
+          });
+          parsedEvent = await stripe.webhooks.constructEventAsync(body, sig, secret);
+          break;
+        } catch (error: any) {
+          lastError = error;
+        }
+      }
+
+      if (!parsedEvent) {
+        throw lastError || new Error("Webhook signature verification failed");
+      }
+
+      event = parsedEvent;
     } else {
       event = JSON.parse(body) as Stripe.Event;
     }
@@ -296,31 +708,38 @@ stripeRoutes.post("/webhook", async (c) => {
       case "checkout.session.async_payment_succeeded": {
         const session = event.data.object as Stripe.Checkout.Session;
         const projectId = session.metadata?.projectId;
+        const isPaid =
+          session.payment_status === "paid" || session.payment_status === "no_payment_required";
 
         if (projectId) {
           const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
 
-          if (project?.databaseUrl && project?.databaseToken) {
+          if (project) {
             try {
-              const { createClient } = await import("@libsql/client/web");
-              const db = createClient({
-                url: project.databaseUrl,
-                authToken: project.databaseToken,
-              });
-
-              await db.execute({
-                sql: `INSERT INTO [Order] (id, status, totalAmount, createdAt)
-                      VALUES (?, 'PAID', ?, datetime('now'))
-                      ON CONFLICT(id) DO UPDATE SET
-                        status = 'PAID',
-                        totalAmount = excluded.totalAmount`,
-                args: [
-                  session.id,
-                  (session.amount_total || 0) / 100,
-                ],
-              });
+              await upsertOrderFromSession(
+                project,
+                c.env,
+                session,
+                event.type === "checkout.session.async_payment_succeeded" ? true : isPaid,
+              );
             } catch (dbErr) {
               console.warn("Webhook DB insert failed (non-fatal):", dbErr);
+            }
+
+            if (event.type === "checkout.session.completed") {
+              try {
+                await sendOwnerOrderEmailForSession(c.env, project, session);
+              } catch (emailErr) {
+                console.warn("Webhook owner email send failed (non-fatal):", emailErr);
+              }
+            }
+
+            if (isPaid || event.type === "checkout.session.async_payment_succeeded") {
+              try {
+                await sendCustomerPaidEmailForSession(c.env, project, session);
+              } catch (emailErr) {
+                console.warn("Webhook customer email send failed (non-fatal):", emailErr);
+              }
             }
           }
         }
@@ -333,7 +752,11 @@ stripeRoutes.post("/webhook", async (c) => {
 
         for (const key of projects.keys) {
           const proj = await c.env.METADATA.get<Project>(key.name, "json");
-          if (proj?.stripeAccountId === account.id) {
+          if (
+            proj?.stripeAccountId === account.id ||
+            proj?.stripeTestAccountId === account.id ||
+            proj?.stripeLiveAccountId === account.id
+          ) {
             proj.updatedAt = new Date().toISOString();
             await c.env.METADATA.put(key.name, JSON.stringify(proj));
             break;

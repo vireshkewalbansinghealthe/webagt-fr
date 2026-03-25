@@ -21,14 +21,29 @@
 
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Settings } from "lucide-react";
+import {
+  Plus,
+  Search,
+  LayoutGrid,
+  List,
+  ChevronDown,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,12 +64,17 @@ import {
 } from "@/components/ui/dialog";
 import {
   ProjectGrid,
+  ProjectTable,
   EmptyState,
   CreateProjectDialog,
 } from "@/components/dashboard";
 import type { CreateProjectData } from "@/components/dashboard";
 import type { Project } from "@/types/project";
 import { createApiClient } from "@/lib/api-client";
+
+type ViewMode = "grid" | "table";
+type SortBy = "updated" | "created" | "name";
+type FilterType = "all" | "website" | "webshop";
 
 /**
  * DashboardPage renders the user's project list with live preview thumbnails.
@@ -67,6 +87,13 @@ export default function DashboardPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+
+  /** Search / filter / sort / view state */
+  const [search, setSearch] = useState("");
+  const [filterType, setFilterType] = useState<FilterType>("all");
+  const [sortBy, setSortBy] = useState<SortBy>("updated");
+  const [viewMode, setViewMode] = useState<ViewMode>("grid");
+
   /** ID of the project pending deletion (null = dialog closed) */
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
@@ -78,6 +105,34 @@ export default function DashboardPage() {
 
   /** Ref for auto-focusing the rename input */
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  /** Derived filtered + sorted list */
+  const filteredProjects = useMemo(() => {
+    let result = [...projects];
+
+    // Search by name
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      result = result.filter((p) => p.name.toLowerCase().includes(q));
+    }
+
+    // Filter by type
+    if (filterType !== "all") {
+      result = result.filter((p) =>
+        filterType === "webshop" ? p.type === "webshop" : p.type !== "webshop"
+      );
+    }
+
+    // Sort
+    result.sort((a, b) => {
+      if (sortBy === "name") return a.name.localeCompare(b.name);
+      if (sortBy === "created")
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+    });
+
+    return result;
+  }, [projects, search, filterType, sortBy]);
 
   /**
    * Fetches the user's projects from the API.
@@ -109,7 +164,9 @@ export default function DashboardPage() {
       const result = await client.projects.create(data);
 
       // Store description in sessionStorage so the editor can auto-send it
-      // as the first AI prompt. The editor consumes and deletes the key.
+      // as the first AI prompt (only when not using a ready-made template).
+      const isTemplate = data.templateId && data.templateId !== "blank-ai";
+      if (!isTemplate && data.description.trim()) {
         try {
           sessionStorage.setItem(
             `pendingPrompt:${result.project.id}`,
@@ -118,11 +175,12 @@ export default function DashboardPage() {
         } catch {
           // sessionStorage unavailable
         }
+      }
 
-        // Add a query param for webshops to trigger specific setup or feedback on the editor page if needed
-        const url = data.type === 'webshop' 
-          ? `/project/${result.project.id}?type=webshop&setup=true`
-          : `/project/${result.project.id}`;
+      // Add a query param for webshops to trigger specific setup or feedback on the editor page if needed
+      const url = data.type === 'webshop'
+        ? `/project/${result.project.id}?type=webshop&setup=true`
+        : `/project/${result.project.id}`;
 
         setDialogOpen(false);
         router.push(url);
@@ -209,9 +267,21 @@ export default function DashboardPage() {
     }
   }
 
+  const sortLabel: Record<SortBy, string> = {
+    updated: "Last updated",
+    created: "Date created",
+    name: "Name",
+  };
+
+  const filterLabel: Record<FilterType, string> = {
+    all: "All types",
+    website: "Website",
+    webshop: "Webshop",
+  };
+
   return (
     <div className="flex flex-col gap-6 p-6">
-      {/* Top bar with heading and create button */}
+      {/* Top bar */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">My Projects</h1>
         <Button onClick={() => setDialogOpen(true)} className="gap-2">
@@ -220,22 +290,109 @@ export default function DashboardPage() {
         </Button>
       </div>
 
-      {/* Loading skeletons */}
+      {/* Toolbar: search + filters + view toggle */}
+      <div className="flex flex-wrap items-center gap-2">
+        {/* Search */}
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+          <Input
+            className="pl-9"
+            placeholder="Search projects…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        {/* Filter by type */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5 h-9">
+              {filterLabel[filterType]}
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-40">
+            <DropdownMenuLabel>Filter by type</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuRadioGroup
+              value={filterType}
+              onValueChange={(v) => setFilterType(v as FilterType)}
+            >
+              <DropdownMenuRadioItem value="all">All types</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="website">Website</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="webshop">Webshop</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Sort */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="gap-1.5 h-9">
+              {sortLabel[sortBy]}
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-44">
+            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuRadioGroup
+              value={sortBy}
+              onValueChange={(v) => setSortBy(v as SortBy)}
+            >
+              <DropdownMenuRadioItem value="updated">Last updated</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="created">Date created</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="name">Name</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* View mode toggle */}
+        <div className="ml-auto flex items-center rounded-md border border-border">
+          <Button
+            variant={viewMode === "grid" ? "secondary" : "ghost"}
+            size="icon-sm"
+            className="rounded-r-none border-0 h-9 w-9"
+            onClick={() => setViewMode("grid")}
+            title="Grid view"
+          >
+            <LayoutGrid className="size-4" />
+          </Button>
+          <div className="w-px h-5 bg-border" />
+          <Button
+            variant={viewMode === "table" ? "secondary" : "ghost"}
+            size="icon-sm"
+            className="rounded-l-none border-0 h-9 w-9"
+            onClick={() => setViewMode("table")}
+            title="Table view"
+          >
+            <List className="size-4" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Content */}
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {Array.from({ length: 4 }).map((_, index) => (
             <Skeleton key={index} className="h-[240px] rounded-xl" />
           ))}
         </div>
-      ) : projects.length > 0 ? (
-        <ProjectGrid
-          projects={projects}
-          onNewProject={() => setDialogOpen(true)}
+      ) : projects.length === 0 ? (
+        <EmptyState onCreateProject={() => setDialogOpen(true)} />
+      ) : viewMode === "table" ? (
+        <ProjectTable
+          projects={filteredProjects}
           onRename={handleRename}
           onDelete={handleDelete}
         />
       ) : (
-        <EmptyState onCreateProject={() => setDialogOpen(true)} />
+        <ProjectGrid
+          projects={filteredProjects}
+          onNewProject={() => setDialogOpen(true)}
+          onRename={handleRename}
+          onDelete={handleDelete}
+        />
       )}
 
       {/* Create project dialog */}

@@ -10,7 +10,9 @@
  * Rate limits per category:
  * - chat: 10 req/min (free), 30 req/min (pro) — AI generation
  * - export: 5 req/min — ZIP export downloads
- * - general: 60 req/min — all other API endpoints
+ * - credits: 120 req/min (free), 240 req/min (pro) — balance checks
+ * - read: 180 req/min (free), 360 req/min (pro) — GET/HEAD API reads
+ * - write: 90 req/min (free), 180 req/min (pro) — POST/PATCH/DELETE writes
  *
  * Returns 429 Too Many Requests if the limit is exceeded.
  *
@@ -28,7 +30,9 @@ import { getCredits } from "../services/credits";
 const RATE_LIMITS = {
   chat: { free: 10, pro: 30 },
   export: { free: 5, pro: 5 },
-  general: { free: 60, pro: 60 },
+  credits: { free: 120, pro: 240 },
+  read: { free: 180, pro: 360 },
+  write: { free: 90, pro: 180 },
 } as const;
 
 /**
@@ -38,10 +42,15 @@ const RATE_LIMITS = {
  * @param path - The request URL path
  * @returns The rate limit category
  */
-function getCategory(path: string): keyof typeof RATE_LIMITS {
+function getCategory(
+  path: string,
+  method: string,
+): keyof typeof RATE_LIMITS {
   if (path.includes("/chat")) return "chat";
   if (path.includes("/export")) return "export";
-  return "general";
+  if (path === "/api/credits") return "credits";
+  if (method === "GET" || method === "HEAD") return "read";
+  return "write";
 }
 
 /**
@@ -63,7 +72,7 @@ export const rateLimitMiddleware = createMiddleware<{
     return;
   }
 
-  const category = getCategory(c.req.path);
+  const category = getCategory(c.req.path, c.req.method);
   const minuteKey = Math.floor(Date.now() / 60000);
   const kvKey = `ratelimit:${userId}:${category}:${minuteKey}`;
 

@@ -378,8 +378,7 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange }: Pre
       }
 
       if (e.data && e.data.type === 'STRIPE_REDIRECT') {
-        toast.loading("Redirecting to secure checkout...");
-        window.location.href = e.data.url;
+        toast.info("Payments are not available in the live preview. Publish your shop to test checkout.");
       }
       
       if (e.data && (e.data.type === 'DIRECT_SAVE_TEXT' || e.data.type === 'DIRECT_SAVE_IMAGE')) {

@@ -15,17 +15,17 @@
 "use client";
 
 import { useState } from "react";
+import { useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Separator } from "@/components/ui/separator";
 import {
   Select,
   SelectContent,
@@ -33,8 +33,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Globe, ShoppingBag } from "lucide-react";
+import { ArrowLeft, Globe, Loader2, Search, ShoppingBag, Wand2 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AVAILABLE_TEMPLATES, TemplatePicker } from "./template-picker";
 
 /**
  * Available AI models for project generation.
@@ -52,14 +53,6 @@ const AI_MODELS = [
   { value: "deepseek-r1", label: "DeepSeek R1" },
 ] as const;
 
-const WEBSHOP_TEMPLATES = [
-  { value: "none", label: "Blank (AI Generated)" },
-  { value: "modern-electronics", label: "Modern Electronics" },
-  { value: "minimalist-fashion", label: "Minimalist Fashion" },
-  { value: "cozy-furniture", label: "Cozy Furniture" },
-  { value: "luxury-watches", label: "Luxury Watches" },
-] as const;
-
 /**
  * Data submitted when the user creates a new project.
  */
@@ -68,7 +61,8 @@ export interface CreateProjectData {
   model: string;
   description: string;
   type: "website" | "webshop";
-  template?: string;
+  templateId?: string;
+  ownerNotificationEmail?: string;
 }
 
 /**
@@ -81,7 +75,7 @@ export interface CreateProjectData {
 export interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (data: CreateProjectData) => void;
+  onSubmit: (data: CreateProjectData) => Promise<void>;
 }
 
 /**
@@ -93,173 +87,378 @@ export function CreateProjectDialog({
   onOpenChange,
   onSubmit,
 }: CreateProjectDialogProps) {
+  const { user } = useUser();
   const [name, setName] = useState("");
   const [model, setModel] = useState<string>(AI_MODELS[0].value);
   const [description, setDescription] = useState("");
   const [type, setType] = useState<"website" | "webshop">("website");
-  const [template, setTemplate] = useState<string>(WEBSHOP_TEMPLATES[0].value);
+  const [templateId, setTemplateId] = useState<string>("blank-ai");
+  const [templateBrowserOpen, setTemplateBrowserOpen] = useState(false);
+  const [templateSearch, setTemplateSearch] = useState("");
+  const [templateCategory, setTemplateCategory] = useState<string>("all");
+  const [isLoading, setIsLoading] = useState(false);
 
-  /**
-   * Handles form submission. Validates name, calls onSubmit, and resets form.
-   */
-  function handleSubmit(event: React.FormEvent) {
+  function resetForm() {
+    setName("");
+    setModel(AI_MODELS[0].value);
+    setDescription("");
+    setType("website");
+    setTemplateId("blank-ai");
+    setTemplateBrowserOpen(false);
+    setTemplateSearch("");
+    setTemplateCategory("all");
+  }
+
+  async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
 
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
-    let finalDescription = description.trim();
-    
-    // Append template instruction if webshop and template is selected
-    if (type === "webshop" && template !== "none") {
-      const selectedTemplate = WEBSHOP_TEMPLATES.find(t => t.value === template)?.label;
-      finalDescription += finalDescription 
-        ? `\n\nAdditionally, please base the design and styling on a "${selectedTemplate}" template.`
-        : `Please base the design and styling on a "${selectedTemplate}" template.`;
+    const resolvedTemplateId = type === "webshop" ? templateId : undefined;
+    const isUsingTemplate = resolvedTemplateId && resolvedTemplateId !== "blank-ai";
+
+    // For AI-generated projects, description is required
+    if (!isUsingTemplate && !description.trim()) return;
+
+    setIsLoading(true);
+    try {
+      const accountEmail =
+        user?.primaryEmailAddress?.emailAddress?.trim().toLowerCase() ||
+        user?.emailAddresses?.[0]?.emailAddress?.trim().toLowerCase() ||
+        undefined;
+
+      await onSubmit({
+        name: trimmedName,
+        model,
+        description: description.trim() || (isUsingTemplate ? `Remix of ${resolvedTemplateId} template` : ""),
+        type,
+        templateId: resolvedTemplateId,
+        ownerNotificationEmail: type === "webshop" ? accountEmail : undefined,
+      });
+      resetForm();
+    } catch {
+      // Parent already shows an error toast — just re-enable the form
+    } finally {
+      setIsLoading(false);
     }
-
-    onSubmit({ 
-      name: trimmedName, 
-      model, 
-      description: finalDescription, 
-      type,
-      template: type === "webshop" ? template : undefined 
-    });
-
-    // Reset form state after submission
-    setName("");
-    setModel(AI_MODELS[0].value);
-    setDescription("");
-    setType("website");
-    setTemplate(WEBSHOP_TEMPLATES[0].value);
   }
 
+  const isUsingTemplate = type === "webshop" && templateId !== "blank-ai";
+  const canSubmit = name.trim() && (isUsingTemplate || description.trim());
+  const templateCategories = [
+    "all",
+    ...Array.from(
+      new Set(
+        AVAILABLE_TEMPLATES
+          .filter((tpl) => tpl.id !== "blank-ai")
+          .map((tpl) => tpl.category),
+      ),
+    ),
+  ];
+  const filteredTemplates = AVAILABLE_TEMPLATES.filter((tpl) => {
+    if (tpl.id === "blank-ai") return false;
+    if (templateCategory !== "all" && tpl.category !== templateCategory) return false;
+    if (!templateSearch.trim()) {
+      return true;
+    }
+    const q = templateSearch.trim().toLowerCase();
+    return (
+      tpl.name.toLowerCase().includes(q) ||
+      tpl.description.toLowerCase().includes(q) ||
+      tpl.tags.some((tag) => tag.toLowerCase().includes(q))
+    );
+  });
+  const shouldUseExpandedTemplateBrowser = type === "webshop" && templateBrowserOpen;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>Create New Project</DialogTitle>
-          <DialogDescription>
-            Give your project a name and describe what you want to build.
-            Your description will be sent as the first AI prompt.
-          </DialogDescription>
-        </DialogHeader>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isLoading) onOpenChange(next);
+      }}
+    >
+      <DialogContent
+        className={cn(
+          "w-[95vw] p-0 gap-0 overflow-hidden",
+          shouldUseExpandedTemplateBrowser
+            ? "sm:max-w-[1040px] h-[88vh] max-h-[88vh]"
+            : "sm:max-w-[620px]",
+        )}
+      >
+        <form
+          onSubmit={handleSubmit}
+          className={cn(
+            "flex flex-col h-full",
+            shouldUseExpandedTemplateBrowser ? "max-h-[88vh]" : "",
+          )}
+        >
+          {/* ── Header ── */}
+          <DialogHeader className="px-6 pt-6 pb-4 shrink-0">
+            <DialogTitle className="text-xl">New Project</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Configure your project, pick a type, and optionally start from a template.
+            </p>
+          </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Project name */}
-          <div className="space-y-2">
-            <label htmlFor="project-name" className="text-sm font-medium">
-              Project Name
-            </label>
-            <Input
-              id="project-name"
-              placeholder="My awesome app"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              autoFocus
-            />
-          </div>
+          <Separator />
 
-          {/* AI model selection */}
-          <div className="space-y-2">
-            <label htmlFor="ai-model" className="text-sm font-medium">
-              AI Model
-            </label>
-            <Select value={model} onValueChange={setModel}>
-              <SelectTrigger id="ai-model">
-                <SelectValue placeholder="Select a model" />
-              </SelectTrigger>
-              <SelectContent>
-                {AI_MODELS.map((aiModel) => (
-                  <SelectItem key={aiModel.value} value={aiModel.value}>
-                    {aiModel.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* ── Body ── */}
+          <div className="flex flex-1 min-h-0 overflow-hidden">
 
-          {/* Description — sent as the first AI prompt */}
-          <div className="space-y-2">
-            <label htmlFor="project-description" className="text-sm font-medium">
-              Description
-            </label>
-            <Textarea
-              id="project-description"
-              placeholder="Describe the app you want to build, e.g. 'A todo app with categories and dark mode'"
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={3}
-            />
-          </div>
+            {/* ── LEFT — project settings ── */}
+            <div
+              className={cn(
+                "shrink-0 flex flex-col gap-5 px-6 py-5 overflow-y-auto",
+                shouldUseExpandedTemplateBrowser ? "w-[330px] border-r border-border" : "w-full",
+              )}
+            >
 
-          {/* Project Type Selection */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">Project Type</label>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={() => setType("website")}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all",
-                  type === "website"
-                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                    : "border-border hover:border-primary/50"
-                )}
-              >
-                <Globe className={cn("size-6", type === "website" ? "text-primary" : "text-muted-foreground")} />
-                <div className="text-sm font-medium">Website</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => setType("webshop")}
-                className={cn(
-                  "flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all",
-                  type === "webshop"
-                    ? "border-primary bg-primary/5 ring-1 ring-primary/20"
-                    : "border-border hover:border-primary/50"
-                )}
-              >
-                <ShoppingBag className={cn("size-6", type === "webshop" ? "text-primary" : "text-muted-foreground")} />
-                <div className="text-sm font-medium">Webshop</div>
-              </button>
-            </div>
-            {type === "webshop" && (
-              <div className="mt-4 space-y-2 border-t pt-4">
-                <label htmlFor="webshop-template" className="text-sm font-medium">
-                  Webshop Template
+              {/* Project name */}
+              <div className="space-y-1.5">
+                <label htmlFor="project-name" className="text-sm font-medium">
+                  Project Name
                 </label>
-                <Select value={template} onValueChange={setTemplate}>
-                  <SelectTrigger id="webshop-template">
-                    <SelectValue placeholder="Select a template" />
+                <Input
+                  id="project-name"
+                  placeholder="My awesome app"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  autoFocus
+                  disabled={isLoading}
+                />
+              </div>
+
+              {/* Project type */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Project Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["website", "webshop"] as const).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        setType(t);
+                        if (t !== "webshop") {
+                          setTemplateBrowserOpen(false);
+                        }
+                      }}
+                      disabled={isLoading}
+                      className={cn(
+                        "flex items-center gap-2.5 px-3 py-2.5 rounded-lg border text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50",
+                        type === t
+                          ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/20"
+                          : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                      )}
+                    >
+                      {t === "website" ? (
+                        <Globe className="size-4 shrink-0" />
+                      ) : (
+                        <ShoppingBag className="size-4 shrink-0" />
+                      )}
+                      {t === "website" ? "Website" : "Webshop"}
+                    </button>
+                  ))}
+                </div>
+                {type === "webshop" && !shouldUseExpandedTemplateBrowser && (
+                  <div className="rounded-lg border bg-muted/20 p-2.5 mt-2 space-y-2">
+                    <p className="text-sm font-medium">Template</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTemplateId("blank-ai");
+                          setTemplateBrowserOpen(false);
+                        }}
+                        disabled={isLoading}
+                        className={cn(
+                          "px-3 py-2 rounded-md text-sm font-medium border transition-colors disabled:pointer-events-none disabled:opacity-50",
+                          templateId === "blank-ai"
+                            ? "bg-primary/10 text-primary border-primary/40"
+                            : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40",
+                        )}
+                      >
+                        Start from scratch
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateBrowserOpen(true)}
+                        disabled={isLoading}
+                        className={cn(
+                          "px-3 py-2 rounded-md text-sm font-medium border transition-colors disabled:pointer-events-none disabled:opacity-50",
+                          templateId !== "blank-ai"
+                            ? "bg-primary/10 text-primary border-primary/40"
+                            : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40",
+                        )}
+                      >
+                        Choose template
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Description (hidden when remixing from a template) */}
+              {!isUsingTemplate && (
+                <div className="space-y-1.5 flex-1">
+                  <label htmlFor="project-description" className="text-sm font-medium flex items-center gap-1.5">
+                    <Wand2 className="size-3.5 text-muted-foreground" />
+                    Description
+                  </label>
+                  <Textarea
+                    id="project-description"
+                    placeholder="Describe what you want to build — this is sent as the first AI prompt."
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    rows={shouldUseExpandedTemplateBrowser ? 8 : 5}
+                    disabled={isLoading}
+                    className={cn(
+                      "resize-none",
+                      shouldUseExpandedTemplateBrowser ? "min-h-[168px]" : "min-h-[132px]",
+                    )}
+                  />
+                </div>
+              )}
+
+              {/* AI model */}
+              <div className="space-y-1.5">
+                <label htmlFor="ai-model" className="text-sm font-medium">
+                  AI Model
+                </label>
+                <Select value={model} onValueChange={setModel} disabled={isLoading}>
+                  <SelectTrigger id="ai-model" className="w-full">
+                    <SelectValue placeholder="Select a model" />
                   </SelectTrigger>
                   <SelectContent>
-                    {WEBSHOP_TEMPLATES.map((tmpl) => (
-                      <SelectItem key={tmpl.value} value={tmpl.value}>
-                        {tmpl.label}
+                    {AI_MODELS.map((m) => (
+                      <SelectItem key={m.value} value={m.value}>
+                        {m.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground mt-2">
-                  A fully functional webshop will be provisioned with a dedicated Turso database and ready-to-use API routes.
+              </div>
+            </div>
+
+            {/* ── RIGHT — template picker (expanded mode only) ── */}
+            {shouldUseExpandedTemplateBrowser && (
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              <div className="px-5 py-3 shrink-0 border-b border-border bg-muted/30">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Choose a template
                 </p>
+              </div>
+
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                  <div className="h-full min-h-0 flex flex-col gap-2.5">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="justify-start"
+                        onClick={() => setTemplateBrowserOpen(false)}
+                        disabled={isLoading}
+                      >
+                        <ArrowLeft className="size-4" />
+                        Back
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setTemplateId("blank-ai");
+                          setTemplateBrowserOpen(false);
+                        }}
+                        disabled={isLoading}
+                      >
+                        Start from scratch
+                      </Button>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                        <Input
+                          value={templateSearch}
+                          onChange={(e) => setTemplateSearch(e.target.value)}
+                          placeholder="Search templates..."
+                          className="pl-9"
+                          disabled={isLoading}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+                      {templateCategories.map((category) => (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => setTemplateCategory(category)}
+                          disabled={isLoading}
+                          className={cn(
+                            "whitespace-nowrap px-3 py-1.5 rounded-md border text-xs transition-colors disabled:pointer-events-none disabled:opacity-50",
+                            templateCategory === category
+                              ? "bg-primary/10 text-primary border-primary/40"
+                              : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40",
+                          )}
+                        >
+                          {category === "all" ? "All sectors" : category}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="min-h-0 overflow-hidden">
+                      <TemplatePicker
+                        value={templateId}
+                        onChange={setTemplateId}
+                        templates={filteredTemplates}
+                        variant="visual"
+                        className="max-h-full overflow-y-auto pr-1"
+                      />
+                    </div>
+                  </div>
+              </div>
               </div>
             )}
           </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!name.trim() || !description.trim()}>
-              Create
-            </Button>
-          </DialogFooter>
+          <Separator />
+
+          {/* ── Footer ── */}
+          <div className="flex items-center justify-between px-6 py-4 shrink-0">
+            <p className="text-xs text-muted-foreground">
+              {isUsingTemplate
+                ? "Template files load instantly — no wait."
+                : "AI generation starts after you click create."}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onOpenChange(false)}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={!canSubmit || isLoading}
+                className="min-w-[120px]"
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    {isUsingTemplate ? "Remixing…" : "Creating…"}
+                  </>
+                ) : isUsingTemplate ? (
+                  "Remix template"
+                ) : (
+                  "Create project"
+                )}
+              </Button>
+            </div>
+          </div>
         </form>
       </DialogContent>
     </Dialog>

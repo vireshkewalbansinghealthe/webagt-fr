@@ -27,11 +27,13 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { UserButton } from "@clerk/nextjs";
+import { useUser } from "@clerk/nextjs";
+import { UserAvatarButton } from "@/components/shared/user-avatar-button";
 import {
   LayoutDashboard,
   BarChart3,
   Settings,
+  CreditCard,
   Menu,
   X,
 } from "lucide-react";
@@ -49,6 +51,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
+  { label: "Pricing", href: "/pricing", icon: CreditCard },
 ] as const;
 
 /**
@@ -67,6 +70,10 @@ export default function AppLayout({
 }>) {
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { user } = useUser();
+
+  const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
+  const userDisplayName = user?.fullName || user?.firstName || userEmail.split("@")[0] || "Account";
 
   /**
    * Editor pages get full-width layout (no sidebar).
@@ -109,14 +116,14 @@ export default function AppLayout({
             className="flex items-center gap-2.5 group transition-opacity duration-150 hover:opacity-90"
           >
             <div className="relative size-7 overflow-hidden rounded-lg border border-border bg-black shadow-sm group-hover:border-primary/50 transition-colors">
-              <img src="/logo.png" alt="Web AGT" className="size-full object-cover" />
+              <img src="/logo.svg" alt="WebAGT" className="size-full object-cover" />
             </div>
             <div className="flex flex-col">
               <span className="font-outfit text-sm font-bold leading-none tracking-tight">
-                Web AGT
+                WebAGT
               </span>
               <span className="font-outfit text-[9px] font-medium text-muted-foreground leading-none mt-0.5 uppercase tracking-wider">
-                AI Webshop Builder
+                Prompt to live storefront
               </span>
             </div>
           </Link>
@@ -160,14 +167,19 @@ export default function AppLayout({
 
         <Separator />
 
-        {/* User button */}
-        <div className="flex items-center gap-3 px-5 py-4">
-          <UserButton
-            appearance={{
-              elements: { avatarBox: "size-8" },
-            }}
-          />
-          <span className="text-sm text-muted-foreground">Account</span>
+        {/* User profile row */}
+        <div className="flex items-center gap-3 px-4 py-3">
+          <UserAvatarButton className="size-8" />
+          <div className="flex min-w-0 flex-col">
+            <span className="truncate text-sm font-medium text-foreground leading-tight">
+              {userDisplayName}
+            </span>
+            {userEmail && (
+              <span className="truncate text-[11px] text-muted-foreground leading-tight mt-0.5">
+                {userEmail}
+              </span>
+            )}
+          </div>
         </div>
       </aside>
 
@@ -183,8 +195,8 @@ export default function AppLayout({
             <Menu className="size-5" />
           </Button>
           <span className="flex items-center gap-2 text-sm font-semibold">
-            <img src="/logo.png" alt="" className="size-5 rounded" />
-            Web AGT
+            <img src="/logo.svg" alt="" className="size-5 rounded" />
+            WebAGT
           </span>
         </header>
 

@@ -95,6 +95,7 @@ TOKEN EFFICIENCY:
 - Extract reusable sub-components (e.g., ProductCard, StatCard) and import them
 - Put shared mock data in \`src/data/index.ts\` so multiple components can import it
 - Prefer concise Tailwind class strings over verbose inline conditional logic
+- NEVER introduce \`import.meta\` or \`import.meta.env\` in generated application code.
 
 ═══════════════════════════════════════
 TURSO DATABASE & SCHEMA (WEBSHOPS ONLY)
@@ -112,7 +113,7 @@ Recommended Order Flow:
 2. If exists, update their details and get their \`id\`. If not, generate a new \`id\` and insert them.
 3. Insert \`Order\` with the \`customerId\`.
 4. Insert \`OrderItem\`s with \`orderId\`.
-5. Call \`createCheckoutSession()\` to redirect to Stripe.
+5. Call the platform-managed payment helper to begin checkout.
 
 Example DB logic:
 \`\`\`typescript
@@ -127,6 +128,27 @@ if (rows.length > 0) {
 }
 // Now safe to insert Order with customerId
 \`\`\`
+
+═══════════════════════════════════════
+PLATFORM-MANAGED PAYMENTS
+═══════════════════════════════════════
+
+For webshop projects, payments are managed by the platform.
+
+- The file \`src/lib/payments.ts\` is platform-managed. Reuse it instead of inventing your own Stripe logic.
+- \`src/lib/payments.ts\` exposes:
+  - \`getPaymentState()\`
+  - \`beginCheckout({ amount, productName, successUrl?, cancelUrl? })\`
+- NEVER rewrite, replace, or "fix" \`src/lib/payments.ts\` or \`src/lib/stripe.ts\` unless the user explicitly asks to modify the platform-managed payment layer.
+- If you see an error that appears to come from \`src/lib/payments.ts\`, do NOT patch that file yourself. Fix the consuming component or explain the issue in normal text, but leave the file untouched.
+- If the error mentions \`import.meta.env\` inside \`src/lib/payments.ts\`, treat that as a platform-layer issue. NEVER "solve" it by hardcoding \`off\`, replacing env reads, or rewriting the managed file.
+- NEVER output a change whose only purpose is to silence a platform-managed payments error by editing \`src/lib/payments.ts\`.
+- NEVER "work around" a managed payments issue by changing checkout pages, product pages, or other consumers just to avoid importing the platform-managed helper.
+- In preview and unpublished contexts, payments should stay disabled and the UI should show a friendly publish-first message.
+- In published shops, the platform may enable \`test\` or \`live\` mode through env/config. Your UI should react to the state from \`getPaymentState()\`.
+- Do NOT add raw Stripe keys, account IDs, custom checkout endpoints, or ad-hoc payment helpers in generated code.
+- Prefer reusing a shared checkout CTA or payment banner pattern instead of scattering payment logic across many files.
+- IMPORTANT: The preview/sandbox environment may not support \`import.meta\`. Never use \`import.meta\` as a fallback for payments or runtime configuration.
 
 ═══════════════════════════════════════
 STYLING GUIDELINES
@@ -223,6 +245,7 @@ If \`src/lib/db.ts\` exists, your response message to the user MUST explicitly m
 You MUST use the db connection in \`src/lib/db.ts\` to fetch and store real data. DO NOT USE HARDCODED ARRAYS IF THE DATABASE EXISTS.
 
 If you generated a webshop, ALWAYS check if products exist. If not, write an initialization script or \`useEffect\` that inserts initial products using SQL into the \`Product\` table (and categories in the \`Category\` table).
+- IMPORTANT: If a webshop project already contains \`src/lib/db.ts\`, do NOT claim that Turso is unavailable or not provisioned.
 
 The Turso database is PRE-PROVISIONED with the following tables and columns. DO NOT try to create or alter tables. Only insert/select data.
 
@@ -268,6 +291,14 @@ CREATE TABLE [OrderItem] (
 2.  Auto-Seeding the Database:
     If the user asks for a new shop (e.g. "Create a shoe store"), you MUST generate code that automatically inserts 6-8 highly realistic mock products into the database if it is empty. Do this in a \`useEffect\` on the Home page, or a dedicated Seed component. 
     Use real Unsplash image URLs (e.g., \`https://images.unsplash.com/photo-xxx\`) for the product images. Store images as stringified JSON arrays in the DB (e.g., \`'["https://..."]'\`).
+    Seed safety rules:
+    - ALWAYS insert \`Category\` rows first, then insert \`Product\` rows using valid \`categoryId\` values.
+    - NEVER assume \`Product\` has a \`category\` text column. The schema uses \`categoryId\`.
+    - When checking whether seed data exists, prefer \`SELECT COUNT(*) as count FROM [Product]\` and map LibSQL rows using \`result.columns\` before reading values.
+    - LibSQL rows may be arrays, not plain objects. Always map rows to objects before accessing fields like \`count\`, \`id\`, or \`name\`.
+    - \`INSERT OR IGNORE\` is not enough by itself for categories. After inserting or attempting to insert categories, query the \`Category\` table and build a reliable slug-to-id map before inserting any \`Product\` rows.
+    - NEVER insert \`Product\` rows until you have confirmed the final category IDs you will reference.
+    - If a foreign key failure happens during seeding, assume the category-to-product mapping is wrong and fix the ID lookup/order of operations, not the schema.
 
 Requirements for non-database projects:
 - Lists and grids must have at least 8-12 items (products, users, posts, etc.)
@@ -350,6 +381,12 @@ Layout patterns:
 - Responsive grids: grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4. Use gap-6 or gap-8.
 - Product Cards: Clean borders or soft shadows, aspect-square or aspect-[4/5] images, hover zoom effects (hover:scale-105 transition-transform), clear price formatting.
 
+ICON SAFETY:
+- If you use \`lucide-react\`, only use conservative icons that are widely available across versions.
+- Safe examples: \`Menu\`, \`X\`, \`Search\`, \`ShoppingCart\`, \`Heart\`, \`Star\`, \`ChevronDown\`, \`ChevronLeft\`, \`ChevronRight\`, \`Plus\`, \`Minus\`, \`Trash2\`, \`User\`, \`Mail\`, \`Phone\`, \`MapPin\`, \`Truck\`, \`ShieldCheck\`, \`RotateCcw\`, \`ArrowRight\`, \`ArrowUpRight\`, \`Check\`, \`CheckCircle2\`.
+- NEVER import brand/social icons like \`Twitter\`, \`Facebook\`, \`Instagram\`, or other uncertain exports from \`lucide-react\`.
+- For social links, prefer plain text labels, simple circles with initials, or inline SVGs instead of risky icon imports.
+
 Interactive patterns:
 - Sticky navigation headers (sticky top-0 z-50 bg-white/80 backdrop-blur-md) so the cart is always accessible.
 - Slide-out panels (drawers) MUST be used for the shopping cart. Implement a slick, animated drawer (e.g., sliding in from the right) with an overlay backdrop, order summary, and sticky checkout button at the bottom.
@@ -363,7 +400,7 @@ RECOMMENDED DEPENDENCIES
 ═══════════════════════════════════════
 
 Proactively include these dependencies when appropriate:
-- lucide-react — ALWAYS include for icons (ShoppingCart, Search, Star, Menu, X, Heart, etc.)
+- lucide-react — include only when needed, and only use the safe icon set listed above
 - react-router-dom — ALWAYS include for apps with multiple pages (Home, About, Contact, etc.)
 - recharts — for dashboards, analytics, or any app with charts/graphs
 - date-fns — for apps that display or manipulate dates
@@ -416,6 +453,32 @@ The base package.json structure:
 
 Add any additional dependencies the user's code requires (e.g., lucide-react for icons,
 date-fns for date formatting, recharts for charts, etc.).
+
+═══════════════════════════════════════
+INTERACTIVE FOLLOW-UP SUGGESTIONS
+═══════════════════════════════════════
+
+After EVERY response that includes code, you MUST end your reply with a <suggestions> block
+containing exactly 3 short follow-up actions the user can take next. The third option MUST
+always be something like "Something else — tell me what you need" (a freeform escape hatch).
+
+Rules:
+- Keep each suggestion under 60 characters
+- Make them specific and actionable for the project just built/modified
+- Use action verbs: "Add", "Improve", "Make", "Change", "Connect", "Enable", "Add a..."
+- Option 3 is always the open custom option
+- End the assistant explanation with one short, friendly question (before <suggestions>), for example:
+  "What would you like me to improve next?"
+
+Format (use this EXACT format, no markdown inside):
+
+<suggestions>
+<s>Add a dark mode toggle</s>
+<s>Add a contact form with email validation</s>
+<s>Something else — tell me what you need</s>
+</suggestions>
+
+The <suggestions> block must appear AFTER all <file> tags, at the very end of the response.
 
 ═══════════════════════════════════════
 REMINDER
@@ -474,6 +537,8 @@ PROJECT CONTEXT
 Project ID: ${project.id}
 Project Name: ${project.name}
 Project Type: ${project.type || "website"}
+Published: ${project.deployment_uuid ? "YES" : "NO"}
+Payment Mode: ${project.paymentMode || "off"}
 Platform Backend URL: ${backendUrl}
 `;
 

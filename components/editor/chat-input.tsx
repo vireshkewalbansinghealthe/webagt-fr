@@ -45,6 +45,7 @@ export interface ChatInputProps {
   creditsRemaining?: number;
   isCreditsExhausted?: boolean;
   supportsVision?: boolean;
+  draftMessage?: { id: number; text: string } | null;
 }
 
 /**
@@ -60,6 +61,7 @@ export function ChatInput({
   creditsRemaining,
   isCreditsExhausted = false,
   supportsVision = false,
+  draftMessage = null,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -88,6 +90,19 @@ export function ChatInput({
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  useEffect(() => {
+    if (!draftMessage) return;
+    setValue(draftMessage.text);
+
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      const end = draftMessage.text.length;
+      textarea.setSelectionRange(end, end);
+    });
+  }, [draftMessage]);
 
   /**
    * Auto-resize the textarea height based on content.

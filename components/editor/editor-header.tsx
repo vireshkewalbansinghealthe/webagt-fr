@@ -25,7 +25,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { UserButton } from "@clerk/nextjs";
+import { UserButton, useUser } from "@clerk/nextjs";
 import { toast } from "sonner";
 import {
   Eye,
@@ -119,6 +119,13 @@ export function EditorHeader({
   projectType,
 }: EditorHeaderProps) {
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
+  const { user } = useUser();
+
+  const userInitials = user
+    ? (user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? user.emailAddresses?.[0]?.emailAddress?.[0] ?? "")
+    : "";
+  const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
+  const userDisplayName = user?.fullName || user?.firstName || userEmail.split("@")[0] || "Account";
 
   const tabs: Array<{ value: EditorTabValue; label: string; icon: any }> = [...BASE_TABS];
   if (projectType === "webshop") {
@@ -149,17 +156,17 @@ export function EditorHeader({
         >
           <div className="relative size-8 overflow-hidden rounded-lg border border-border bg-black shadow-sm group-hover:border-primary/50 transition-colors">
             <img
-              src="/logo.png"
-              alt="Web AGT Logo"
+              src="/logo.svg"
+              alt="WebAGT Logo"
               className="size-full object-cover"
             />
           </div>
           <div className="hidden lg:flex flex-col">
             <span className="font-outfit text-sm font-bold tracking-tight leading-none text-foreground">
-              Web AGT
+              WebAGT
             </span>
             <span className="font-outfit text-[10px] font-medium text-muted-foreground leading-none mt-0.5">
-              The AI Webshop Builder
+              From prompt to live storefront
             </span>
           </div>
         </Link>
@@ -283,14 +290,37 @@ export function EditorHeader({
           projectName={projectName}
           userPlan={userPlan}
         />
-        <UserButton
-          afterSignOutUrl="/"
-          appearance={{
-            elements: {
-              avatarBox: "size-6 sm:size-7",
-            },
-          }}
-        />
+        {/* User profile widget — avatar + name + email */}
+        <div className="hidden sm:flex items-center gap-2 rounded-full border border-border/50 bg-secondary/40 pl-1 pr-3 py-1 hover:bg-secondary/70 transition-colors cursor-pointer">
+          <UserButton
+            afterSignOutUrl="/"
+            appearance={{
+              elements: {
+                avatarBox: "size-6",
+                userButtonPopoverCard: "shadow-xl",
+              },
+            }}
+          />
+          <div className="flex flex-col leading-none min-w-0">
+            <span className="text-xs font-medium text-foreground truncate max-w-[100px]">
+              {userDisplayName}
+            </span>
+            {userEmail && (
+              <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
+                {userEmail}
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Mobile — icon only */}
+        <div className="sm:hidden">
+          <UserButton
+            afterSignOutUrl="/"
+            appearance={{
+              elements: { avatarBox: "size-7" },
+            }}
+          />
+        </div>
       </div>
     </header>
   );

@@ -26,12 +26,25 @@ export interface Project {
   name: string;
   model: string;
   type?: "website" | "webshop"; // Optional for backwards compatibility
+  templateId?: string; // Selected starter template ID for remix projects
   databaseUrl?: string; // Turso DB URL
   databaseToken?: string; // Turso Auth Token
   stripeAccountId?: string; // Stripe Connect Account ID
+  stripeTestAccountId?: string; // Stripe test-mode connected account
+  stripeLiveAccountId?: string; // Stripe live-mode connected account
   stripePaymentMethods?: string[]; // Array of enabled payment method types
+  paymentMode?: "off" | "test" | "live"; // Payment availability on published shops
   deployment_uuid?: string; // Coolify App UUID
   deployToken?: string; // Token for public file access during deployment
+  ownerNotificationEmail?: string; // Shop owner email for new order alerts
+  ownerNotificationEmails?: string[]; // Multiple owner emails for order alerts
+  orderCustomerEmailsEnabled?: boolean; // Whether customer confirmations are enabled
+  emailSenderMode?: "platform" | "owner_verified"; // Active sender strategy
+  emailDomain?: string; // Requested custom sender domain (e.g. shop.com)
+  emailDomainId?: string; // Resend domain ID
+  emailDomainStatus?: "unverified" | "pending" | "verified" | "failed";
+  emailLastVerificationAt?: string;
+  emailLastError?: string;
   currentVersion: number;
   createdAt: string;
   updatedAt: string;

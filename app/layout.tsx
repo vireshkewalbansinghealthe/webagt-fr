@@ -22,6 +22,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Outfit } from "next/font/google";
 import { Providers } from "@/components/providers";
 import { Toaster } from "@/components/ui/sonner";
+import { CookieConsent } from "@/components/cookie-consent";
 import "./globals.css";
 
 /**
@@ -53,12 +54,12 @@ const geistMono = Geist_Mono({
  * Page metadata for SEO and browser tabs.
  */
 export const metadata: Metadata = {
-  title: "Web AGT — Build Real Webshops with AI",
+  title: "WebAGT — From Prompt to Live Storefront",
   description:
-    "Build fully functional webshops with Turso DB and Stripe Connect using AI. Describe your idea and Web AGT builds the code, database, and payments for you.",
+    "WebAGT turns a prompt into a polished storefront with real code, Turso data, and Stripe-powered checkout.",
   icons: {
     icon: [
-      { url: "/logo.png", type: "image/png" },
+      { url: "/logo.svg", type: "image/svg+xml" },
     ],
   },
 };
@@ -100,6 +101,7 @@ export default function RootLayout({
         <Providers>
           {children}
           <Toaster />
+          <CookieConsent />
         </Providers>
       </body>
     </html>

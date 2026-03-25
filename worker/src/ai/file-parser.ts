@@ -21,6 +21,13 @@
 
 import type { ProjectFile } from "../types/project";
 
+const PLATFORM_MANAGED_PROJECT_FILES = new Set([
+  "src/lib/payments.ts",
+  "src/lib/stripe.ts",
+]);
+
+const IMPORT_META_REGEX = /\bimport\.meta\b/;
+
 /**
  * Regex pattern to match <file path="...">content</file> blocks.
  *
@@ -112,6 +119,41 @@ export function parseFilesFromResponse(response: string): ProjectFile[] {
   return files;
 }
 
+export interface RejectedGeneratedFile {
+  path: string;
+  reason: string;
+}
+
+export function filterUnsafeGeneratedFiles(files: ProjectFile[]): {
+  acceptedFiles: ProjectFile[];
+  rejectedFiles: RejectedGeneratedFile[];
+} {
+  const acceptedFiles: ProjectFile[] = [];
+  const rejectedFiles: RejectedGeneratedFile[] = [];
+
+  for (const file of files) {
+    if (PLATFORM_MANAGED_PROJECT_FILES.has(file.path)) {
+      rejectedFiles.push({
+        path: file.path,
+        reason: "platform-managed file",
+      });
+      continue;
+    }
+
+    if (IMPORT_META_REGEX.test(file.content)) {
+      rejectedFiles.push({
+        path: file.path,
+        reason: "unsupported import.meta usage",
+      });
+      continue;
+    }
+
+    acceptedFiles.push(file);
+  }
+
+  return { acceptedFiles, rejectedFiles };
+}
+
 /**
  * Validates a file path from an AI response.
  * Prevents path traversal attacks and ensures paths are relative.
@@ -197,6 +239,26 @@ export function mergeFiles(
 export function extractExplanation(response: string): string {
   return response
     .replace(FILE_TAG_REGEX, "")
+    .replace(/<suggestions>[\s\S]*?<\/suggestions>/g, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+}
+
+/**
+ * Extracts suggestion strings from an AI response <suggestions> block.
+ * Returns up to 3 short follow-up action strings.
+ *
+ * @param response - The full AI response text
+ * @returns Array of suggestion strings (empty if none found)
+ */
+export function extractSuggestions(response: string): string[] {
+  const blockMatch = response.match(/<suggestions>([\s\S]*?)<\/suggestions>/);
+  if (!blockMatch) return [];
+
+  const inner = blockMatch[1];
+  const matches = [...inner.matchAll(/<s>([\s\S]*?)<\/s>/g)];
+  return matches
+    .map((m) => m[1].trim())
+    .filter(Boolean)
+    .slice(0, 3);
 }

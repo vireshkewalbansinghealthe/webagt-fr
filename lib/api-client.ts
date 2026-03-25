@@ -37,6 +37,40 @@ export interface ApiError {
   code: string;
 }
 
+interface CreditsResponse {
+  remaining: number;
+  total: number;
+  plan: "free" | "pro";
+  periodEnd: string;
+  isUnlimited: boolean;
+}
+
+const CREDITS_CACHE_TTL_MS = 30_000;
+let creditsCache:
+  | { value: CreditsResponse; expiresAt: number }
+  | null = null;
+let creditsInFlight: Promise<CreditsResponse> | null = null;
+
+export interface EmailDnsRecord {
+  record: string;
+  name: string;
+  value: string;
+  ttl: string;
+  status: string;
+}
+
+export interface ProjectEmailSettings {
+  ownerNotificationEmail: string;
+  ownerNotificationEmails: string[];
+  orderCustomerEmailsEnabled: boolean;
+  emailSenderMode: "platform" | "owner_verified";
+  emailDomain: string;
+  emailDomainStatus: "unverified" | "pending" | "verified" | "failed";
+  emailLastVerificationAt?: string;
+  emailLastError?: string;
+  dnsRecords: EmailDnsRecord[];
+}
+
 /**
  * A function that returns a Clerk session token.
  * Matches the return type of `useAuth().getToken()`.
@@ -98,6 +132,38 @@ async function authenticatedFetch<T>(
   return response.json() as Promise<T>;
 }
 
+async function getCreditsWithCache(
+  getToken: GetTokenFunction,
+): Promise<CreditsResponse> {
+  // Keep server behavior deterministic; cache only in browser runtime.
+  if (typeof window === "undefined") {
+    return authenticatedFetch<CreditsResponse>(getToken, "/api/credits");
+  }
+
+  const now = Date.now();
+  if (creditsCache && creditsCache.expiresAt > now) {
+    return creditsCache.value;
+  }
+
+  if (creditsInFlight) {
+    return creditsInFlight;
+  }
+
+  creditsInFlight = authenticatedFetch<CreditsResponse>(getToken, "/api/credits")
+    .then((value) => {
+      creditsCache = {
+        value,
+        expiresAt: Date.now() + CREDITS_CACHE_TTL_MS,
+      };
+      return value;
+    })
+    .finally(() => {
+      creditsInFlight = null;
+    });
+
+  return creditsInFlight;
+}
+
 /**
  * Creates a typed API client bound to the current user's session.
  * All methods automatically include the Clerk Bearer token.
@@ -144,7 +210,14 @@ export function createApiClient(getToken: GetTokenFunction) {
        * @param data - Project name, model, and optional description
        * @returns Object with the newly created project
        */
-      create: (data: { name: string; model: string; description?: string }) =>
+      create: (data: {
+        name: string;
+        model: string;
+        description?: string;
+        type?: "website" | "webshop";
+        templateId?: string;
+        ownerNotificationEmail?: string;
+      }) =>
         authenticatedFetch<{ project: Project }>(getToken, "/api/projects", {
           method: "POST",
           body: JSON.stringify(data),
@@ -156,7 +229,17 @@ export function createApiClient(getToken: GetTokenFunction) {
        * @param data - Fields to update (name and/or model)
        * @returns Object with the updated project
        */
-      update: (id: string, data: { name?: string; model?: string; stripePaymentMethods?: string[] }) =>
+      update: (
+        id: string,
+        data: {
+          name?: string;
+          model?: string;
+          stripePaymentMethods?: string[];
+          paymentMode?: "off" | "test" | "live";
+          disconnectStripe?: boolean;
+          disconnectStripeMode?: "test" | "live" | "all";
+        },
+      ) =>
         authenticatedFetch<{ project: Project }>(
           getToken,
           `/api/projects/${id}`,
@@ -195,6 +278,37 @@ export function createApiClient(getToken: GetTokenFunction) {
           getToken,
           `/api/projects/${id}/deployment/${deploymentUuid}`,
           { method: "GET" },
+        ),
+
+      getEmailSettings: (id: string) =>
+        authenticatedFetch<ProjectEmailSettings>(
+          getToken,
+          `/api/projects/${id}/email-settings`,
+        ),
+
+      updateEmailSettings: (
+        id: string,
+        data: {
+          ownerNotificationEmail?: string;
+          ownerNotificationEmails?: string[];
+          orderCustomerEmailsEnabled?: boolean;
+          emailDomain?: string;
+        },
+      ) =>
+        authenticatedFetch<ProjectEmailSettings>(
+          getToken,
+          `/api/projects/${id}/email-settings`,
+          {
+            method: "PATCH",
+            body: JSON.stringify(data),
+          },
+        ),
+
+      verifyEmailDomain: (id: string) =>
+        authenticatedFetch<ProjectEmailSettings>(
+          getToken,
+          `/api/projects/${id}/email-domain/verify`,
+          { method: "POST" },
         ),
 
       /**
@@ -254,14 +368,7 @@ export function createApiClient(getToken: GetTokenFunction) {
        *
        * @returns Credit balance, plan, period end, and unlimited flag
        */
-      get: () =>
-        authenticatedFetch<{
-          remaining: number;
-          total: number;
-          plan: "free" | "pro";
-          periodEnd: string;
-          isUnlimited: boolean;
-        }>(getToken, "/api/credits"),
+      get: () => getCreditsWithCache(getToken),
     },
 
     versions: {
@@ -358,30 +465,31 @@ export function createApiClient(getToken: GetTokenFunction) {
       get: () => authenticatedFetch<AnalyticsData>(getToken, "/api/analytics"),
     },
     stripe: {
-      createAccount: (projectId: string) => 
-        authenticatedFetch<{ accountId: string }>(getToken, "/api/stripe/accounts", {
+      createAccount: (projectId: string, mode: "test" | "live" = "test") => 
+        authenticatedFetch<{ accountId: string; mode: "test" | "live" }>(getToken, "/api/stripe/accounts", {
           method: "POST",
-          body: JSON.stringify({ projectId }),
+          body: JSON.stringify({ projectId, mode }),
         }),
-      createAccountLink: (accountId: string, refreshUrl: string, returnUrl: string) => 
+      createAccountLink: (accountId: string, refreshUrl: string, returnUrl: string, mode: "test" | "live" = "test") => 
         authenticatedFetch<{ url: string }>(getToken, "/api/stripe/account_links", {
           method: "POST",
-          body: JSON.stringify({ accountId, refreshUrl, returnUrl }),
+          body: JSON.stringify({ accountId, refreshUrl, returnUrl, mode }),
         }),
       createCheckoutSession: (params: { accountId: string, amount: number, currency: string, productName: string, successUrl: string, cancelUrl: string }) =>
         authenticatedFetch<{ url: string, sessionId: string }>(getToken, "/api/stripe/checkout_sessions", {
           method: "POST",
           body: JSON.stringify(params),
         }),
-    getAccountStatus: (accountId: string) =>
-      authenticatedFetch<{ id: string, details_submitted: boolean, charges_enabled: boolean, payouts_enabled: boolean, capabilities?: any }>(getToken, `/api/stripe/accounts/${accountId}`),
-      getBalance: (accountId: string) =>
-        authenticatedFetch<any>(getToken, `/api/stripe/accounts/${accountId}/balance`),
-      getPayouts: (accountId: string) =>
-        authenticatedFetch<any>(getToken, `/api/stripe/accounts/${accountId}/payouts`),
-      createLoginLink: (accountId: string) =>
+    getAccountStatus: (accountId: string, mode: "test" | "live" = "test") =>
+      authenticatedFetch<{ id: string, details_submitted: boolean, charges_enabled: boolean, payouts_enabled: boolean, capabilities?: any }>(getToken, `/api/stripe/accounts/${accountId}?mode=${mode}`),
+      getBalance: (accountId: string, mode: "test" | "live" = "test") =>
+        authenticatedFetch<any>(getToken, `/api/stripe/accounts/${accountId}/balance?mode=${mode}`),
+      getPayouts: (accountId: string, mode: "test" | "live" = "test") =>
+        authenticatedFetch<any>(getToken, `/api/stripe/accounts/${accountId}/payouts?mode=${mode}`),
+      createLoginLink: (accountId: string, mode: "test" | "live" = "test") =>
         authenticatedFetch<{ url: string }>(getToken, `/api/stripe/accounts/${accountId}/login_links`, {
           method: "POST",
+          body: JSON.stringify({ mode }),
         }),
     },
   };

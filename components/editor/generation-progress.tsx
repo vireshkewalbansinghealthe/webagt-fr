@@ -19,8 +19,8 @@
 
 "use client";
 
-import { useMemo } from "react";
-import { Loader2, FileCode, Check, Sparkles, BrainCircuit } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, FileCode, Check, Sparkles, BrainCircuit, ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -83,10 +83,16 @@ function parseFileProgress(content: string): FileProgress[] {
     completedFiles.add(match[1].trim());
   }
 
-  // Build progress array — mark each file as done or writing
-  return openedFiles.map((path) => ({
+  // Deduplicate by path so repeated writes to the same file
+  // don't produce duplicate React keys in the progress list.
+  const progressByPath = new Map<string, FileProgress["status"]>();
+  openedFiles.forEach((path) => {
+    progressByPath.set(path, completedFiles.has(path) ? "done" : "writing");
+  });
+
+  return Array.from(progressByPath.entries()).map(([path, status]) => ({
     path,
-    status: completedFiles.has(path) ? "done" as const : "writing" as const,
+    status,
   }));
 }
 
@@ -111,6 +117,8 @@ export function GenerationProgress({
   isStreaming,
   changedFiles,
 }: GenerationProgressProps) {
+  const [expanded, setExpanded] = useState(false);
+
   /**
    * Parse file progress from the current streaming content.
    * Falls back to the persisted changedFiles array when the content
@@ -119,7 +127,7 @@ export function GenerationProgress({
   const files = useMemo(() => {
     const parsed = parseFileProgress(content);
     if (parsed.length === 0 && changedFiles && changedFiles.length > 0) {
-      return changedFiles.map((path) => ({ path, status: "done" as const }));
+      return Array.from(new Set(changedFiles)).map((path) => ({ path, status: "done" as const }));
     }
     return parsed;
   }, [content, changedFiles]);
@@ -164,10 +172,20 @@ export function GenerationProgress({
 
   const doneCount = files.filter((f) => f.status === "done").length;
 
+  // While streaming keep list always visible; when done start collapsed
+  const listVisible = isStreaming || expanded;
+
   return (
     <div className="overflow-hidden rounded-xl border border-border/50 bg-card shadow-sm">
-      {/* Header */}
-      <div className="flex items-center gap-2 border-b border-border/30 px-3.5 py-2">
+      {/* Header — clickable to toggle when done */}
+      <div
+        className={cn(
+          "flex items-center gap-2 px-3.5 py-2",
+          !isStreaming && "cursor-pointer select-none hover:bg-muted/40 transition-colors",
+          listVisible && !isStreaming && "border-b border-border/30"
+        )}
+        onClick={() => !isStreaming && setExpanded((v) => !v)}
+      >
         {isStreaming ? (
           <>
             <Sparkles className="size-3.5 animate-pulse text-primary" />
@@ -184,51 +202,56 @@ export function GenerationProgress({
             <span className="text-xs font-medium text-foreground">
               {files.length} {files.length === 1 ? "file" : "files"} changed
             </span>
+            <ChevronDown
+              className={cn(
+                "ml-auto size-3.5 text-muted-foreground transition-transform duration-200",
+                expanded && "rotate-180"
+              )}
+            />
           </>
         )}
       </div>
 
-      {/* File list */}
-      <div className="divide-y divide-border/10">
-        {files.map((file) => (
-          <div
-            key={file.path}
-            className={cn(
-              "flex items-center gap-2.5 px-3.5 py-1.5 transition-colors",
-              file.status === "writing" && isStreaming && "bg-primary/5"
-            )}
-          >
-            {/* Status indicator */}
-            {file.status === "done" || !isStreaming ? (
-              <div className="flex size-4 items-center justify-center rounded-full bg-emerald-500/10">
-                <Check className="size-2.5 text-emerald-500" />
-              </div>
-            ) : (
-              <Loader2 className="size-4 animate-spin text-primary" />
-            )}
-
-            {/* File path */}
-            <span
+      {/* File list — always open while streaming, toggled when done */}
+      {listVisible && (
+        <div className="divide-y divide-border/10">
+          {files.map((file) => (
+            <div
+              key={file.path}
               className={cn(
-                "min-w-0 flex-1 truncate text-xs font-mono",
-                file.status === "writing" && isStreaming
-                  ? "text-foreground"
-                  : "text-muted-foreground"
+                "flex items-center gap-2.5 px-3.5 py-1.5 transition-colors",
+                file.status === "writing" && isStreaming && "bg-primary/5"
               )}
-              title={file.path}
             >
-              {file.path}
-            </span>
+              {file.status === "done" || !isStreaming ? (
+                <div className="flex size-4 items-center justify-center rounded-full bg-emerald-500/10">
+                  <Check className="size-2.5 text-emerald-500" />
+                </div>
+              ) : (
+                <Loader2 className="size-4 animate-spin text-primary" />
+              )}
 
-            {/* Writing indicator */}
-            {file.status === "writing" && isStreaming && (
-              <span className="shrink-0 text-[10px] font-medium text-primary">
-                writing
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate text-xs font-mono",
+                  file.status === "writing" && isStreaming
+                    ? "text-foreground"
+                    : "text-muted-foreground"
+                )}
+                title={file.path}
+              >
+                {file.path}
               </span>
-            )}
-          </div>
-        ))}
-      </div>
+
+              {file.status === "writing" && isStreaming && (
+                <span className="shrink-0 text-[10px] font-medium text-primary">
+                  writing
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Progress bar during streaming */}
       {isStreaming && hasFiles && (

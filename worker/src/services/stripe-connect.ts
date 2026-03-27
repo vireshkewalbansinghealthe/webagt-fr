@@ -18,9 +18,15 @@ export function getProjectPaymentMode(project?: Project | null): PaymentMode {
 
 export function getStripeAccountIdForMode(project: Project, mode: StripeMode): string | undefined {
   if (mode === "live") {
-    return project.stripeLiveAccountId || (project.paymentMode === "live" ? project.stripeAccountId : undefined);
+    if (project.stripeLiveAccountId) {
+      return project.stripeLiveAccountId;
+    }
+    return project.stripeTestAccountId ? undefined : project.stripeAccountId;
   }
-  return project.stripeTestAccountId || project.stripeAccountId;
+  if (project.stripeTestAccountId) {
+    return project.stripeTestAccountId;
+  }
+  return project.stripeLiveAccountId ? undefined : project.stripeAccountId;
 }
 
 export function resolveStripeMode(rawMode?: string): StripeMode {

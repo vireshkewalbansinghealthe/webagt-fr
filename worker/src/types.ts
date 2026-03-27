@@ -12,6 +12,56 @@
  */
 
 /**
+ * Minimal KV namespace interface — compatible with both Cloudflare KV bindings
+ * and Node.js/Vercel Redis adapters (duck-typing via structural compatibility).
+ * Using a permissive return type to satisfy both Cloudflare and custom implementations.
+ */
+export interface IKVNamespace {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  get<T = any>(key: string, type?: "json" | "text" | "arrayBuffer" | "stream"): Promise<T | null>;
+  put(
+    key: string,
+    value: string | ArrayBuffer | ReadableStream,
+    options?: { expirationTtl?: number }
+  ): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(options?: {
+    prefix?: string;
+    limit?: number;
+    cursor?: string;
+  }): Promise<{ keys: { name: string }[]; list_complete: boolean; cursor?: string }>;
+}
+
+/**
+ * Minimal R2 object body interface — returned by R2Bucket.get().
+ */
+export interface IR2ObjectBody {
+  key: string;
+  size: number;
+  body: ReadableStream | null;
+  text(): Promise<string>;
+  json<T = unknown>(): Promise<T>;
+  arrayBuffer(): Promise<ArrayBuffer>;
+}
+
+/**
+ * Minimal R2 bucket interface — compatible with Cloudflare R2 bindings
+ * and Node.js/Vercel Redis adapters.
+ */
+export interface IR2Bucket {
+  get(key: string): Promise<IR2ObjectBody | null>;
+  put(
+    key: string,
+    value: string | ArrayBuffer | ReadableStream | Blob | null
+  ): Promise<IR2ObjectBody>;
+  delete(keys: string | string[]): Promise<void>;
+  list(options?: {
+    prefix?: string;
+    limit?: number;
+  }): Promise<{ objects: { key: string }[]; truncated: boolean }>;
+}
+
+/**
  * Worker environment bindings.
  *
  * @property METADATA - KV namespace for project metadata, chat history, credits
@@ -25,8 +75,8 @@
  * @property CLERK_WEBHOOK_SECRET - Svix signing secret for Clerk billing webhooks
  */
 export interface Env {
-  METADATA: KVNamespace;
-  FILES: R2Bucket;
+  METADATA: IKVNamespace;
+  FILES: IR2Bucket;
   CLERK_ISSUER: string;
   CLERK_JWKS_URL: string;
   ANTHROPIC_API_KEY: string;

@@ -51,9 +51,15 @@ const TABS = [
 
 function getStripeAccountId(project: Project, mode: StripeMode) {
   if (mode === "live") {
-    return project.stripeLiveAccountId || (project.paymentMode === "live" ? project.stripeAccountId : undefined);
+    if (project.stripeLiveAccountId) {
+      return project.stripeLiveAccountId;
+    }
+    return project.stripeTestAccountId ? undefined : project.stripeAccountId;
   }
-  return project.stripeTestAccountId || project.stripeAccountId;
+  if (project.stripeTestAccountId) {
+    return project.stripeTestAccountId;
+  }
+  return project.stripeLiveAccountId ? undefined : project.stripeAccountId;
 }
 
 export function ShopManagerPanel({ project }: { project: Project }) {
@@ -654,6 +660,7 @@ function PaymentsTab({
   const [payouts, setPayouts] = useState<any[]>([]);
   const [orderCount, setOrderCount] = useState(0);
   const [orderRevenue, setOrderRevenue] = useState(0);
+  const [manualAccountId, setManualAccountId] = useState("");
 
   const isPublished = Boolean(project.deployment_uuid);
   const accountId = getStripeAccountId(project, selectedMode);
@@ -703,12 +710,12 @@ function PaymentsTab({
   }, [project.id, project.stripeAccountId, project.stripeTestAccountId, project.stripeLiveAccountId, selectedMode]);
 
   useEffect(() => {
-    if (project.paymentMode === "live") {
-      setSelectedMode("live");
-    } else if (project.paymentMode === "test") {
-      setSelectedMode("test");
-    }
-  }, [project.paymentMode]);
+    setSelectedMode(project.paymentMode === "live" ? "live" : "test");
+  }, [project.id]);
+
+  useEffect(() => {
+    setManualAccountId(accountId || "");
+  }, [accountId, selectedMode]);
 
   useEffect(() => {
     async function loadCommerceStats() {
@@ -795,6 +802,9 @@ function PaymentsTab({
     try {
       const data = await client.projects.update(project.id, { paymentMode: nextMode });
       onProjectChange(data.project);
+      if (nextMode !== "off") {
+        setSelectedMode(nextMode);
+      }
       toast.success(
         nextMode === "off"
           ? "Payments disabled for this shop."
@@ -824,6 +834,51 @@ function PaymentsTab({
     } catch (error: any) {
       console.error("Failed to disconnect Stripe:", error);
       toast.error(error.message || "Failed to disconnect Stripe");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const saveManualAccountId = async () => {
+    const normalized = manualAccountId.trim();
+    if (!normalized) {
+      toast.error("Paste a Stripe account ID first.");
+      return;
+    }
+    if (!normalized.startsWith("acct_")) {
+      toast.error("Stripe account IDs must start with acct_.");
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const data = await client.projects.update(project.id, {
+        manualStripeAccountId: normalized,
+        manualStripeMode: selectedMode,
+      });
+      onProjectChange(data.project);
+
+      let syncedVersion: number | null = null;
+      try {
+        const syncResult = await client.projects.syncStripe(project.id);
+        syncedVersion = syncResult.version;
+        onProjectChange(syncResult.project);
+        await refreshStripeState(syncResult.project);
+      } catch (syncError: any) {
+        console.error("Failed to sync Stripe files after manual save:", syncError);
+        await refreshStripeState(data.project);
+        toast.error(syncError.message || "Saved account ID, but failed to update Stripe files.");
+        return;
+      }
+
+      toast.success(
+        syncedVersion != null
+          ? `Saved ${selectedMode} Stripe account ID and updated project files.`
+          : `Saved ${selectedMode} Stripe account ID.`,
+      );
+    } catch (error: any) {
+      console.error("Failed to save Stripe account ID:", error);
+      toast.error(error.message || "Failed to save Stripe account ID");
     } finally {
       setIsLoading(false);
     }
@@ -892,24 +947,70 @@ function PaymentsTab({
                     : "Quick setup: finish Stripe onboarding so your shop can securely accept payments."}
               </p>
 
-              {accountId && (
-                <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-                  Account ID: <span className="font-mono text-foreground">{accountId}</span>
-                  {stripeStatus?.requirements?.currently_due?.length ? (
-                    <details className="mt-2">
-                      <summary className="cursor-pointer font-medium text-foreground">
-                        View onboarding details
-                      </summary>
-                      <p className="mt-2 text-xs">
-                        Stripe still asks for a few business details:
-                      </p>
-                      <p className="mt-1 text-xs break-words">
-                        {stripeStatus.requirements.currently_due.join(", ")}
-                      </p>
-                    </details>
-                  ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant={selectedMode === "test" ? "default" : "outline"}
+                  onClick={() => setSelectedMode("test")}
+                  disabled={isLoading}
+                >
+                  Test account
+                </Button>
+                <Button
+                  type="button"
+                  variant={selectedMode === "live" ? "default" : "outline"}
+                  onClick={() => setSelectedMode("live")}
+                  disabled={isLoading}
+                >
+                  Live account
+                </Button>
+              </div>
+
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground space-y-3">
+                <div>
+                  {accountId ? (
+                    <>
+                      Account ID: <span className="font-mono text-foreground">{accountId}</span>
+                    </>
+                  ) : (
+                    <>No {selectedMode} Stripe account connected yet.</>
+                  )}
                 </div>
-              )}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Input
+                    value={manualAccountId}
+                    onChange={(e) => setManualAccountId(e.target.value)}
+                    placeholder={`Paste ${selectedMode} acct_...`}
+                    className="font-mono"
+                    disabled={isLoading}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={saveManualAccountId}
+                    disabled={isLoading || !manualAccountId.trim()}
+                    className="shrink-0"
+                  >
+                    Save account ID
+                  </Button>
+                </div>
+                <p className="text-xs">
+                  Paste an existing Stripe {selectedMode} account ID if you want to reuse it manually instead of creating a new onboarding account.
+                </p>
+                {stripeStatus?.requirements?.currently_due?.length ? (
+                  <details className="mt-2">
+                    <summary className="cursor-pointer font-medium text-foreground">
+                      View onboarding details
+                    </summary>
+                    <p className="mt-2 text-xs">
+                      Stripe still asks for a few business details:
+                    </p>
+                    <p className="mt-1 text-xs break-words">
+                      {stripeStatus.requirements.currently_due.join(", ")}
+                    </p>
+                  </details>
+                ) : null}
+              </div>
 
               <div className="flex flex-wrap gap-2">
                 <Button onClick={startOnboarding} disabled={isLoading} className="gap-2">

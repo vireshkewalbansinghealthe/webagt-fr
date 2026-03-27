@@ -238,6 +238,8 @@ export function createApiClient(getToken: GetTokenFunction) {
           paymentMode?: "off" | "test" | "live";
           disconnectStripe?: boolean;
           disconnectStripeMode?: "test" | "live" | "all";
+          manualStripeAccountId?: string;
+          manualStripeMode?: "test" | "live";
         },
       ) =>
         authenticatedFetch<{ project: Project }>(

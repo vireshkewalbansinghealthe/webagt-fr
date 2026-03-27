@@ -1036,13 +1036,37 @@ projectRoutes.patch("/:id", async (c) => {
     paymentMode?: "off" | "test" | "live";
     disconnectStripe?: boolean;
     disconnectStripeMode?: "test" | "live" | "all";
+    manualStripeAccountId?: string;
+    manualStripeMode?: "test" | "live";
   }>();
+  const normalizedManualStripeAccountId = body.manualStripeAccountId?.trim();
+  if (body.manualStripeAccountId !== undefined) {
+    if (!body.manualStripeMode) {
+      return c.json(
+        { error: "manualStripeMode is required when saving a Stripe account ID", code: "BAD_REQUEST" },
+        400,
+      );
+    }
+    if (!normalizedManualStripeAccountId) {
+      return c.json(
+        { error: "Stripe account ID cannot be empty", code: "BAD_REQUEST" },
+        400,
+      );
+    }
+    if (!normalizedManualStripeAccountId.startsWith("acct_")) {
+      return c.json(
+        { error: "Stripe account ID must start with acct_", code: "BAD_REQUEST" },
+        400,
+      );
+    }
+  }
   const shouldSyncStripeDeployment =
     Boolean(project.deployment_uuid) &&
     (
       body.paymentMode !== undefined ||
       Boolean(body.disconnectStripe) ||
-      body.disconnectStripeMode !== undefined
+      body.disconnectStripeMode !== undefined ||
+      body.manualStripeAccountId !== undefined
     );
 
   // Apply updates
@@ -1058,6 +1082,17 @@ projectRoutes.patch("/:id", async (c) => {
   }
   if (body.paymentMode) {
     project.paymentMode = body.paymentMode;
+  }
+  if (normalizedManualStripeAccountId && body.manualStripeMode === "test") {
+    project.stripeTestAccountId = normalizedManualStripeAccountId;
+    if (project.paymentMode !== "live" || !project.stripeAccountId) {
+      project.stripeAccountId = normalizedManualStripeAccountId;
+    }
+  } else if (normalizedManualStripeAccountId && body.manualStripeMode === "live") {
+    project.stripeLiveAccountId = normalizedManualStripeAccountId;
+    if (project.paymentMode === "live" || !project.stripeAccountId) {
+      project.stripeAccountId = normalizedManualStripeAccountId;
+    }
   }
   if (body.disconnectStripe || body.disconnectStripeMode === "all") {
     project.stripeAccountId = undefined;

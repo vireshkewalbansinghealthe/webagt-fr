@@ -31,6 +31,8 @@ export interface ImageAttachment {
   base64: string;
   mediaType: string;
   name?: string;
+  /** Persistent public URL after upload to R2 — used as the src in generated code */
+  url?: string;
 }
 
 export interface ChatMessage {

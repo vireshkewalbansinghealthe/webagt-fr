@@ -315,6 +315,36 @@ chatRoutes.post("/:projectId", async (c) => {
   }
   const systemPrompt = buildSystemPrompt(project, existingFiles, backendUrl);
 
+  // --- 6a. Upload attached images to R2 and get persistent public URLs ---
+  // This lets the AI reference the images in generated code via <img src="...">
+  const enrichedImages: ImageAttachment[] = [];
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    let url: string | undefined;
+    try {
+      const ext = img.mediaType.split("/")[1]?.replace("jpeg", "jpg") || "png";
+      const filename = `${crypto.randomUUID()}.${ext}`;
+      const key = `assets/${projectId}/${filename}`;
+
+      // Decode base64 → raw bytes for R2 storage
+      const binaryStr = atob(img.base64);
+      const bytes = new Uint8Array(binaryStr.length);
+      for (let j = 0; j < binaryStr.length; j++) {
+        bytes[j] = binaryStr.charCodeAt(j);
+      }
+
+      await c.env.FILES.put(key, bytes.buffer, {
+        httpMetadata: { contentType: img.mediaType },
+      });
+
+      url = `${backendUrl}/api/assets/${projectId}/${filename}`;
+      console.log(`[chat] Uploaded image asset ${i + 1}/${images.length}: ${key}`);
+    } catch (uploadError) {
+      console.error(`[chat] Failed to upload image ${i}:`, uploadError);
+    }
+    enrichedImages.push({ ...img, url });
+  }
+
   // Build message history for the AI using sliding window + summaries
   const rawMessages: Array<{ role: "user" | "assistant"; content: string }> =
     [];
@@ -356,7 +386,18 @@ chatRoutes.post("/:projectId", async (c) => {
   // Append current user message — multimodal if images + vision model
   const lastMsg = sdkMessages[sdkMessages.length - 1];
 
-  if (images.length > 0 && modelConfig.supportsVision) {
+  // Build the final user message text, appending public asset URLs so the AI
+  // can reference them directly in generated <img src="..."> tags
+  const imageUrlLines = enrichedImages
+    .map((img, i) => (img.url ? `- Image ${i + 1}: ${img.url}` : null))
+    .filter(Boolean)
+    .join("\n");
+
+  const finalUserMessage = imageUrlLines
+    ? `${userMessage}\n\nUploaded image asset URL${enrichedImages.length > 1 ? "s" : ""} — use these directly as src attributes in <img> tags in your generated code:\n${imageUrlLines}`
+    : userMessage;
+
+  if (enrichedImages.length > 0 && modelConfig.supportsVision) {
     // If the last message was a user message, we must inject a dummy assistant message to alternate
     if (lastMsg && lastMsg.role === "user") {
       sdkMessages.push({ role: "assistant", content: "Understood. Please provide the images." });
@@ -365,20 +406,20 @@ chatRoutes.post("/:projectId", async (c) => {
     sdkMessages.push({
       role: "user" as const,
       content: [
-        { type: "text" as const, text: userMessage },
-        ...images.map((img) => ({
+        { type: "text" as const, text: finalUserMessage },
+        ...enrichedImages.map((img) => ({
           type: "image" as const,
-          image: img.base64, // AI SDK field name (was: base64)
-          mimeType: img.mediaType, // AI SDK field name (was: mediaType)
+          image: img.base64,
+          mimeType: img.mediaType,
         })),
       ],
     });
   } else {
-    // No images - if the last message is ALSO user, just merge them
+    // No images (or vision not supported) — merge or append as plain text
     if (lastMsg && lastMsg.role === "user" && typeof lastMsg.content === "string") {
-      lastMsg.content += "\n\n" + userMessage;
+      lastMsg.content += "\n\n" + finalUserMessage;
     } else {
-      sdkMessages.push({ role: "user" as const, content: userMessage });
+      sdkMessages.push({ role: "user" as const, content: finalUserMessage });
     }
   }
 
@@ -509,7 +550,15 @@ chatRoutes.post("/:projectId", async (c) => {
         role: "user",
         content: userMessage,
         timestamp: new Date().toISOString(),
-        images: images.length > 0 ? images : undefined,
+        // Strip base64 when a persistent URL exists — saves KV space, URL is enough for display
+        images: enrichedImages.length > 0
+          ? enrichedImages.map((img) => ({
+              base64: img.url ? "" : img.base64,
+              mediaType: img.mediaType,
+              name: img.name,
+              url: img.url,
+            }))
+          : undefined,
       };
 
       const suggestions = extractSuggestions(fullResponse);

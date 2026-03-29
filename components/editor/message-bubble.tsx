@@ -294,7 +294,7 @@ export function MessageBubble({ message, isStreaming, isAutoHealInProgress, onSu
                 className="size-16 cursor-pointer overflow-hidden rounded-lg border border-border/50 transition-transform duration-150 hover:scale-105"
               >
                 <img
-                  src={`data:${img.mediaType};base64,${img.base64}`}
+                  src={img.url || `data:${img.mediaType};base64,${img.base64}`}
                   alt={img.name || "Attached image"}
                   className="size-full object-cover"
                 />
@@ -315,7 +315,7 @@ export function MessageBubble({ message, isStreaming, isAutoHealInProgress, onSu
             {selectedImage && (
               <div className="flex flex-col items-center gap-2">
                 <img
-                  src={`data:${selectedImage.mediaType};base64,${selectedImage.base64}`}
+                  src={selectedImage.url || `data:${selectedImage.mediaType};base64,${selectedImage.base64}`}
                   alt={selectedImage.name || "Full size image"}
                   className="max-h-[85vh] max-w-full rounded-lg object-contain"
                 />

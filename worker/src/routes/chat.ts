@@ -307,12 +307,26 @@ chatRoutes.post("/:projectId", async (c) => {
 
   // --- 6. Build the AI prompt with context management ---
   const configuredBackendUrl = c.env.PUBLIC_WORKER_URL?.trim();
+  const requestOrigin = new URL(c.req.url).origin;
+
+  // backendUrl: used for system prompt context — always a publicly reachable URL
+  // so the AI's generated code references real endpoints, not localhost.
   let backendUrl = configuredBackendUrl
     ? configuredBackendUrl.replace(/\/+$/, "")
-    : new URL(c.req.url).origin;
+    : requestOrigin;
   if (!configuredBackendUrl && (backendUrl.includes("localhost") || backendUrl.includes("127.0.0.1"))) {
     backendUrl = "https://api-webagt.dock.4esh.nl";
   }
+
+  // assetBaseUrl: used for constructing uploaded-image URLs that browsers must load.
+  // In local dev (no PUBLIC_WORKER_URL): use the actual request origin (localhost:8787)
+  //   → file is in local R2 state, served by local worker ✓
+  // In production (PUBLIC_WORKER_URL set): use that public URL
+  //   → file is in production R2 state, served by production worker ✓
+  const assetBaseUrl = configuredBackendUrl
+    ? configuredBackendUrl.replace(/\/+$/, "")
+    : requestOrigin;
+
   const systemPrompt = buildSystemPrompt(project, existingFiles, backendUrl);
 
   // --- 6a. Upload attached images to R2 and get persistent public URLs ---
@@ -337,7 +351,7 @@ chatRoutes.post("/:projectId", async (c) => {
         httpMetadata: { contentType: img.mediaType },
       });
 
-      url = `${backendUrl}/api/assets/${projectId}/${filename}`;
+      url = `${assetBaseUrl}/api/assets/${projectId}/${filename}`;
       console.log(`[chat] Uploaded image asset ${i + 1}/${images.length}: ${key}`);
     } catch (uploadError) {
       console.error(`[chat] Failed to upload image ${i}:`, uploadError);

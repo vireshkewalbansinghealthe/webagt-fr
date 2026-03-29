@@ -119,7 +119,7 @@ exportRoutes.get("/", async (c) => {
   // --- 5. Create the ZIP and return it ---
   const zipped = zipSync(zipFiles);
 
-  return new Response(zipped.buffer as ArrayBuffer, {
+  return new Response(zipped, {
     headers: {
       "Content-Type": "application/zip",
       "Content-Disposition": `attachment; filename="${slugName}.zip"`,

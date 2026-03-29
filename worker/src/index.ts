@@ -29,7 +29,6 @@ import { exportRoutes } from "./routes/export";
 import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
 import { stripeRoutes } from "./routes/stripe";
-import { assetRoutes } from "./routes/assets";
 
 /**
  * Create the Hono app with typed bindings and context variables.
@@ -57,7 +56,10 @@ app.use("*", async (c, next) => {
     origin &&
     (origin.endsWith(".csb.app") ||
       origin.endsWith(".codesandbox.io") ||
-      origin.endsWith(".dock.4esh.nl"))
+      origin.endsWith(".dock.4esh.nl") ||
+      origin.endsWith(".webagt.ai") ||
+      origin === "https://www.webagt.ai" ||
+      origin === "https://webagt.ai")
   ) {
     actualOrigin = origin;
   }
@@ -110,8 +112,7 @@ app.use("/api/*", async (c, next) => {
   if (
     c.req.path === "/api/stripe/checkout_sessions" ||
     c.req.path === "/api/stripe/webhook" ||
-    c.req.path.match(/\/api\/projects\/.*\/public-files/) ||
-    c.req.path.match(/\/api\/assets\//)
+    c.req.path.match(/\/api\/projects\/.*\/public-files/)
   ) {
     return next();
   }
@@ -180,12 +181,5 @@ app.route("/api/projects/:id/export", exportRoutes);
  * See worker/src/routes/stripe.ts for the handler.
  */
 app.route("/api/stripe", stripeRoutes);
-
-/**
- * Mount asset serving at /api/assets.
- * PUBLIC — no auth. Serves user-uploaded images stored in R2.
- * Required so generated app code can reference images via <img src="...">.
- */
-app.route("/api/assets", assetRoutes);
 
 export default app;

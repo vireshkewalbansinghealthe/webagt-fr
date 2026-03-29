@@ -49,12 +49,12 @@ export function Hero() {
       <div className="relative z-10 flex w-full max-w-2xl flex-col items-center text-center">
         {/* Headline */}
         <h1 className="font-outfit text-5xl font-extrabold leading-tight tracking-tight text-white sm:text-6xl md:text-7xl">
-          Build Real Webshops with <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">AI</span>
+          Stop Coding. <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-300">Start Building.</span>
         </h1>
 
         {/* Subtitle */}
         <p className="mt-6 text-xl text-white/70 font-medium">
-          The all-in-one platform to generate fully functional shops with Turso DB and Stripe Connect.
+          Describe your idea and watch AI build a fully functional web app — with database, payments, and live preview.
         </p>
 
         {/* CTA input card */}

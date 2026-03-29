@@ -318,19 +318,14 @@ chatRoutes.post("/:projectId", async (c) => {
     backendUrl = "https://api-webagt.dock.4esh.nl";
   }
 
-  // assetBaseUrl: used for constructing uploaded-image URLs that browsers must load.
-  // In local dev (no PUBLIC_WORKER_URL): use the actual request origin (localhost:8787)
-  //   → file is in local R2 state, served by local worker ✓
-  // In production (PUBLIC_WORKER_URL set): use that public URL
-  //   → file is in production R2 state, served by production worker ✓
-  const assetBaseUrl = configuredBackendUrl
-    ? configuredBackendUrl.replace(/\/+$/, "")
-    : requestOrigin;
-
   const systemPrompt = buildSystemPrompt(project, existingFiles, backendUrl);
 
-  // --- 6a. Upload attached images to R2 and get persistent public URLs ---
-  // This lets the AI reference the images in generated code via <img src="...">
+  // --- 6a. Upload attached images to Supabase Storage and get persistent HTTPS public URLs ---
+  // Supabase Storage always returns an HTTPS URL, which works in the Sandpack preview
+  // iframe (no mixed-content blocking) in both local dev and production.
+  const supabaseUrl = c.env.SUPABASE_URL?.replace(/\/+$/, "");
+  const supabaseKey = c.env.SUPABASE_SERVICE_KEY;
+
   const enrichedImages: ImageAttachment[] = [];
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
@@ -338,21 +333,37 @@ chatRoutes.post("/:projectId", async (c) => {
     try {
       const ext = img.mediaType.split("/")[1]?.replace("jpeg", "jpg") || "png";
       const filename = `${crypto.randomUUID()}.${ext}`;
-      const key = `assets/${projectId}/${filename}`;
+      const storagePath = `${projectId}/${filename}`;
 
-      // Decode base64 → raw bytes for R2 storage
+      // Decode base64 → raw bytes
       const binaryStr = atob(img.base64);
       const bytes = new Uint8Array(binaryStr.length);
       for (let j = 0; j < binaryStr.length; j++) {
         bytes[j] = binaryStr.charCodeAt(j);
       }
 
-      await c.env.FILES.put(key, bytes.buffer, {
-        httpMetadata: { contentType: img.mediaType },
-      });
-
-      url = `${assetBaseUrl}/api/assets/${projectId}/${filename}`;
-      console.log(`[chat] Uploaded image asset ${i + 1}/${images.length}: ${key}`);
+      if (supabaseUrl && supabaseKey) {
+        const uploadRes = await fetch(
+          `${supabaseUrl}/storage/v1/object/webagt-assets/${storagePath}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${supabaseKey}`,
+              "Content-Type": img.mediaType,
+              "x-upsert": "false",
+            },
+            body: bytes.buffer,
+          },
+        );
+        if (!uploadRes.ok) {
+          const errText = await uploadRes.text();
+          throw new Error(`Supabase upload failed (${uploadRes.status}): ${errText}`);
+        }
+        url = `${supabaseUrl}/storage/v1/object/public/webagt-assets/${storagePath}`;
+        console.log(`[chat] Uploaded image to Supabase Storage ${i + 1}/${images.length}: ${storagePath}`);
+      } else {
+        console.warn("[chat] SUPABASE_URL or SUPABASE_SERVICE_KEY not set — skipping image upload");
+      }
     } catch (uploadError) {
       console.error(`[chat] Failed to upload image ${i}:`, uploadError);
     }

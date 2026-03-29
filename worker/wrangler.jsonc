@@ -10,8 +10,9 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lovable-clone-worker",
+  "name": "webagt-worker",
   "main": "src/index.ts",
+  "account_id": "135ff035167965eb02d4b56e9ae7e317",
   "compatibility_date": "2025-01-01",
   // The Vercel AI SDK uses Node.js APIs internally (crypto, streams).
   // Cloudflare Workers need this flag to provide those APIs.
@@ -20,13 +21,13 @@
   "kv_namespaces": [
     {
       "binding": "METADATA",
-      "id": "placeholder_for_local_dev",
+      "id": "d9557d2097914f46b29f0aa94100b7dd",
     },
   ],
   // R2 Bucket for file storage (generated project files per version)
   "r2_buckets": [
     {
-      "bucket_name": "lovable-clone-files",
+      "bucket_name": "webagt-files",
       "binding": "FILES",
     },
   ],

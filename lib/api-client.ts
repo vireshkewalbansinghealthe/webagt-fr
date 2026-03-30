@@ -49,6 +49,11 @@ const CREDITS_CACHE_TTL_MS = 30_000;
 let creditsCache:
   | { value: CreditsResponse; expiresAt: number }
   | null = null;
+
+/** Bust the in-memory credits cache so the next call fetches fresh data. */
+export function bustCreditsCache() {
+  creditsCache = null;
+}
 let creditsInFlight: Promise<CreditsResponse> | null = null;
 
 export interface EmailDnsRecord {
@@ -378,6 +383,19 @@ export function createApiClient(getToken: GetTokenFunction) {
        * @returns Credit balance, plan, period end, and unlimited flag
        */
       get: () => getCreditsWithCache(getToken),
+
+      /**
+       * Sync plan from Clerk API — call after checkout completes.
+       * Checks the user's active Clerk subscriptions and upgrades KV if needed.
+       *
+       * @returns Updated credits + whether an upgrade occurred
+       */
+      sync: () =>
+        authenticatedFetch<{
+          synced: boolean;
+          upgraded: boolean;
+          credits: CreditsResponse;
+        }>(getToken, "/api/credits/sync", { method: "POST" }),
     },
 
     versions: {

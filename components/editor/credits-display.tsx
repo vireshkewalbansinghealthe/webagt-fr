@@ -19,7 +19,7 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { CheckoutButton } from "@clerk/nextjs/experimental";
 import Link from "next/link";
@@ -27,7 +27,7 @@ import { CreditCard, Zap, Infinity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import { createApiClient } from "@/lib/api-client";
+import { createApiClient, bustCreditsCache } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 /**
@@ -70,23 +70,46 @@ export function CreditsDisplay() {
   const { getToken } = useAuth();
   const [credits, setCredits] = useState<CreditData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const loadCredits = useCallback(async () => {
+    try {
+      const client = createApiClient(getToken);
+      const data = await client.credits.get();
+      setCredits(data);
+    } catch (error) {
+      console.error("Failed to load credits:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [getToken]);
 
   /** Fetch credit data on mount */
   useEffect(() => {
-    async function loadCredits() {
-      try {
-        const client = createApiClient(getToken);
-        const data = await client.credits.get();
-        setCredits(data);
-      } catch (error) {
-        console.error("Failed to load credits:", error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
     loadCredits();
-  }, [getToken]);
+  }, [loadCredits]);
+
+  /**
+   * Called when Clerk checkout completes successfully.
+   * Syncs the plan from Clerk's subscription API, busts the cache,
+   * then re-fetches credits so the UI updates immediately.
+   */
+  const handleCheckoutSuccess = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      const client = createApiClient(getToken);
+      await client.credits.sync();
+      bustCreditsCache();
+      await loadCredits();
+    } catch (err) {
+      console.error("Failed to sync plan after checkout:", err);
+      // Still try to refresh credits even if sync fails
+      bustCreditsCache();
+      await loadCredits();
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [getToken, loadCredits]);
 
   // Loading skeleton
   if (isLoading) {
@@ -174,13 +197,18 @@ export function CreditsDisplay() {
             <Link href="/settings">Manage subscription</Link>
           </Button>
         ) : (
-          <CheckoutButton planId={PRO_PLAN_ID} planPeriod="month">
+          <CheckoutButton
+            planId={PRO_PLAN_ID}
+            planPeriod="month"
+            onSubscriptionComplete={handleCheckoutSuccess}
+          >
             <Button
               size="sm"
               className="mt-2 h-7 w-full gap-1 text-xs"
+              disabled={isSyncing}
             >
               <Zap className="size-3" />
-              Upgrade to Pro
+              {isSyncing ? "Activating…" : "Upgrade to Pro"}
             </Button>
           </CheckoutButton>
         )}

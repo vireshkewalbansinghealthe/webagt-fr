@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useTransition } from "react";
 import { 
   Package, 
   ShoppingBag, 
@@ -33,6 +33,7 @@ import { toast } from "sonner";
 import { createClient } from "@libsql/client/web";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { createApiClient, type ProjectEmailSettings } from "@/lib/api-client";
+import { AlertCircle } from "lucide-react";
 import { ProductSheet, type ProductFormData } from "./product-sheet";
 
 type Tab = "dashboard" | "products" | "orders" | "payments" | "publish" | "notifications" | "settings" | "logs";
@@ -65,6 +66,8 @@ function getStripeAccountId(project: Project, mode: StripeMode) {
 export function ShopManagerPanel({ project }: { project: Project }) {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [projectState, setProjectState] = useState(project);
+  const [provisioning, setProvisioning] = useState(false);
+  const { getToken } = useAuth();
 
   useEffect(() => {
     setProjectState(project);
@@ -77,6 +80,20 @@ export function ShopManagerPanel({ project }: { project: Project }) {
       authToken: projectState.databaseToken,
     });
   }, [projectState.databaseUrl, projectState.databaseToken]);
+
+  const handleProvisionDatabase = async () => {
+    setProvisioning(true);
+    try {
+      const client = createApiClient(getToken);
+      const result = await client.projects.provisionDatabase(projectState.id);
+      setProjectState(result.project);
+      toast.success("Database provisioned successfully!");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to provision database. Please try again.");
+    } finally {
+      setProvisioning(false);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col bg-background">
@@ -121,11 +138,24 @@ export function ShopManagerPanel({ project }: { project: Project }) {
         <div className="flex-1 overflow-auto bg-background/50">
           {!turso && activeTab !== "settings" ? (
             <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 text-muted-foreground">
-              <Database className="size-12 text-muted-foreground/30 mb-4" />
+              <div className="relative mb-4">
+                <Database className="size-12 text-muted-foreground/30" />
+                <AlertCircle className="size-5 text-amber-500 absolute -bottom-1 -right-1" />
+              </div>
               <h3 className="text-lg font-medium text-foreground mb-2">No Database Connected</h3>
-              <p className="max-w-sm mb-6">
-                This project does not have a Turso database provisioned. Webshops require a database to manage products and orders.
+              <p className="max-w-sm mb-2 text-sm">
+                The database provisioning failed when this project was created (Turso API timeout or rate limit).
               </p>
+              <p className="max-w-sm mb-6 text-sm text-muted-foreground">
+                Click below to retry — it only takes a few seconds.
+              </p>
+              <Button onClick={handleProvisionDatabase} disabled={provisioning} className="gap-2">
+                {provisioning ? (
+                  <><Loader2 className="size-4 animate-spin" /> Provisioning database…</>
+                ) : (
+                  <><Database className="size-4" /> Provision Database</>
+                )}
+              </Button>
             </div>
           ) : (
             <div className="h-full w-full p-6">
@@ -162,38 +192,65 @@ export function ShopManagerPanel({ project }: { project: Project }) {
 
 // --- TABS ---
 
+const POLL_INTERVAL_MS = 10_000;
+
+function useLastUpdated() {
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const bump = useCallback(() => setLastUpdated(new Date()), []);
+  const label = lastUpdated
+    ? `Updated ${lastUpdated.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+    : null;
+  return { bump, label };
+}
+
 function DashboardTab({ turso }: { turso: any }) {
   const [stats, setStats] = useState({ products: 0, orders: 0, revenue: 0 });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const { bump, label } = useLastUpdated();
+
+  const loadStats = useCallback(async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    try {
+      const [prodRes, orderRes, revRes] = await Promise.all([
+        turso.execute("SELECT count(*) as c FROM Product"),
+        turso.execute("SELECT count(*) as c FROM [Order]"),
+        turso.execute("SELECT sum(totalAmount) as s FROM [Order] WHERE status != 'CANCELLED'"),
+      ]);
+      setStats({
+        products: Number(prodRes.rows[0].c) || 0,
+        orders: Number(orderRes.rows[0].c) || 0,
+        revenue: Number(revRes.rows[0].s) || 0,
+      });
+      bump();
+    } catch (err) {
+      console.error("Failed to load stats", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [turso, bump]);
 
   useEffect(() => {
-    async function loadStats() {
-      try {
-        const [prodRes, orderRes, revRes] = await Promise.all([
-          turso.execute("SELECT count(*) as c FROM Product"),
-          turso.execute("SELECT count(*) as c FROM [Order]"),
-          turso.execute("SELECT sum(totalAmount) as s FROM [Order] WHERE status != 'CANCELLED'")
-        ]);
-        
-        setStats({
-          products: Number(prodRes.rows[0].c) || 0,
-          orders: Number(orderRes.rows[0].c) || 0,
-          revenue: Number(revRes.rows[0].s) || 0,
-        });
-      } catch (err) {
-        console.error("Failed to load stats", err);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadStats();
-  }, [turso]);
+    const timer = setInterval(() => loadStats(), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [loadStats]);
 
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-6">
-      <h3 className="text-lg font-medium">Dashboard Overview</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-medium">Dashboard Overview</h3>
+        <div className="flex items-center gap-2">
+          {label && <span className="text-xs text-muted-foreground">{label}</span>}
+          <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadStats(true)} disabled={refreshing}>
+            <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
+      </div>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="p-6 border rounded-xl bg-card shadow-sm">
           <div className="text-sm font-medium text-muted-foreground mb-2 flex items-center gap-2">
@@ -560,31 +617,48 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
 function OrdersTab({ turso }: { turso: any }) {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const { bump, label } = useLastUpdated();
+
+  const loadOrders = useCallback(async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    try {
+      const res = await turso.execute(`
+        SELECT o.*, c.email, c.firstName, c.lastName
+        FROM [Order] o
+        LEFT JOIN Customer c ON o.customerId = c.id
+        ORDER BY o.createdAt DESC
+      `);
+      setOrders(res.rows);
+      bump();
+    } catch (err) {
+      console.error("Failed to load orders", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [turso, bump]);
 
   useEffect(() => {
-    async function loadOrders() {
-      try {
-        const res = await turso.execute(`
-          SELECT o.*, c.email, c.firstName, c.lastName 
-          FROM [Order] o 
-          LEFT JOIN Customer c ON o.customerId = c.id 
-          ORDER BY o.createdAt DESC
-        `);
-        setOrders(res.rows);
-      } catch (err) {
-        console.error("Failed to load orders", err);
-      } finally {
-        setLoading(false);
-      }
-    }
     loadOrders();
-  }, [turso]);
+    const timer = setInterval(() => loadOrders(), POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [loadOrders]);
 
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-medium">Recent Orders</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-medium">Recent Orders</h3>
+        <div className="flex items-center gap-2">
+          {label && <span className="text-xs text-muted-foreground">{label}</span>}
+          <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadOrders(true)} disabled={refreshing}>
+            <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
+            Refresh
+          </Button>
+        </div>
+      </div>
       <div className="border rounded-md overflow-hidden bg-card">
         <table className="w-full text-sm text-left">
           <thead className="bg-muted/50 text-muted-foreground uppercase">

@@ -85,6 +85,56 @@ function extractDependencies(
  * @param files - Our file record with "src/" prefixed paths
  * @returns Sandpack-compatible file record with "/" prefixed paths
  */
+/**
+ * Rewrites @/ alias imports to relative paths so Sandpack can resolve them.
+ * e.g. `import X from "@/components/Y"` in src/App.tsx → `import X from "./components/Y"`
+ * This is a client-side safety net — the worker should have already rewritten them,
+ * but we do it here too to handle any edge cases (cached files, old versions, etc.)
+ */
+function rewriteAtAliasForSandpack(
+  filePath: string,
+  content: string
+): string {
+  if (!/\.(ts|tsx|js|jsx)$/.test(filePath)) return content;
+
+  // Determine directory of this file (relative to src/ root, since Sandpack strips src/)
+  const fromDir = filePath.startsWith("src/")
+    ? filePath.slice(4, filePath.lastIndexOf("/") + 1) // e.g. "components/"
+    : filePath.slice(0, filePath.lastIndexOf("/") + 1);
+
+  const resolveAlias = (target: string) => {
+    // target is e.g. "components/Button" → file is at /components/Button.tsx in Sandpack
+    // fromDir is e.g. "components/" (where the importing file lives)
+    const fromParts = fromDir.split("/").filter(Boolean);
+    const toParts = target.split("/").filter(Boolean);
+
+    let commonLen = 0;
+    while (
+      commonLen < fromParts.length &&
+      commonLen < toParts.length &&
+      fromParts[commonLen] === toParts[commonLen]
+    ) {
+      commonLen++;
+    }
+
+    const ups = fromParts.length - commonLen;
+    const rel = [
+      ...Array(ups).fill(".."),
+      ...toParts.slice(commonLen),
+    ].join("/");
+
+    return rel ? (rel.startsWith("..") ? rel : `./${rel}`) : ".";
+  };
+
+  return content
+    .replace(/from\s+(['"])@\/([^'"]+)\1/g, (_m, q, target) => {
+      return `from ${q}${resolveAlias(target)}${q}`;
+    })
+    .replace(/import\(\s*(['"])@\/([^'"]+)\1\s*\)/g, (_m, q, target) => {
+      return `import(${q}${resolveAlias(target)}${q})`;
+    });
+}
+
 function toSandpackFiles(
   files: Record<string, string>
 ): Record<string, { code: string }> {
@@ -97,7 +147,10 @@ function toSandpackFiles(
       ? `/${path.slice(4)}`
       : `/${path}`;
 
-    sandpackFiles[sandpackPath] = { code: content };
+    // Rewrite @/ aliases as safety net (worker should have already done this)
+    const safeContent = rewriteAtAliasForSandpack(path, content);
+
+    sandpackFiles[sandpackPath] = { code: safeContent };
   }
 
   return sandpackFiles;

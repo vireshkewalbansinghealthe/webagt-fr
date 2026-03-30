@@ -46,6 +46,7 @@ import type { DeviceMode } from "./device-toggle";
 import type { EditorTabValue } from "./editor-tabs";
 import { useCollaboratorPresence } from "@/hooks/use-collaborator-presence";
 import { PresenceAvatars } from "./presence-avatars";
+import { useNewOrdersCount } from "@/hooks/use-new-orders-count";
 
 /**
  * Props for the EditorHeader component.
@@ -81,6 +82,9 @@ export interface EditorHeaderProps {
   deviceMode: DeviceMode;
   onDeviceModeChange: (mode: DeviceMode) => void;
   projectType?: "website" | "webshop";
+  /** Turso connection — only present for webshop projects */
+  databaseUrl?: string;
+  databaseToken?: string;
 }
 
 /**
@@ -119,6 +123,8 @@ export function EditorHeader({
   deviceMode,
   onDeviceModeChange,
   projectType,
+  databaseUrl,
+  databaseToken,
 }: EditorHeaderProps) {
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
   const { user } = useUser();
@@ -139,6 +145,12 @@ export function EditorHeader({
           avatarUrl: user.imageUrl,
         }
       : null,
+  });
+
+  const { newOrdersCount, markAsSeen } = useNewOrdersCount({
+    projectId,
+    databaseUrl,
+    databaseToken,
   });
 
   const tabs: Array<{ value: EditorTabValue; label: string; icon: any }> = [...BASE_TABS];
@@ -211,17 +223,20 @@ export function EditorHeader({
         <div className="flex items-center gap-0.5 rounded-full bg-secondary/60 p-1">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.value;
-            // Highlight the Shop tab with a primary color when active
             const isShopTab = tab.value === "shop-manager";
-            
+            const showBadge = isShopTab && newOrdersCount > 0;
+
             return (
               <button
                 key={tab.value}
-                onClick={() => onTabChange(tab.value)}
+                onClick={() => {
+                  onTabChange(tab.value);
+                  if (isShopTab) markAsSeen();
+                }}
                 className={cn(
-                  "flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150",
+                  "relative flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-sm font-medium transition-all duration-150",
                   isActive
-                    ? isShopTab 
+                    ? isShopTab
                       ? "bg-primary text-primary-foreground shadow-sm"
                       : "bg-foreground text-background shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -229,6 +244,11 @@ export function EditorHeader({
               >
                 <tab.icon className="size-3.5" />
                 {tab.label}
+                {showBadge && (
+                  <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground leading-none shadow-sm">
+                    {newOrdersCount > 99 ? "99+" : newOrdersCount}
+                  </span>
+                )}
               </button>
             );
           })}

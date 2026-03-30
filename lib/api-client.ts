@@ -258,6 +258,13 @@ export function createApiClient(getToken: GetTokenFunction) {
        * @param id - The project ID
        * @returns Object with updated project and version number
        */
+      provisionDatabase: (id: string) =>
+        authenticatedFetch<{ success: boolean; databaseUrl: string; project: Project }>(
+          getToken,
+          `/api/projects/${id}/provision-database`,
+          { method: "POST" }
+        ),
+
       syncStripe: (id: string) =>
         authenticatedFetch<{ project: Project; version: number }>(
           getToken,

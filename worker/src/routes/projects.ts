@@ -789,8 +789,8 @@ projectRoutes.post("/", async (c) => {
       const tursoDb = await createTursoDatabase(c.env, dbName);
       
       console.log(`Turso database provisioned successfully: ${tursoDb.url}`);
-      databaseUrl = tursoDb.url;
-      databaseToken = tursoDb.token;
+      databaseUrl = tursoDb.url || undefined;
+      databaseToken = tursoDb.token || undefined; // empty string "" → treat as missing
 
       if (databaseUrl && databaseToken) {
         console.log(`Executing default shop schema on ${databaseUrl}`);
@@ -1682,7 +1682,13 @@ projectRoutes.post("/:id/publish", async (c) => {
 
       if (f.path === "vite.config.ts" || f.path === "vite.config.js") {
         if (content.includes("defineConfig({") && !content.includes("allowedHosts")) {
-            content = content.replace("defineConfig({", "defineConfig({ server: { allowedHosts: true }, ");
+          if (content.includes("server:")) {
+            // Already has a server block — inject allowedHosts into it to avoid duplicate key
+            content = content.replace(/server\s*:\s*\{/, "server: {\n    allowedHosts: true,\n    watch: null,");
+          } else {
+            // No server block yet — add one inline (watch: null disables file-watching in Docker)
+            content = content.replace("defineConfig({", "defineConfig({ server: { allowedHosts: true, watch: null }, ");
+          }
         }
         if (!content.includes("stripeApiPlugin")) {
           content = `import { stripeApiPlugin } from './stripe-api-plugin';\n` + content;
@@ -1716,7 +1722,7 @@ projectRoutes.post("/:id/publish", async (c) => {
         path: "vite.config.ts",
         mode: "100644",
         type: "blob",
-        content: `import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\nimport { stripeApiPlugin } from './stripe-api-plugin'\n\nexport default defineConfig({\n  plugins: [stripeApiPlugin(), react()],\n  server: {\n    allowedHosts: true\n  }\n})`
+        content: `import { defineConfig } from 'vite'\nimport react from '@vitejs/plugin-react'\nimport { stripeApiPlugin } from './stripe-api-plugin'\n\nexport default defineConfig({\n  plugins: [stripeApiPlugin(), react()],\n  server: {\n    allowedHosts: true,\n    watch: null\n  }\n})`
       });
     }
 
@@ -2003,7 +2009,7 @@ export function stripeApiPlugin(): Plugin {
       path: "Dockerfile",
       mode: "100644",
       type: "blob",
-      content: `FROM node:22-bullseye-slim\nWORKDIR /app\nCOPY . .\nENV PRISMA_SKIP_POSTINSTALL_GENERATE=true\nRUN npm install --no-audit --no-fund --legacy-peer-deps\nEXPOSE 3000\nCMD ["npm", "run", "dev"]`
+      content: `FROM node:22-bullseye-slim\nWORKDIR /app\nCOPY . .\nENV PRISMA_SKIP_POSTINSTALL_GENERATE=true\nRUN npm install --no-audit --no-fund --legacy-peer-deps\nEXPOSE 3000\nCMD ["/bin/sh", "-c", "ulimit -n 65535 && npm run dev"]`
     });
 
     const treeRes = await fetch(`https://api.github.com/repos/${repo}/git/trees`, {
@@ -2180,6 +2186,64 @@ projectRoutes.get("/:id/deployment/:deploymentUuid", async (c) => {
   } catch (error: any) {
     console.error("Deployment status error:", error);
     return c.json({ error: error.message }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/projects/:id/provision-database
+// Re-provision a Turso database for projects where it failed during creation.
+// Safe to call multiple times — skips if the project already has a database.
+// ---------------------------------------------------------------------------
+
+projectRoutes.post("/:id/provision-database", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+
+  const isOwner = project.userId === userId;
+  const isCollaborator = (project.collaborators ?? []).some((col: any) => col.userId === userId);
+  if (!isOwner && !isCollaborator) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+
+  // Already has a working database
+  if (project.databaseUrl && project.databaseToken) {
+    return c.json({ message: "Database already provisioned", databaseUrl: project.databaseUrl });
+  }
+
+  try {
+    const dbName = `shop-${projectId.substring(0, 8).toLowerCase()}`;
+    const tursoDb = await createTursoDatabase(c.env, dbName);
+
+    const databaseUrl = tursoDb.url || undefined;
+    const databaseToken = tursoDb.token || undefined;
+
+    if (!databaseUrl || !databaseToken) {
+      return c.json({ error: "Database provisioning succeeded but returned an empty token. Please try again in a few seconds." }, 500);
+    }
+
+    // Apply schema
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      await createWebshopSchema(databaseUrl, databaseToken);
+      await seedTemplateCatalogIfNeeded(databaseUrl, databaseToken, project.templateId);
+    } catch (schemaErr) {
+      console.error("[Provision DB] Schema error (non-fatal):", schemaErr);
+    }
+
+    // Persist updated project
+    const updatedProject: Project = {
+      ...project,
+      databaseUrl,
+      databaseToken,
+      updatedAt: new Date().toISOString(),
+    };
+    await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(updatedProject));
+
+    return c.json({ success: true, databaseUrl, project: updatedProject });
+  } catch (err: any) {
+    console.error("[Provision DB] Error:", err);
+    return c.json({ error: err.message || "Failed to provision database" }, 500);
   }
 });
 

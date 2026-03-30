@@ -91,6 +91,9 @@ export interface EditorLayoutProps {
   onRename: (newName: string) => void;
   onDelete: () => void;
   projectType?: "website" | "webshop";
+  /** Turso DB connection for webshop order badge polling */
+  databaseUrl?: string;
+  databaseToken?: string;
 }
 
 /** Minimum and maximum width for the chat panel in percentage */
@@ -136,6 +139,8 @@ export function EditorLayout({
   onDelete,
   projectType,
   shopManagerPanel,
+  databaseUrl,
+  databaseToken,
 }: EditorLayoutProps) {
   const [activeTab, setActiveTab] = useState<EditorTabValue>("preview");
   const [deviceMode, setDeviceMode] = useState<DeviceMode>("desktop");
@@ -245,6 +250,8 @@ export function EditorLayout({
         deviceMode={deviceMode}
         onDeviceModeChange={setDeviceMode}
         projectType={projectType}
+        databaseUrl={databaseUrl}
+        databaseToken={databaseToken}
       />
 
       {/* Version viewing banner — shown when browsing an old version */}

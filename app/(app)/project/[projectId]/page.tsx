@@ -1040,6 +1040,8 @@ export default function EditorPage({
           : undefined
       }
       projectType={project?.type}
+      databaseUrl={project?.databaseUrl}
+      databaseToken={project?.databaseToken}
       shopManagerPanel={project && project.type === "webshop" ? <ShopManagerPanel project={project} /> : undefined}
       previewPanel={<PreviewPanel files={files} onError={handleSandpackError} isStreaming={isStreaming} onFilesChange={handleFilesChange} />}
       codeEditorPanel={

@@ -56,7 +56,7 @@ function relativePath(fromDir: string, toPath: string): string {
   return `./${relative}`;
 }
 
-function rewriteAtAliasImportsForSandbox(files: ProjectFile[]): ProjectFile[] {
+export function rewriteAtAliasImportsForSandbox(files: ProjectFile[]): ProjectFile[] {
   return files.map((file) => {
     if (!/\.(ts|tsx|js|jsx)$/.test(file.path)) {
       return file;
@@ -409,8 +409,10 @@ export function getDefaultProjectFiles(
     {
       path: "src/App.tsx",
       content: `/**
- * App.tsx — Main application component.
- * This is your starting point. Edit this file or ask AI to generate code.
+ * App.tsx — Main application component (PLACEHOLDER).
+ * AI: This file is a placeholder. You MUST replace it entirely with real routing
+ * and component imports when generating the first version of this project.
+ * NEVER leave this placeholder in the output — always output a complete App.tsx.
  */
 
 export default function App() {

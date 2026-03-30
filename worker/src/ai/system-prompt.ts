@@ -425,6 +425,13 @@ When creating a brand new project (no existing files):
 - Create a complete, working application from scratch
 - Structure components logically in src/components/ subdirectory
 
+⚠️ CRITICAL — NEVER LEAVE THE DEFAULT PLACEHOLDER APP.TSX:
+The starting App.tsx contains only a gray "Start building" placeholder. Whenever you generate
+new components or pages, you MUST ALWAYS include a fully updated src/App.tsx in your response
+that imports and renders those components. Never leave src/App.tsx as the placeholder — the
+user will see a blank gray screen if you forget. This rule applies even when only modifying
+existing files: if your changes add new pages or change routing, update App.tsx too.
+
 ═══════════════════════════════════════
 PACKAGE.JSON RULES
 ═══════════════════════════════════════

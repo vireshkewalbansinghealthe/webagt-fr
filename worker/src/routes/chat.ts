@@ -167,6 +167,7 @@ import type { Env, AppVariables } from "../types";
 import type { Project, ProjectFile, Version } from "../types/project";
 import type { ChatMessage, ChatSession } from "../types/chat";
 import { buildSystemPrompt, prepareChatHistory } from "../ai/system-prompt";
+import { rewriteAtAliasImportsForSandbox } from "../ai/default-project";
 import {
   parseFilesFromResponse,
   filterUnsafeGeneratedFiles,
@@ -496,10 +497,15 @@ chatRoutes.post("/:projectId", async (c) => {
 
       // If the AI returned no files, just send the text as explanation
       // This handles cases where the AI only provides advice without code
-      const mergedFiles =
+      const rawMergedFiles =
         acceptedFiles.length > 0
           ? mergeFiles(existingFiles, acceptedFiles)
           : existingFiles;
+
+      // Rewrite @/ alias imports → relative paths so Sandpack can resolve them.
+      // The AI sometimes generates `import X from "@/components/Y"` which
+      // is valid Vite (tsconfig paths) but breaks Sandpack's bundler.
+      const mergedFiles = rewriteAtAliasImportsForSandbox(rawMergedFiles);
 
       // --- 9. Store new version in R2 (only if files changed) ---
       let newVersionNumber = project.currentVersion;

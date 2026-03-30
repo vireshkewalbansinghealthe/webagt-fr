@@ -65,9 +65,11 @@ import {
   Monitor,
   Trash2,
   Check,
+  Users,
 } from "lucide-react";
 import { useTheme, type Theme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
+import { CollaboratorsPanel } from "./collaborators-panel";
 
 /**
  * Props for the ProjectMenu component.
@@ -130,6 +132,9 @@ export function ProjectMenu({
 
   /** Whether the delete confirmation dialog is open */
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
+
+  /** Whether the collaborators panel is open */
+  const [isCollabOpen, setIsCollabOpen] = useState(false);
 
   /** Value of the rename input */
   const [renameValue, setRenameValue] = useState(projectName);
@@ -259,6 +264,12 @@ export function ProjectMenu({
             Settings
           </DropdownMenuItem>
 
+          {/* Collaborators */}
+          <DropdownMenuItem onClick={() => setIsCollabOpen(true)}>
+            <Users className="mr-2 size-4" />
+            Collaborators
+          </DropdownMenuItem>
+
           {/* Rename project */}
           <DropdownMenuItem onClick={() => setIsRenameOpen(true)}>
             <Pencil className="mr-2 size-4" />
@@ -365,6 +376,19 @@ export function ProjectMenu({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* === Collaborators Dialog === */}
+      <Dialog open={isCollabOpen} onOpenChange={setIsCollabOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Collaborators</DialogTitle>
+            <DialogDescription>
+              Invite people to collaborate on <strong>{projectName}</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <CollaboratorsPanel projectId={projectId} onClose={() => setIsCollabOpen(false)} />
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

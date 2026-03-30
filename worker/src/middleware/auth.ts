@@ -82,8 +82,12 @@ export const authMiddleware = createMiddleware<{
       return c.json({ error: "JWT missing sub claim", code: "UNAUTHORIZED" }, 401);
     }
 
-    console.log(`[auth] Authenticated user: ${userId}`);
+    // Clerk puts publicMetadata into the JWT as the `metadata` claim
+    const userRole = (payload as Record<string, unknown> & { metadata?: { role?: string } }).metadata?.role;
+
+    console.log(`[auth] Authenticated user: ${userId}${userRole ? ` (role: ${userRole})` : ""}`);
     c.set("userId", userId);
+    if (userRole) c.set("userRole", userRole);
     await next();
   } catch (error) {
     const message = error instanceof Error ? error.message : "JWT verification failed";

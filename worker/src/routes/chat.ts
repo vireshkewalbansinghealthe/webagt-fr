@@ -256,7 +256,9 @@ chatRoutes.post("/:projectId", async (c) => {
     return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
   }
 
-  if (project.userId !== userId) {
+  const isOwner = project.userId === userId;
+  const isCollaborator = project.collaborators?.some((col) => col.userId === userId);
+  if (!isOwner && !isCollaborator) {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
@@ -697,7 +699,7 @@ chatRoutes.get("/:projectId", async (c) => {
   const userId = c.var.userId;
   const projectId = c.req.param("projectId");
 
-  // Verify project ownership
+  // Verify project ownership or collaboration
   const project = await c.env.METADATA.get<Project>(
     `project:${projectId}`,
     "json",
@@ -707,7 +709,10 @@ chatRoutes.get("/:projectId", async (c) => {
     return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
   }
 
-  if (project.userId !== userId) {
+  const isOwnerOrCollab =
+    project.userId === userId ||
+    project.collaborators?.some((col) => col.userId === userId);
+  if (!isOwnerOrCollab) {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 

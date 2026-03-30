@@ -20,6 +20,14 @@
  * @property createdAt - ISO 8601 timestamp of project creation
  * @property updatedAt - ISO 8601 timestamp of last modification
  */
+/** A collaborator on a project — invited by the owner and added after acceptance. */
+export interface Collaborator {
+  userId: string;
+  email: string;
+  role: "editor" | "viewer";
+  joinedAt: string;
+}
+
 export interface Project {
   id: string;
   userId: string;
@@ -45,6 +53,7 @@ export interface Project {
   emailDomainStatus?: "unverified" | "pending" | "verified" | "failed";
   emailLastVerificationAt?: string;
   emailLastError?: string;
+  collaborators?: Collaborator[];
   currentVersion: number;
   createdAt: string;
   updatedAt: string;

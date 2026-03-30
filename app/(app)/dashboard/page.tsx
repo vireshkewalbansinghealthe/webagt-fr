@@ -68,6 +68,7 @@ import {
   EmptyState,
   CreateProjectDialog,
 } from "@/components/dashboard";
+import { UpgradeModal } from "@/components/dashboard/upgrade-modal";
 import type { CreateProjectData } from "@/components/dashboard";
 import type { Project } from "@/types/project";
 import { createApiClient } from "@/lib/api-client";
@@ -93,6 +94,9 @@ export default function DashboardPage() {
   const [filterType, setFilterType] = useState<FilterType>("all");
   const [sortBy, setSortBy] = useState<SortBy>("updated");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
+
+  /** Whether the upgrade modal is open */
+  const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
   /** ID of the project pending deletion (null = dialog closed) */
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
@@ -184,10 +188,23 @@ export default function DashboardPage() {
 
         setDialogOpen(false);
         router.push(url);
-      } catch (error) {
-      console.error("Failed to create project:", error);
+    } catch (error) {
       const message =
         error instanceof Error ? error.message : "Failed to create project";
+
+      // Show the upgrade modal instead of a toast for plan limit errors
+      if (
+        message.toLowerCase().includes("free plan") ||
+        message.toLowerCase().includes("limited to") ||
+        message.toLowerCase().includes("upgrade")
+      ) {
+        setDialogOpen(false);
+        setUpgradeModalOpen(true);
+        // Rethrow so the dialog resets its own loading/form state
+        throw error;
+      }
+
+      console.error("Failed to create project:", error);
       toast.error(message);
     }
   }
@@ -400,6 +417,12 @@ export default function DashboardPage() {
         open={dialogOpen}
         onOpenChange={setDialogOpen}
         onSubmit={handleCreateProject}
+      />
+
+      {/* Upgrade modal — shown when free plan project limit is reached */}
+      <UpgradeModal
+        open={upgradeModalOpen}
+        onOpenChange={setUpgradeModalOpen}
       />
 
       {/* Rename project dialog */}

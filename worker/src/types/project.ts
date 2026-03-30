@@ -9,6 +9,26 @@
  * Used by: worker route handlers and AI default project template
  */
 
+/** A collaborator on a project — invited by the owner and added after acceptance. */
+export interface Collaborator {
+  userId: string;
+  email: string;
+  role: "editor" | "viewer";
+  joinedAt: string;
+}
+
+/**
+ * A pending project invitation stored in KV as `invite:{token}`.
+ * Expires after 7 days.
+ */
+export interface ProjectInvite {
+  projectId: string;
+  invitedEmail: string;
+  invitedByUserId: string;
+  role: "editor" | "viewer";
+  expiresAt: string; // ISO 8601
+}
+
 /**
  * A user's project — the top-level entity.
  * Stored in KV as `project:{id}`.
@@ -38,6 +58,7 @@ export interface Project {
   emailDomainStatus?: "unverified" | "pending" | "verified" | "failed";
   emailLastVerificationAt?: string;
   emailLastError?: string;
+  collaborators?: Collaborator[];
   currentVersion: number;
   createdAt: string;
   updatedAt: string;

@@ -185,7 +185,7 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
 }
 
 /**
- * "Built with Lovable" badge shown in the Sandpack preview actions bar.
+ * "Built with WebAGT" badge shown in the Sandpack preview actions bar.
  * Uses inline styles instead of Tailwind because Sandpack's CSS-in-JS
  * (stitches) applies scoped styles with high specificity that override
  * Tailwind utility classes. React state drives the hover effect.
@@ -195,7 +195,7 @@ function LovableBadge() {
 
   return (
     <a
-      href="/"
+      href="https://webagt.ai"
       target="_blank"
       rel="noopener noreferrer"
       onMouseEnter={() => setHovered(true)}
@@ -216,7 +216,7 @@ function LovableBadge() {
       }}
     >
       <img src="/logo.svg" alt="" style={{ width: 14, height: 14 }} />
-      Built with Lovable
+      Built with WebAGT
     </a>
   );
 }
@@ -224,115 +224,236 @@ function LovableBadge() {
 /** Script injected into Sandpack to handle visual editing */
 const INSPECTOR_SCRIPT = `
 (function() {
+
+  // ── Unsplash / broken image fallback ─────────────────────────────────────
+  // Intercept ALL image load errors in the preview. If an image from Unsplash
+  // (or any source) fails to load, replace it with a reliable Picsum photo
+  // that matches the same dimensions, so the layout never breaks.
+  function attachImageFallback(img) {
+    if (img.dataset.fallbackAttached) return;
+    img.dataset.fallbackAttached = '1';
+    img.addEventListener('error', function() {
+      if (img.dataset.fallbackApplied) return;
+      img.dataset.fallbackApplied = '1';
+      const w = img.naturalWidth || img.width || img.offsetWidth || 800;
+      const h = img.naturalHeight || img.height || img.offsetHeight || 600;
+      // Use a deterministic seed from the original src so rerenders stay stable
+      const seed = encodeURIComponent((img.src || '').slice(-20).replace(/[^a-z0-9]/gi, '') || 'fallback');
+      img.src = 'https://picsum.photos/seed/' + seed + '/' + Math.max(w, 100) + '/' + Math.max(h, 100);
+    }, { once: true });
+  }
+
+  // Attach to all current images and watch for new ones added dynamically
+  function scanImages() {
+    document.querySelectorAll('img').forEach(attachImageFallback);
+  }
+  scanImages();
+  const _imgObserver = new MutationObserver(scanImages);
+  _imgObserver.observe(document.body, { childList: true, subtree: true });
+  // ─────────────────────────────────────────────────────────────────────────
+
   let enabled = false;
-  let originalText = '';
-  
-  let overlay = document.createElement('div');
-  overlay.style.position = 'fixed';
-  overlay.style.pointerEvents = 'none';
-  overlay.style.zIndex = '9999999';
-  overlay.style.border = '2px solid #8b5cf6';
-  overlay.style.backgroundColor = 'rgba(139, 92, 246, 0.2)';
-  overlay.style.transition = 'all 0.1s ease';
-  overlay.style.display = 'none';
+
+  // Highlight overlay
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;pointer-events:none;z-index:9999999;border:2px solid #8b5cf6;background:rgba(139,92,246,0.12);border-radius:3px;box-sizing:border-box;display:none;';
   document.body.appendChild(overlay);
+
+  // Label shown inside overlay
+  const overlayLabel = document.createElement('div');
+  overlayLabel.style.cssText = 'position:absolute;top:-20px;left:0;background:#8b5cf6;color:#fff;font-size:10px;font-family:monospace;padding:1px 5px;border-radius:3px 3px 0 0;white-space:nowrap;pointer-events:none;';
+  overlay.appendChild(overlayLabel);
 
   window.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'SET_VISUAL_EDIT_MODE') {
       enabled = e.data.enabled;
-      if (!enabled) {
-        overlay.style.display = 'none';
-      }
+      if (!enabled) overlay.style.display = 'none';
     }
   });
 
-  document.addEventListener('mouseover', (e) => {
+  /**
+   * Use caretRangeFromPoint / caretPositionFromPoint to get the EXACT
+   * text node the user's cursor is over. This text node's content is the
+   * same literal string that lives in the JSX source, so matching is
+   * always reliable.
+   */
+  function getTextNodeAt(x, y) {
+    if (document.caretRangeFromPoint) {
+      var r = document.caretRangeFromPoint(x, y);
+      if (r && r.startContainer && r.startContainer.nodeType === 3) return r.startContainer;
+    }
+    if (document.caretPositionFromPoint) {
+      var p = document.caretPositionFromPoint(x, y);
+      if (p && p.offsetNode && p.offsetNode.nodeType === 3) return p.offsetNode;
+    }
+    return null;
+  }
+
+  /**
+   * Walk UP from el to the nearest element that owns at least one
+   * non-empty direct text node. Falls back to el itself.
+   */
+  function nearestWithText(el) {
+    var cur = el;
+    while (cur && cur !== document.body) {
+      for (var i = 0; i < cur.childNodes.length; i++) {
+        if (cur.childNodes[i].nodeType === 3 && cur.childNodes[i].textContent.trim()) return cur;
+      }
+      cur = cur.parentElement;
+    }
+    return el;
+  }
+
+  /** Concatenate ONLY direct text nodes of el (no child-element text). */
+  function directText(el) {
+    var t = '';
+    for (var i = 0; i < el.childNodes.length; i++) {
+      if (el.childNodes[i].nodeType === 3) t += el.childNodes[i].textContent;
+    }
+    return t.trim();
+  }
+
+  document.addEventListener('mouseover', function(e) {
     if (!enabled) return;
-    const target = e.target;
-    if (target === document.body || target === document.documentElement) return;
-    const rect = target.getBoundingClientRect();
+    var t = e.target;
+    if (t === document.body || t === document.documentElement || t === overlay) return;
+    var rect = t.getBoundingClientRect();
     overlay.style.display = 'block';
     overlay.style.top = rect.top + 'px';
     overlay.style.left = rect.left + 'px';
     overlay.style.width = rect.width + 'px';
     overlay.style.height = rect.height + 'px';
+    var tag = t.tagName ? t.tagName.toLowerCase() : '';
+    var cls = t.className && typeof t.className === 'string' ? t.className.trim().split(' ')[0] : '';
+    overlayLabel.textContent = tag + (cls ? '.' + cls : '');
   });
 
-  document.addEventListener('mouseout', (e) => {
+  document.addEventListener('mouseout', function(e) {
     if (!enabled) return;
     overlay.style.display = 'none';
   });
 
-  document.addEventListener('click', (e) => {
+  document.addEventListener('click', function(e) {
     if (!enabled) return;
     e.preventDefault();
     e.stopPropagation();
-    
-    const target = e.target;
+
     overlay.style.display = 'none';
     enabled = false;
     window.parent.postMessage({ type: 'VISUAL_EDIT_ENDED' }, '*');
-    
-    if (target.tagName === 'IMG' || target.tagName === 'SVG') {
-       const newSrc = prompt('Enter new image URL:', target.src || '');
-       if (newSrc && newSrc !== target.src) {
-           const oldSrc = target.src;
-           target.src = newSrc;
-           window.parent.postMessage({ type: 'DIRECT_SAVE_IMAGE', oldSrc: oldSrc, newSrc: newSrc }, '*');
-       }
-    } else {
-       originalText = target.innerText || target.textContent;
-       target.contentEditable = 'true';
-       target.style.outline = '2px dashed #8b5cf6';
-       target.style.outlineOffset = '2px';
-       target.style.borderRadius = '2px';
-       target.focus();
-       
-       const onBlur = () => {
-           target.contentEditable = 'false';
-           target.style.outline = '';
-           target.style.outlineOffset = '';
-           target.style.borderRadius = '';
-           target.removeEventListener('blur', onBlur);
-           
-           const newText = target.innerText || target.textContent;
-           if (newText !== originalText) {
-               window.parent.postMessage({ type: 'DIRECT_SAVE_TEXT', oldText: originalText, newText: newText }, '*');
-           }
-       };
-       target.addEventListener('blur', onBlur);
-       
-       const onKeyDown = (event) => {
-           if (event.key === 'Enter' && !event.shiftKey) {
-               event.preventDefault();
-               target.blur();
-               target.removeEventListener('keydown', onKeyDown);
-           }
-       };
-       target.addEventListener('keydown', onKeyDown);
+
+    var target = e.target;
+
+    // ── IMAGE ──────────────────────────────────────────────────────────────
+    if (target.tagName === 'IMG') {
+      var srcAttr = target.getAttribute('src') || '';
+      var newSrc = prompt('Enter new image URL:', srcAttr);
+      if (newSrc !== null && newSrc.trim() && newSrc.trim() !== srcAttr) {
+        window.parent.postMessage({ type: 'DIRECT_SAVE_IMAGE', oldSrc: srcAttr, oldSrcResolved: target.src, newSrc: newSrc.trim() }, '*');
+      }
+      return;
     }
+
+    // ── TEXT — Strategy 1: use caret API to get exact text node ────────────
+    var textNode = getTextNodeAt(e.clientX, e.clientY);
+
+    if (textNode && textNode.textContent.trim()) {
+      var originalNodeText = textNode.textContent;
+      var originalTrimmed = originalNodeText.trim();
+
+      // Wrap just this text node in a temporary editable span so only it is
+      // editable — no sibling or child element text bleeds in.
+      var tempSpan = document.createElement('span');
+      tempSpan.contentEditable = 'true';
+      tempSpan.style.cssText = 'outline:2px dashed #8b5cf6;outline-offset:2px;border-radius:2px;min-width:2px;display:inline;';
+      tempSpan.textContent = originalNodeText;
+      textNode.parentNode.replaceChild(tempSpan, textNode);
+      tempSpan.focus();
+
+      try {
+        var r = document.createRange();
+        r.selectNodeContents(tempSpan);
+        var s = window.getSelection();
+        s.removeAllRanges();
+        s.addRange(r);
+      } catch(_) {}
+
+      var done = false;
+      var finish = function(save) {
+        if (done) return;
+        done = true;
+        var newContent = tempSpan.textContent || '';
+        var newNode = document.createTextNode(save ? newContent : originalNodeText);
+        if (tempSpan.parentNode) tempSpan.parentNode.replaceChild(newNode, tempSpan);
+        if (save && newContent.trim() !== originalTrimmed) {
+          window.parent.postMessage({ type: 'DIRECT_SAVE_TEXT', oldText: originalTrimmed, newText: newContent.trim() }, '*');
+        }
+      };
+
+      tempSpan.addEventListener('blur', function() { finish(true); }, { once: true });
+      tempSpan.addEventListener('keydown', function(ev) {
+        if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); finish(true); }
+        if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+      });
+      return;
+    }
+
+    // ── TEXT — Strategy 2: direct text nodes of nearest text element ───────
+    var textEl = nearestWithText(target);
+    var origDirect = directText(textEl);
+    if (!origDirect) return; // nothing editable
+
+    textEl.contentEditable = 'true';
+    textEl.style.outline = '2px dashed #8b5cf6';
+    textEl.style.outlineOffset = '2px';
+    textEl.style.borderRadius = '2px';
+    textEl.focus();
+
+    try {
+      var r2 = document.createRange();
+      r2.selectNodeContents(textEl);
+      var s2 = window.getSelection();
+      s2.removeAllRanges();
+      s2.addRange(r2);
+    } catch(_) {}
+
+    textEl.addEventListener('blur', function() {
+      var newDirect = directText(textEl);
+      textEl.contentEditable = 'false';
+      textEl.style.outline = '';
+      textEl.style.outlineOffset = '';
+      textEl.style.borderRadius = '';
+      if (newDirect !== origDirect) {
+        window.parent.postMessage({ type: 'DIRECT_SAVE_TEXT', oldText: origDirect, newText: newDirect }, '*');
+      }
+    }, { once: true });
+
+    textEl.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Enter' && !ev.shiftKey) { ev.preventDefault(); textEl.blur(); }
+      if (ev.key === 'Escape') {
+        ev.preventDefault();
+        textEl.contentEditable = 'false';
+        textEl.style.outline = '';
+        textEl.style.outlineOffset = '';
+        textEl.style.borderRadius = '';
+      }
+    });
+
   }, true);
 
-  // Add html2canvas dynamically for taking thumbnail screenshots
-  const script = document.createElement('script');
-  script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
-  script.onload = () => {
-    // Only capture once per page load, after 4 seconds to let images/fonts load
-    setTimeout(() => {
+  // html2canvas for project thumbnails
+  var scr = document.createElement('script');
+  scr.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+  scr.onload = function() {
+    setTimeout(function() {
       if (window.html2canvas && document.body) {
-        window.html2canvas(document.body, { 
-          scale: 0.5,
-          useCORS: true,
-          logging: false
-        }).then(canvas => {
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-          window.parent.postMessage({ type: 'SAVE_THUMBNAIL', dataUrl }, '*');
-        }).catch(e => console.error('html2canvas error', e));
+        window.html2canvas(document.body, { scale: 0.5, useCORS: true, logging: false })
+          .then(function(canvas) { window.parent.postMessage({ type: 'SAVE_THUMBNAIL', dataUrl: canvas.toDataURL('image/jpeg', 0.6) }, '*'); })
+          .catch(function() {});
       }
     }, 4000);
   };
-  document.head.appendChild(script);
-
+  document.head.appendChild(scr);
 })();
 `;
 const inspectorUrl = "data:application/javascript;charset=utf-8," + encodeURIComponent(INSPECTOR_SCRIPT);
@@ -386,67 +507,157 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange }: Pre
         
         const newFiles = { ...files };
         let found = false;
+
+        /**
+         * Sort file entries so component files (.tsx/.jsx) are checked first,
+         * then .ts/.js, then .html, and configuration files like package.json last.
+         * This prevents short strings matching in the wrong file.
+         */
+        function filePriority(path: string): number {
+          if (/\.(tsx|jsx)$/i.test(path)) return 0;
+          if (/\.(ts|js)$/i.test(path)) return 1;
+          if (/\.html?$/i.test(path)) return 2;
+          if (/package\.json$/i.test(path)) return 99;
+          return 3;
+        }
+
+        const sortedPaths = Object.keys(newFiles)
+          .filter(p => !/package\.json$/i.test(p))
+          .sort((a, b) => filePriority(a) - filePriority(b));
         
         if (e.data.type === 'DIRECT_SAVE_TEXT') {
-          const oldTextRaw = e.data.oldText || '';
-          const newText = e.data.newText || '';
+          const oldTextRaw = (e.data.oldText || '') as string;
+          const newText = (e.data.newText || '') as string;
           const oldTextTrimmed = oldTextRaw.trim();
           
           if (!oldTextTrimmed) return;
 
-          for (const [path, content] of Object.entries(newFiles)) {
-            // 1. Try exact raw match
-            if (content.includes(oldTextRaw)) {
-              newFiles[path] = content.replace(oldTextRaw, newText);
-              found = true;
-              break;
+          function scoreMatch(content: string, index: number, length: number): number {
+            let score = 0;
+            const before = content.slice(Math.max(0, index - 15), index);
+            const after = content.slice(index + length, index + length + 15);
+            
+            // 1. Inside JSX tags: > text <
+            if (/>\s*$/.test(before)) score += 10;
+            if (/^\s*</.test(after)) score += 10;
+            
+            // 2. Inside quotes: ="text" or "text" or `text`
+            if (/=\s*["'\`]$/.test(before)) score += 8;
+            else if (/["'\`]$/.test(before)) score += 5;
+            if (/^["'\`]/.test(after)) score += 5;
+            
+            // 3. Inside curly braces: {"text"}
+            if (/\{\s*["'\`]$/.test(before)) score += 8;
+            if (/^["'\`]\s*\}/.test(after)) score += 8;
+            
+            // 4. PENALTY: Part of a word/variable name
+            if (/[a-zA-Z0-9_]$/.test(before)) score -= 20;
+            if (/^[a-zA-Z0-9_]/.test(after)) score -= 20;
+            
+            // 5. PENALTY: Inside an import statement
+            const lineStart = content.lastIndexOf('\n', index - 1);
+            const line = content.slice(lineStart === -1 ? 0 : lineStart, index);
+            if (/^\s*import\s+/.test(line)) score -= 50;
+            
+            return score;
+          }
+
+          function findAllMatches(content: string, oldRaw: string, oldTrimmed: string) {
+            const matches: { index: number, length: number, score: number }[] = [];
+            const seen = new Set<number>();
+            
+            const addMatch = (idx: number, len: number) => {
+              if (seen.has(idx)) return;
+              seen.add(idx);
+              matches.push({ index: idx, length: len, score: scoreMatch(content, idx, len) });
+            };
+            
+            // 1. Raw exact match
+            if (oldRaw) {
+              let i = -1;
+              while ((i = content.indexOf(oldRaw, i + 1)) !== -1) addMatch(i, oldRaw.length);
             }
             
-            // 2. Try exact trimmed match
-            if (content.includes(oldTextTrimmed)) {
-              newFiles[path] = content.replace(oldTextTrimmed, newText);
-              found = true;
-              break;
+            // 2. Trimmed exact match
+            if (oldTrimmed && oldTrimmed !== oldRaw) {
+              let i = -1;
+              while ((i = content.indexOf(oldTrimmed, i + 1)) !== -1) addMatch(i, oldTrimmed.length);
             }
             
-            // 3. Try regex match ignoring whitespace/newlines differences
-            // Escape regex specials
-            const escaped = oldTextTrimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            // Replace any whitespace in the escaped string with \s+
-            const regexStr = escaped.replace(/\s+/g, '\\s+');
-            const regex = new RegExp(regexStr);
+            // 3. Regex match (handles entities and JSX whitespace)
+            if (oldTrimmed.length >= 2) {
+              try {
+                let pattern = oldTrimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                pattern = pattern.replace(/\s+/g, '\\s+');
+                pattern = pattern.replace(/'/g, `(?:'|&apos;|&#39;|&rsquo;|&lsquo;|\\{['"]'['"]\\})`);
+                pattern = pattern.replace(/"/g, `(?:"|&quot;|&#34;|&rdquo;|&ldquo;|\\{['"]"['"]\\})`);
+                pattern = pattern.replace(/&/g, `(?:&|&amp;|&#38;)`);
+                pattern = pattern.replace(/</g, `(?:<|&lt;|&#60;)`);
+                pattern = pattern.replace(/>/g, `(?:>|&gt;|&#62;)`);
+                
+                const rx = new RegExp(pattern, 'gi');
+                let m;
+                while ((m = rx.exec(content)) !== null) {
+                  addMatch(m.index, m[0].length);
+                }
+              } catch {}
+            }
+            return matches;
+          }
+
+          let bestMatch: { path: string; index: number; length: number; score: number } | null = null;
+
+          for (const path of sortedPaths) {
+            const content = newFiles[path];
+            const matches = findAllMatches(content, oldTextRaw, oldTextTrimmed);
             
-            if (regex.test(content)) {
-              newFiles[path] = content.replace(regex, newText);
-              found = true;
-              break;
+            for (const m of matches) {
+              if (!bestMatch || m.score > bestMatch.score) {
+                bestMatch = { path, index: m.index, length: m.length, score: m.score };
+              }
             }
           }
-        } else if (e.data.type === 'DIRECT_SAVE_IMAGE') {
-          const oldSrc = e.data.oldSrc;
-          const newSrc = e.data.newSrc;
-          
-          if (!oldSrc || !newSrc) return;
 
-          for (const [path, content] of Object.entries(newFiles)) {
-            // 1. Try exact match
-            if (content.includes(oldSrc)) {
-              newFiles[path] = content.replace(oldSrc, newSrc);
+          // Apply replacement if we found a reasonable match
+          // Allow negative scores if it's the ONLY match we found and it's exact
+          if (bestMatch && (bestMatch.score > -20 || bestMatch.length === oldTextRaw.length)) {
+            const content = newFiles[bestMatch.path];
+            newFiles[bestMatch.path] = 
+              content.slice(0, bestMatch.index) + 
+              newText + 
+              content.slice(bestMatch.index + bestMatch.length);
+            found = true;
+          }
+        } else if (e.data.type === 'DIRECT_SAVE_IMAGE') {
+          const oldSrc = (e.data.oldSrc || '') as string;          // raw attribute value
+          const oldSrcResolved = (e.data.oldSrcResolved || '') as string; // resolved URL
+          const newSrc = (e.data.newSrc || '') as string;
+          
+          if (!newSrc) return;
+
+          for (const path of sortedPaths) {
+            const content = newFiles[path];
+
+            // 1. Match the raw attribute src value
+            if (oldSrc && content.includes(oldSrc)) {
+              newFiles[path] = content.split(oldSrc).join(newSrc);
               found = true;
               break;
             }
-            
-            // 2. Try matching just the path (in case it's relative in code but absolute in DOM)
-            try {
-              const url = new URL(oldSrc);
-              const pathname = url.pathname + url.search;
-              if (pathname.length > 1 && content.includes(pathname)) {
-                newFiles[path] = content.replace(pathname, newSrc);
-                found = true;
-                break;
+
+            // 2. Match just the pathname of the resolved URL
+            if (oldSrcResolved) {
+              try {
+                const url = new URL(oldSrcResolved);
+                const pathname = url.pathname + url.search;
+                if (pathname.length > 1 && content.includes(pathname)) {
+                  newFiles[path] = content.split(pathname).join(newSrc);
+                  found = true;
+                  break;
+                }
+              } catch {
+                // Not a valid URL — skip
               }
-            } catch(e) {
-              // Ignore invalid URLs
             }
           }
         }
@@ -455,7 +666,7 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange }: Pre
           onFilesChange(newFiles);
           toast.success("Saved instantly!");
         } else {
-          toast.error("Could not find the exact original text/image in code. Use the chat to ask AI to update it instead.");
+          toast.error("Text not found in source — this usually means it comes from a variable or prop. Use the AI chat to update it instead.");
         }
       }
     };

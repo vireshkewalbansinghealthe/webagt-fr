@@ -466,8 +466,29 @@ export function createApiClient(getToken: GetTokenFunction) {
        */
       get: () => authenticatedFetch<AnalyticsData>(getToken, "/api/analytics"),
     },
-    stripe: {
-      createAccount: (projectId: string, mode: "test" | "live" = "test") => 
+    collaborators: {
+      list: (projectId: string) =>
+        authenticatedFetch<{ ownerId: string; collaborators: Array<{ userId: string; email: string; role: "editor" | "viewer"; joinedAt: string }> }>(
+          getToken,
+          `/api/projects/${projectId}/collaborators`,
+        ),
+
+      invite: (projectId: string, email: string, role: "editor" | "viewer" = "editor") =>
+        authenticatedFetch<{ success: boolean; message: string }>(
+          getToken,
+          `/api/projects/${projectId}/invite`,
+          { method: "POST", body: JSON.stringify({ email, role }) },
+        ),
+
+      remove: (projectId: string, collabUserId: string) =>
+        authenticatedFetch<{ success: boolean }>(
+          getToken,
+          `/api/projects/${projectId}/collaborators/${collabUserId}`,
+          { method: "DELETE" },
+        ),
+    },
+
+    stripe: {      createAccount: (projectId: string, mode: "test" | "live" = "test") => 
         authenticatedFetch<{ accountId: string; mode: "test" | "live" }>(getToken, "/api/stripe/accounts", {
           method: "POST",
           body: JSON.stringify({ projectId, mode }),
@@ -494,5 +515,71 @@ export function createApiClient(getToken: GetTokenFunction) {
           body: JSON.stringify({ mode }),
         }),
     },
+
+    admin: {
+      getStats: () =>
+        authenticatedFetch<{
+          totalUsers: number | null;
+          totalProjects: number | null;
+          latestUsers: AdminUserSummary[];
+        }>(getToken, "/api/admin/stats"),
+
+      getProviderBalances: () =>
+        authenticatedFetch<Record<string, ProviderBalance>>(getToken, "/api/admin/provider-balances"),
+
+      listUsers: (params?: { limit?: number; offset?: number; q?: string }) => {
+        const qs = new URLSearchParams();
+        if (params?.limit) qs.set("limit", String(params.limit));
+        if (params?.offset) qs.set("offset", String(params.offset));
+        if (params?.q) qs.set("q", params.q);
+        return authenticatedFetch<{
+          users: (AdminUserSummary & { projectCount: number })[];
+          totalCount: number;
+          limit: number;
+          offset: number;
+        }>(getToken, `/api/admin/users${qs.size ? `?${qs}` : ""}`);
+      },
+
+      getUser: (userId: string) =>
+        authenticatedFetch<{
+          user: AdminUserSummary;
+          projects: { id: string; name: string; updatedAt: string; type?: string }[];
+          credits: Record<string, unknown> | null;
+        }>(getToken, `/api/admin/users/${userId}`),
+
+      updateCredits: (userId: string, data: { remaining?: number; total?: number; plan?: string }) =>
+        authenticatedFetch<{ success: boolean; credits: Record<string, unknown> }>(
+          getToken,
+          `/api/admin/users/${userId}/credits`,
+          { method: "PATCH", body: JSON.stringify(data) }
+        ),
+
+      deleteProject: (userId: string, projectId: string) =>
+        authenticatedFetch<{ success: boolean }>(
+          getToken,
+          `/api/admin/users/${userId}/projects/${projectId}`,
+          { method: "DELETE" }
+        ),
+    },
   };
+}
+
+export interface ProviderBalance {
+  available: boolean;
+  balance?: string;
+  currency?: string;
+  extra?: Record<string, unknown>;
+  error?: string;
+  dashboardUrl: string;
+}
+
+export interface AdminUserSummary {
+  id: string;
+  name: string;
+  email: string;
+  imageUrl?: string;
+  role: string;
+  plan: string;
+  createdAt: string;
+  lastSignInAt: string | null;
 }

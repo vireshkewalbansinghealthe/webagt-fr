@@ -29,6 +29,8 @@ import { exportRoutes } from "./routes/export";
 import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
 import { stripeRoutes } from "./routes/stripe";
+import { collabRoutes } from "./routes/collaborators";
+import { adminRoutes } from "./routes/admin";
 
 /**
  * Create the Hono app with typed bindings and context variables.
@@ -112,7 +114,8 @@ app.use("/api/*", async (c, next) => {
   if (
     c.req.path === "/api/stripe/checkout_sessions" ||
     c.req.path === "/api/stripe/webhook" ||
-    c.req.path.match(/\/api\/projects\/.*\/public-files/)
+    c.req.path.match(/\/api\/projects\/.*\/public-files/) ||
+    c.req.method === "GET" && c.req.path.match(/^\/api\/invites\/[^/]+$/)
   ) {
     return next();
   }
@@ -181,5 +184,20 @@ app.route("/api/projects/:id/export", exportRoutes);
  * See worker/src/routes/stripe.ts for the handler.
  */
 app.route("/api/stripe", stripeRoutes);
+
+/**
+ * Mount collaboration routes.
+ * Handles invites, accept, remove collaborator, and list collaborators.
+ * The GET /api/invites/:token endpoint is public (no auth required).
+ * See worker/src/routes/collaborators.ts for the handlers.
+ */
+app.route("/", collabRoutes);
+
+/**
+ * Mount admin routes at root (routes are prefixed /api/admin/*).
+ * All handlers are gated by adminMiddleware (requires role=admin in JWT).
+ * See worker/src/routes/admin.ts for individual route handlers.
+ */
+app.route("/", adminRoutes);
 
 export default app;

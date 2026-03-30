@@ -70,6 +70,14 @@ export interface Env {
   SUPABASE_URL?: string;
   /** Supabase service_role secret key — used server-side to upload assets */
   SUPABASE_SERVICE_KEY?: string;
+  /** Clerk secret key — used server-side to look up user profiles */
+  CLERK_SECRET_KEY?: string;
+  /**
+   * Anthropic Admin API key (starts with sk-ant-admin-...).
+   * Required for the Usage & Cost API endpoints. Generate in the
+   * Anthropic Console under Settings → API Keys → Create Admin Key.
+   */
+  ANTHROPIC_ADMIN_KEY?: string;
 }
 
 /**
@@ -77,7 +85,9 @@ export interface Env {
  * These are set by middleware and available to all route handlers.
  *
  * @property userId - Clerk user ID extracted from the JWT `sub` claim
+ * @property userRole - Optional role from JWT `metadata.role` claim (e.g. "admin")
  */
 export interface AppVariables {
   userId: string;
+  userRole?: string;
 }

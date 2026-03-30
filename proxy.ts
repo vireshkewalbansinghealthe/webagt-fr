@@ -27,6 +27,7 @@ const isProtectedRoute = createRouteMatcher([
   "/dashboard(.*)",
   "/project(.*)",
   "/settings(.*)",
+  "/admin(.*)",
 ]);
 
 /**
@@ -37,6 +38,10 @@ const isProtectedRoute = createRouteMatcher([
  * 2. If the route is protected, auth.protect() enforces authentication
  * 3. Unauthenticated requests to protected routes redirect to /sign-in
  * 4. Public routes pass through without any auth check
+ *
+ * Note: /admin routes also require sign-in here. The admin layout performs
+ * an additional role check (publicMetadata.role === "admin") and redirects
+ * non-admins to /dashboard. The worker API enforces the role via JWT claims.
  */
 export default clerkMiddleware(async (auth, request) => {
   if (isProtectedRoute(request)) {

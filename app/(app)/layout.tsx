@@ -34,8 +34,12 @@ import {
   BarChart3,
   Settings,
   CreditCard,
+  HelpCircle,
+  Info,
+  Mail,
   Menu,
   X,
+  Shield,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -52,6 +56,12 @@ const NAV_ITEMS = [
   { label: "Analytics", href: "/analytics", icon: BarChart3 },
   { label: "Settings", href: "/settings", icon: Settings },
   { label: "Pricing", href: "/pricing", icon: CreditCard },
+] as const;
+
+const BOTTOM_NAV_ITEMS = [
+  { label: "About", href: "/about", icon: Info },
+  { label: "Help & Support", href: "/help", icon: HelpCircle },
+  { label: "Contact", href: "/contact", icon: Mail },
 ] as const;
 
 /**
@@ -74,6 +84,7 @@ export default function AppLayout({
 
   const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
   const userDisplayName = user?.fullName || user?.firstName || userEmail.split("@")[0] || "Account";
+  const isAdmin = user?.publicMetadata?.role === "admin";
 
   /**
    * Editor pages get full-width layout (no sidebar).
@@ -123,7 +134,7 @@ export default function AppLayout({
                 WebAGT
               </span>
               <span className="font-outfit text-[9px] font-medium text-muted-foreground leading-none mt-0.5 uppercase tracking-wider">
-                Prompt to live storefront
+                Stop Coding. Start Building.
               </span>
             </div>
           </Link>
@@ -163,6 +174,46 @@ export default function AppLayout({
         </nav>
 
         {/* Credits display — fetches real data from API */}
+        <div className="px-3 pb-2 space-y-1">
+          {BOTTOM_NAV_ITEMS.map((item) => {
+            const isActive = pathname === item.href;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setSidebarOpen(false)}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
+                  isActive
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                )}
+              >
+                <item.icon className="size-4" />
+                {item.label}
+              </Link>
+            );
+          })}
+        </div>
+
+        {isAdmin && (
+          <div className="px-3 pb-1">
+            <Link
+              href="/admin"
+              onClick={() => setSidebarOpen(false)}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
+                pathname.startsWith("/admin")
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+              )}
+            >
+              <Shield className="size-4" />
+              Admin Console
+            </Link>
+          </div>
+        )}
+
         <CreditsDisplay />
 
         <Separator />

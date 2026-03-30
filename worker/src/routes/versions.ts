@@ -39,13 +39,8 @@ const versionRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 // ---------------------------------------------------------------------------
 
 /**
- * Fetches a project from KV and verifies the requesting user owns it.
- * Returns the project if valid, or null with an error response.
- *
- * @param projectId - The project ID to look up
- * @param userId - The authenticated user's ID
- * @param env - Worker environment bindings
- * @returns The project if owned by the user, null otherwise
+ * Fetches a project from KV and verifies the requesting user owns it OR is a collaborator.
+ * Returns the project if valid, or null.
  */
 async function getOwnedProject(
   projectId: string,
@@ -57,7 +52,11 @@ async function getOwnedProject(
     "json",
   );
 
-  if (!project || project.userId !== userId) {
+  if (!project) return null;
+
+  const isOwner = project.userId === userId;
+  const isCollaborator = project.collaborators?.some((c) => c.userId === userId);
+  if (!isOwner && !isCollaborator) {
     return null;
   }
 

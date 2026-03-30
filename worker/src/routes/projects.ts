@@ -521,7 +521,9 @@ projectRoutes.get("/:id", async (c) => {
     return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
   }
 
-  if (project.userId !== userId) {
+  const isOwner = project.userId === userId;
+  const isCollaborator = project.collaborators?.some((col) => col.userId === userId);
+  if (!isOwner && !isCollaborator) {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
@@ -938,7 +940,9 @@ projectRoutes.get("/:id/files", async (c) => {
     return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
   }
 
-  if (project.userId !== userId) {
+  const isOwnerFiles = project.userId === userId;
+  const isCollabFiles = project.collaborators?.some((col) => col.userId === userId);
+  if (!isOwnerFiles && !isCollabFiles) {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
@@ -1025,7 +1029,11 @@ projectRoutes.patch("/:id", async (c) => {
     return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
   }
 
-  if (project.userId !== userId) {
+  const isOwner = project.userId === userId;
+  const isEditorCollab = project.collaborators?.some(
+    (col) => col.userId === userId && col.role === "editor",
+  );
+  if (!isOwner && !isEditorCollab) {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
@@ -1519,7 +1527,10 @@ projectRoutes.post("/:id/thumbnail", async (c) => {
   );
 
   if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
-  if (project.userId !== userId) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  {
+    const canWrite = project.userId === userId || project.collaborators?.some((col) => col.userId === userId && col.role === "editor");
+    if (!canWrite) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  }
 
   const body = await c.req.json<{ thumbnail: string }>().catch(() => null);
   if (!body?.thumbnail) return c.json({ error: "Missing thumbnail", code: "VALIDATION_ERROR" }, 400);
@@ -1544,7 +1555,10 @@ projectRoutes.get("/:id/thumbnail", async (c) => {
   );
 
   if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
-  if (project.userId !== userId) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  {
+    const canRead = project.userId === userId || project.collaborators?.some((col) => col.userId === userId);
+    if (!canRead) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  }
 
   const file = await c.env.FILES.get(`${projectId}/thumbnail.txt`);
   if (!file) return c.json({ thumbnail: null });

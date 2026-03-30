@@ -54,6 +54,24 @@ export function Navbar() {
           >
             Pricing
           </Link>
+          <Link
+            href="/about"
+            className="text-sm font-medium text-white/60 hover:text-white transition-colors"
+          >
+            About
+          </Link>
+          <Link
+            href="/help"
+            className="text-sm font-medium text-white/60 hover:text-white transition-colors"
+          >
+            Help
+          </Link>
+          <Link
+            href="/contact"
+            className="text-sm font-medium text-white/60 hover:text-white transition-colors"
+          >
+            Contact
+          </Link>
           <SignedIn>
             <Link
               href="/dashboard"

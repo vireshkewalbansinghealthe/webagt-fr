@@ -44,6 +44,8 @@ import { ExportButton } from "./export-button";
 import { DeviceToggle } from "./device-toggle";
 import type { DeviceMode } from "./device-toggle";
 import type { EditorTabValue } from "./editor-tabs";
+import { useCollaboratorPresence } from "@/hooks/use-collaborator-presence";
+import { PresenceAvatars } from "./presence-avatars";
 
 /**
  * Props for the EditorHeader component.
@@ -126,6 +128,18 @@ export function EditorHeader({
     : "";
   const userEmail = user?.emailAddresses?.[0]?.emailAddress ?? "";
   const userDisplayName = user?.fullName || user?.firstName || userEmail.split("@")[0] || "Account";
+
+  // Presence tracking via Supabase Realtime
+  const presentUsers = useCollaboratorPresence({
+    projectId,
+    currentUser: user
+      ? {
+          userId: user.id,
+          name: user.fullName || user.firstName || userEmail.split("@")[0] || "User",
+          avatarUrl: user.imageUrl,
+        }
+      : null,
+  });
 
   const tabs: Array<{ value: EditorTabValue; label: string; icon: any }> = [...BASE_TABS];
   if (projectType === "webshop") {
@@ -257,8 +271,15 @@ export function EditorHeader({
         </div>
       </div>
 
-      {/* === Right section: Device toggle + Export + User avatar === */}
+      {/* === Right section: Device toggle + Export + Presence + User avatar === */}
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
+        {/* Presence avatars — who else is viewing this project */}
+        {presentUsers.length > 1 && (
+          <div className="hidden sm:flex items-center">
+            <PresenceAvatars users={presentUsers} currentUserId={user?.id} />
+          </div>
+        )}
+
         {/* Device toggle — only visible on desktop when Preview tab is active */}
         {activeTab === "preview" && (
           <div className="hidden md:flex items-center gap-1.5">

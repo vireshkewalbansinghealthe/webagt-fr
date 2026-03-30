@@ -21,6 +21,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import { CheckoutButton } from "@clerk/nextjs/experimental";
 import Link from "next/link";
 import { CreditCard, Zap, Infinity } from "lucide-react";
@@ -68,6 +69,7 @@ function daysUntil(dateString: string): number {
  */
 export function CreditsDisplay() {
   const { getToken } = useAuth();
+  const router = useRouter();
   const [credits, setCredits] = useState<CreditData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -91,25 +93,24 @@ export function CreditsDisplay() {
 
   /**
    * Called when Clerk checkout completes successfully.
-   * Syncs the plan from Clerk's subscription API, busts the cache,
-   * then re-fetches credits so the UI updates immediately.
+   * Upgrades the plan in KV, then does a full Next.js router refresh so
+   * every component on the page picks up the new plan without a manual reload.
    */
   const handleCheckoutSuccess = useCallback(async () => {
     setIsSyncing(true);
     try {
       const client = createApiClient(getToken);
       await client.credits.sync();
-      bustCreditsCache();
-      await loadCredits();
     } catch (err) {
       console.error("Failed to sync plan after checkout:", err);
-      // Still try to refresh credits even if sync fails
-      bustCreditsCache();
-      await loadCredits();
     } finally {
+      bustCreditsCache();
+      // router.refresh() re-runs all server components and invalidates
+      // the Next.js router cache — no manual page reload needed.
+      router.refresh();
       setIsSyncing(false);
     }
-  }, [getToken, loadCredits]);
+  }, [getToken, router]);
 
   // Loading skeleton
   if (isLoading) {

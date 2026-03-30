@@ -84,6 +84,26 @@ creditRoutes.post("/sync", async (c) => {
 });
 
 /**
+ * GET /api/credits/onboarding — Check if the user has seen the onboarding modal.
+ * Returns { seen: boolean } read from KV so it's the same across all devices.
+ */
+creditRoutes.get("/onboarding", async (c) => {
+  const userId = c.var.userId;
+  const seen = await c.env.METADATA.get(`onboarding_seen:${userId}`);
+  return c.json({ seen: seen === "1" });
+});
+
+/**
+ * POST /api/credits/onboarding — Mark the onboarding modal as seen.
+ * Stored in KV so it persists across devices and browsers.
+ */
+creditRoutes.post("/onboarding", async (c) => {
+  const userId = c.var.userId;
+  await c.env.METADATA.put(`onboarding_seen:${userId}`, "1");
+  return c.json({ ok: true });
+});
+
+/**
  * DEBUG: Force upgrade a specific user to Pro.
  */
 creditRoutes.get("/debug-upgrade", async (c) => {

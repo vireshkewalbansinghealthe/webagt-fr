@@ -396,6 +396,24 @@ export function createApiClient(getToken: GetTokenFunction) {
           upgraded: boolean;
           credits: CreditsResponse;
         }>(getToken, "/api/credits/sync", { method: "POST" }),
+
+      /**
+       * Check whether the user has seen the onboarding modal (stored in KV,
+       * not localStorage, so it persists across devices).
+       */
+      getOnboardingSeen: () =>
+        authenticatedFetch<{ seen: boolean }>(
+          getToken,
+          "/api/credits/onboarding"
+        ),
+
+      /**
+       * Mark the onboarding modal as seen in KV.
+       */
+      markOnboardingSeen: () =>
+        authenticatedFetch<{ ok: boolean }>(getToken, "/api/credits/onboarding", {
+          method: "POST",
+        }),
     },
 
     versions: {

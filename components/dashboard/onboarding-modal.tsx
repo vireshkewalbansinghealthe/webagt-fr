@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useAuth } from "@clerk/nextjs";
 import {
   Dialog,
   DialogContent,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { createApiClient } from "@/lib/api-client";
 import {
   Sparkles,
   FolderPlus,
@@ -19,8 +20,6 @@ import {
   Send,
   MousePointer2,
 } from "lucide-react";
-
-const STORAGE_KEY = "webagt_onboarding_seen";
 
 const STEPS = [
   {
@@ -64,31 +63,35 @@ interface OnboardingModalProps {
 
 export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
   const { isLoaded, isSignedIn, user } = useUser();
+  const { getToken } = useAuth();
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(0);
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !user) return;
 
-    const seen = localStorage.getItem(STORAGE_KEY);
-    if (seen) return;
-
-    const createdAt = user.createdAt;
-    if (!createdAt) return;
-    const ageMs = Date.now() - new Date(createdAt).getTime();
-    const sevenDays = 7 * 24 * 60 * 60 * 1000;
-    if (ageMs > sevenDays) {
-      localStorage.setItem(STORAGE_KEY, "1");
-      return;
-    }
-
-    const t = setTimeout(() => setOpen(true), 800);
-    return () => clearTimeout(t);
-  }, [isLoaded, isSignedIn, user]);
+    // Check KV (server-side) so the state persists across all devices/browsers
+    const client = createApiClient(getToken);
+    client.credits.getOnboardingSeen().then(({ seen }) => {
+      if (!seen) {
+        const t = setTimeout(() => setOpen(true), 800);
+        return () => clearTimeout(t);
+      }
+    }).catch(() => {
+      // If API fails, fall back to localStorage
+      const seen = localStorage.getItem("webagt_onboarding_seen");
+      if (!seen) setTimeout(() => setOpen(true), 800);
+    });
+  }, [isLoaded, isSignedIn, user, getToken]);
 
   const dismiss = () => {
-    localStorage.setItem(STORAGE_KEY, "1");
     setOpen(false);
+    // Mark seen in KV (persists across devices)
+    const client = createApiClient(getToken);
+    client.credits.markOnboardingSeen().catch(() => {
+      // Fallback to localStorage if API call fails
+      localStorage.setItem("webagt_onboarding_seen", "1");
+    });
   };
 
   const next = () => {

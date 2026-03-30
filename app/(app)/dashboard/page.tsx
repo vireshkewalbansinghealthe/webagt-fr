@@ -69,6 +69,7 @@ import {
   CreateProjectDialog,
 } from "@/components/dashboard";
 import { UpgradeModal } from "@/components/dashboard/upgrade-modal";
+import { OnboardingModal } from "@/components/dashboard/onboarding-modal";
 import type { CreateProjectData } from "@/components/dashboard";
 import type { Project } from "@/types/project";
 import { createApiClient } from "@/lib/api-client";
@@ -424,6 +425,9 @@ export default function DashboardPage() {
         open={upgradeModalOpen}
         onOpenChange={setUpgradeModalOpen}
       />
+
+      {/* Onboarding modal — shown once to new users */}
+      <OnboardingModal onCreateProject={() => setDialogOpen(true)} />
 
       {/* Rename project dialog */}
       <Dialog

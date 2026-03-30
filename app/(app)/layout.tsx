@@ -159,6 +159,7 @@ export default function AppLayout({
                 key={item.href}
                 href={item.href}
                 onClick={() => setSidebarOpen(false)}
+                {...(item.href === "/pricing" ? { "data-tour": "pricing-link" } : {})}
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150",
                   isActive

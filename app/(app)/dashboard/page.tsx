@@ -69,7 +69,7 @@ import {
   CreateProjectDialog,
 } from "@/components/dashboard";
 import { UpgradeModal } from "@/components/dashboard/upgrade-modal";
-import { OnboardingModal } from "@/components/dashboard/onboarding-modal";
+import { SpotlightTour } from "@/components/dashboard/spotlight-tour";
 import type { CreateProjectData } from "@/components/dashboard";
 import type { Project } from "@/types/project";
 import { createApiClient } from "@/lib/api-client";
@@ -302,7 +302,7 @@ export default function DashboardPage() {
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">My Projects</h1>
-        <Button onClick={() => setDialogOpen(true)} className="gap-2">
+        <Button data-tour="create-project" onClick={() => setDialogOpen(true)} className="gap-2">
           <Plus className="size-4" />
           Create Project
         </Button>
@@ -311,7 +311,7 @@ export default function DashboardPage() {
       {/* Toolbar: search + filters + view toggle */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-sm">
+        <div data-tour="search" className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
           <Input
             className="pl-9"
@@ -426,8 +426,8 @@ export default function DashboardPage() {
         onOpenChange={setUpgradeModalOpen}
       />
 
-      {/* Onboarding modal — shown once to new users */}
-      <OnboardingModal onCreateProject={() => setDialogOpen(true)} />
+      {/* Spotlight tour — shown once to new users */}
+      <SpotlightTour />
 
       {/* Rename project dialog */}
       <Dialog

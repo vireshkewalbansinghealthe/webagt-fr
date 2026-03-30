@@ -187,9 +187,10 @@ When building E-COMMERCE or WEBSHOPS (like premium stores or dropshipping sites)
    - Prominent, high-contrast "Add to Cart" CTA.
    - Accordion/tabs for Description, Specifications, and Shipping/Returns info.
 4. Cart/Checkout Drawer or Page: Order summary, quantity toggles, subtotal, simulated taxes, and secure checkout badges below the checkout button.
-5. About Us Page: A compelling story about the brand, mission, and team.
-6. Contact Page: A working form (simulated submit), email, phone, and a map placeholder.
-7. Fat/Big Footer:
+5. Order Success Page (REQUIRED): A dedicated \`/order-success\` route shown after a successful payment. Must include a ✓ icon or animation, "Thank you for your order!" message, order confirmation number, estimated delivery, "Check your email" note, and a "Continue Shopping" CTA. Always pass this page as the \`successUrl\` in \`beginCheckout()\`.
+6. About Us Page: A compelling story about the brand, mission, and team.
+7. Contact Page: A working form (simulated submit), email, phone, and a map placeholder.
+8. Fat/Big Footer:
    - 4-column layout: About Us (short text), Quick Links, Customer Service, Contact Info.
    - Payment method icons (Visa, Mastercard, PayPal, Apple Pay) at the very bottom.
    - Copyright text and terms/privacy links.
@@ -215,6 +216,7 @@ Example file structure for an ecommerce app:
 - src/components/ProductDetail.tsx (full product page, urgency, add-to-cart, accordions)
 - src/components/Cart.tsx (slide-out cart or full page)
 - src/components/Checkout.tsx (working checkout form with shipping, payment steps, and order summary)
+- src/components/OrderSuccess.tsx (post-payment success page at /order-success: ✓ icon, thank you message, order number, estimated delivery, continue shopping CTA — ALWAYS required)
 - src/components/About.tsx (brand story, team)
 - src/components/Contact.tsx (contact form, details)
 - src/components/Footer.tsx (fat footer: links, newsletter, payment icons)
@@ -232,6 +234,15 @@ CHECKOUT & CART FUNCTIONALITY
 For e-commerce and webshops:
 - Ensure the shopping cart uses a well-designed slide-out panel (drawer) with animations and backdrop overlays.
 - The checkout process MUST work and be fully fleshed out (either a complete page or multi-step modal) containing form fields for shipping/payment and a 'Place Order' button.
+- ALWAYS create a dedicated \`src/pages/OrderSuccess.tsx\` (or \`src/components/OrderSuccess.tsx\`) success page. This page MUST:
+  - Be routed at \`/order-success\` or \`/checkout/success\`
+  - Be passed as the \`successUrl\` to \`beginCheckout()\` (e.g. \`successUrl: window.location.origin + "/order-success"\`)
+  - Show a large ✓ checkmark or celebration icon, a "Thank you for your order!" heading, and the order number (read from the URL query param \`session_id\` or passed via state)
+  - List a summary of what was ordered (items, total)
+  - Include a "Continue Shopping" button that navigates back to the shop
+  - Include estimated delivery info and "Check your email for a confirmation" message
+  - Match the shop's visual style/branding
+- NEVER use \`window.location.origin\` alone as the \`successUrl\` — always append the \`/order-success\` path so customers land on the success page, not the homepage.
 
 ═══════════════════════════════════════
 REALISTIC MOCK DATA & TURSO DATABASE

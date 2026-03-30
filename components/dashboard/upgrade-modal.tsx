@@ -115,7 +115,7 @@ export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
 
         {/* Clerk Pricing Table */}
         <div className="px-6 py-6">
-          <PricingTable />
+          <PricingTable newSubscriptionRedirectUrl="/dashboard" />
         </div>
 
         {/* Footer */}

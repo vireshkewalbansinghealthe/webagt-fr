@@ -157,6 +157,35 @@ function toSandpackFiles(
 }
 
 /**
+ * Listens for the 'webagt:shop-changed' window event (dispatched by ShopManagerPanel
+ * after any product / inventory / shipping save) and refreshes the Sandpack preview
+ * so the storefront re-fetches its data from Turso without a full page reload.
+ */
+function ShopRefreshListener() {
+  const { sandpack } = useSandpack();
+
+  useEffect(() => {
+    const handler = () => {
+      // Dispatch a Sandpack 'refresh' message to all active clients
+      // (equivalent to clicking the refresh button inside the preview iframe)
+      const clients = sandpack.clients;
+      Object.values(clients).forEach((client: any) => {
+        try {
+          client.dispatch({ type: "refresh" });
+        } catch {
+          // client not ready yet
+        }
+      });
+    };
+
+    window.addEventListener("webagt:shop-changed", handler);
+    return () => window.removeEventListener("webagt:shop-changed", handler);
+  }, [sandpack]);
+
+  return null;
+}
+
+/**
  * Listens for Sandpack build/runtime errors via the message bus.
  * Must be rendered inside SandpackProvider to access the useSandpack hook.
  * Uses a 1.5s debounce to let Sandpack settle (avoids transient bundling errors)
@@ -770,6 +799,9 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange }: Pre
       >
         {/* Listen for build/runtime errors when an onError handler is provided */}
         {onError && <ErrorListener onError={onError} />}
+
+        {/* Refresh the preview when Shop Manager data changes (new product, stock update, etc.) */}
+        <ShopRefreshListener />
 
         <SandpackLayout
           style={{

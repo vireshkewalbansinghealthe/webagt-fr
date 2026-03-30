@@ -531,6 +531,23 @@ export function createApiClient(getToken: GetTokenFunction) {
         ),
     },
 
+    orders: {
+      cancel: (projectId: string, orderId: string) =>
+        authenticatedFetch<{ success: boolean; status: string }>(getToken, "/api/stripe/orders/cancel", {
+          method: "POST",
+          body: JSON.stringify({ projectId, orderId }),
+        }),
+      refund: (projectId: string, orderId: string, mode?: "test" | "live") =>
+        authenticatedFetch<{ success: boolean; status: string; refundId: string | null }>(getToken, "/api/stripe/orders/refund", {
+          method: "POST",
+          body: JSON.stringify({ projectId, orderId, mode }),
+        }),
+      delete: (projectId: string, orderId: string) =>
+        authenticatedFetch<{ success: boolean }>(getToken, `/api/stripe/orders/${orderId}?projectId=${projectId}`, {
+          method: "DELETE",
+        }),
+    },
+
     stripe: {      createAccount: (projectId: string, mode: "test" | "live" = "test") => 
         authenticatedFetch<{ accountId: string; mode: "test" | "live" }>(getToken, "/api/stripe/accounts", {
           method: "POST",

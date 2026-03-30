@@ -28,10 +28,15 @@ export function PresenceAvatars({
 }: PresenceAvatarsProps) {
   if (users.length === 0) return null;
 
+  // Deduplicate by userId (same user can have multiple presence connections)
+  const unique = Array.from(
+    new Map(users.map((u) => [u.userId, u])).values()
+  );
+
   // Put the current user last so others are more prominent
   const sorted = [
-    ...users.filter((u) => u.userId !== currentUserId),
-    ...users.filter((u) => u.userId === currentUserId),
+    ...unique.filter((u) => u.userId !== currentUserId),
+    ...unique.filter((u) => u.userId === currentUserId),
   ];
 
   const visible = sorted.slice(0, maxVisible);

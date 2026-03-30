@@ -91,7 +91,7 @@ export function CreateProjectDialog({
   const [name, setName] = useState("");
   const [model, setModel] = useState<string>(AI_MODELS[0].value);
   const [description, setDescription] = useState("");
-  const [type, setType] = useState<"website" | "webshop">("website");
+  const [type, setType] = useState<"website" | "webshop" | null>(null);
   const [templateId, setTemplateId] = useState<string>("blank-ai");
   const [templateBrowserOpen, setTemplateBrowserOpen] = useState(false);
   const [templateSearch, setTemplateSearch] = useState("");
@@ -102,7 +102,7 @@ export function CreateProjectDialog({
     setName("");
     setModel(AI_MODELS[0].value);
     setDescription("");
-    setType("website");
+    setType(null);
     setTemplateId("blank-ai");
     setTemplateBrowserOpen(false);
     setTemplateSearch("");
@@ -113,7 +113,7 @@ export function CreateProjectDialog({
     event.preventDefault();
 
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    if (!trimmedName || !type) return;
 
     const resolvedTemplateId = type === "webshop" ? templateId : undefined;
     const isUsingTemplate = resolvedTemplateId && resolvedTemplateId !== "blank-ai";
@@ -132,7 +132,7 @@ export function CreateProjectDialog({
         name: trimmedName,
         model,
         description: description.trim() || (isUsingTemplate ? `Remix of ${resolvedTemplateId} template` : ""),
-        type,
+        type: type as "website" | "webshop",
         templateId: resolvedTemplateId,
         ownerNotificationEmail: type === "webshop" ? accountEmail : undefined,
       });
@@ -145,7 +145,7 @@ export function CreateProjectDialog({
   }
 
   const isUsingTemplate = type === "webshop" && templateId !== "blank-ai";
-  const canSubmit = name.trim() && (isUsingTemplate || description.trim());
+  const canSubmit = name.trim() && type && (isUsingTemplate || description.trim());
   const templateCategories = [
     "all",
     ...Array.from(
@@ -170,6 +170,7 @@ export function CreateProjectDialog({
     );
   });
   const shouldUseExpandedTemplateBrowser = type === "webshop" && templateBrowserOpen;
+
 
   return (
     <Dialog
@@ -216,7 +217,8 @@ export function CreateProjectDialog({
 
               {/* Project name */}
               <div className="space-y-1.5">
-                <label htmlFor="project-name" className="text-sm font-medium">
+                <label htmlFor="project-name" className="flex items-center gap-2 text-sm font-medium">
+                  <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground shrink-0">1</span>
                   Project Name
                 </label>
                 <Input
@@ -231,7 +233,10 @@ export function CreateProjectDialog({
 
               {/* Project type */}
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">Project Type</label>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground shrink-0">2</span>
+                  Project Type
+                </label>
                 <div className="grid grid-cols-2 gap-2">
                   {(["website", "webshop"] as const).map((t) => (
                     <button
@@ -301,7 +306,8 @@ export function CreateProjectDialog({
               {/* Description (hidden when remixing from a template) */}
               {!isUsingTemplate && (
                 <div className="space-y-1.5 flex-1">
-                  <label htmlFor="project-description" className="text-sm font-medium flex items-center gap-1.5">
+                  <label htmlFor="project-description" className="flex items-center gap-2 text-sm font-medium">
+                    <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground shrink-0">3</span>
                     <Wand2 className="size-3.5 text-muted-foreground" />
                     Description
                   </label>
@@ -322,7 +328,8 @@ export function CreateProjectDialog({
 
               {/* AI model */}
               <div className="space-y-1.5">
-                <label htmlFor="ai-model" className="text-sm font-medium">
+                <label htmlFor="ai-model" className="flex items-center gap-2 text-sm font-medium">
+                  <span className="flex size-5 items-center justify-center rounded-full bg-primary text-[11px] font-bold text-primary-foreground shrink-0">{isUsingTemplate ? "3" : "4"}</span>
                   AI Model
                 </label>
                 <Select value={model} onValueChange={setModel} disabled={isLoading}>

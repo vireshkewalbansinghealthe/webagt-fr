@@ -564,7 +564,58 @@ interface Product {
   images?: string;
 }
 
+function OrderSuccess() {
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get("session_id");
+  const shortRef = sessionId ? sessionId.slice(-8).toUpperCase() : null;
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
+      <div className="bg-white rounded-3xl shadow-lg border border-gray-100 max-w-md w-full p-10 text-center">
+        <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-6">
+          <svg className="w-8 h-8 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>
+        <h1 className="text-2xl font-black text-gray-900 mb-2">Order confirmed!</h1>
+        <p className="text-gray-500 mb-6">
+          Thank you for your purchase. A confirmation has been sent to your email.
+        </p>
+        {shortRef && (
+          <div className="inline-block rounded-full bg-gray-100 px-4 py-1.5 text-sm font-semibold text-gray-700 mb-6">
+            Order #{shortRef}
+          </div>
+        )}
+        <div className="rounded-2xl border border-gray-100 bg-gray-50 p-5 text-left mb-8 space-y-3">
+          <div className="flex items-start gap-3 text-sm text-gray-600">
+            <span className="text-xl">📦</span>
+            <span><strong className="text-gray-800">Estimated delivery:</strong> 3–5 business days</span>
+          </div>
+          <div className="flex items-start gap-3 text-sm text-gray-600">
+            <span className="text-xl">📧</span>
+            <span><strong className="text-gray-800">Confirmation email</strong> on its way — check your inbox.</span>
+          </div>
+          <div className="flex items-start gap-3 text-sm text-gray-600">
+            <span className="text-xl">🔄</span>
+            <span><strong className="text-gray-800">Free returns</strong> within 30 days.</span>
+          </div>
+        </div>
+        <a
+          href="/"
+          className="block w-full rounded-full bg-gray-900 px-6 py-3 text-sm font-semibold text-white hover:bg-gray-800 transition-colors"
+        >
+          Continue shopping
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
+  if (window.location.pathname === "/order-success") {
+    return <OrderSuccess />;
+  }
+
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkoutLoadingId, setCheckoutLoadingId] = useState<string | null>(null);
@@ -663,7 +714,7 @@ export default function App() {
             isVirtual: false,
           },
         ],
-        successUrl: window.location.origin,
+        successUrl: window.location.origin + "/order-success",
         cancelUrl: window.location.origin,
         requiresShipping: true,
       });
@@ -1074,7 +1125,7 @@ export async function beginCheckout({
     body: JSON.stringify({
       items,
       currency: "eur",
-      successUrl: successUrl || window.location.origin,
+      successUrl: successUrl || window.location.origin + "/order-success",
       cancelUrl: cancelUrl || window.location.origin,
       requiresShipping,
     }),

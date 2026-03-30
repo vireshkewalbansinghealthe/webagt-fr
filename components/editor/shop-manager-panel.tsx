@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo, useTransition } from "react";
+import React, { useState, useEffect, useCallback, useRef, useMemo, useTransition } from "react";
 import { 
   Package, 
   ShoppingBag, 
@@ -23,25 +23,57 @@ import {
   Bell,
   Search,
   Copy,
+  Truck,
+  MapPin,
+  Infinity as InfinityIcon,
+  AlertTriangle,
+  BarChart3,
+  X,
+  ChevronDown,
+  SlidersHorizontal,
+  Columns3,
+  Tag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types/project";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { createClient } from "@libsql/client/web";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { createApiClient, type ProjectEmailSettings } from "@/lib/api-client";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, RefreshCw, XCircle, DollarSign, MoreHorizontal, ChevronUp } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { ProductSheet, type ProductFormData } from "./product-sheet";
 
-type Tab = "dashboard" | "products" | "orders" | "payments" | "publish" | "notifications" | "settings" | "logs";
+type Tab = "dashboard" | "products" | "inventory" | "shipping" | "orders" | "payments" | "publish" | "notifications" | "settings" | "logs";
 type StripeMode = "test" | "live";
 
 const TABS = [
   { id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
   { id: "products" as const, label: "Products", icon: Package },
+  { id: "inventory" as const, label: "Inventory", icon: BarChart3 },
+  { id: "shipping" as const, label: "Shipping", icon: Truck },
   { id: "orders" as const, label: "Orders", icon: ShoppingBag },
   { id: "payments" as const, label: "Payments", icon: Wallet },
   { id: "publish" as const, label: "Publish", icon: ExternalLink },
@@ -72,6 +104,16 @@ export function ShopManagerPanel({ project }: { project: Project }) {
   useEffect(() => {
     setProjectState(project);
   }, [project]);
+
+  // When switching to the Publish tab, always fetch the latest project so
+  // deployment_uuid (and payment state) are never stale from a cached prop.
+  useEffect(() => {
+    if (activeTab !== "publish" && activeTab !== "payments") return;
+    const client = createApiClient(getToken);
+    client.projects.get(project.id)
+      .then(({ project: fresh }) => setProjectState(fresh))
+      .catch(() => { /* silently ignore — stale UI is acceptable */ });
+  }, [activeTab]);
   
   const turso = useMemo(() => {
     if (!projectState.databaseUrl || !projectState.databaseToken) return null;
@@ -161,7 +203,9 @@ export function ShopManagerPanel({ project }: { project: Project }) {
             <div className="h-full w-full p-6">
               {activeTab === "dashboard" && <DashboardTab turso={turso} />}
               {activeTab === "products" && <ProductsTab turso={turso} project={projectState} />}
-              {activeTab === "orders" && <OrdersTab turso={turso} />}
+              {activeTab === "inventory" && <InventoryTab turso={turso} />}
+              {activeTab === "shipping" && <ShippingTab turso={turso} />}
+              {activeTab === "orders" && <OrdersTab turso={turso} project={projectState} />}
               {activeTab === "payments" && (
                 <PaymentsTab
                   project={projectState}
@@ -293,6 +337,7 @@ function rowToFormData(row: any): ProductFormData {
     description: String(row.description ?? ""),
     price: Number(row.price ?? 0),
     compareAtPrice: row.compareAtPrice != null ? Number(row.compareAtPrice) : null,
+    trackStock: Boolean(Number(row.trackStock)),
     stock: Number(row.stock ?? row.inventory ?? 0),
     sku: String(row.sku ?? ""),
     isVirtual: Boolean(row.isVirtual),
@@ -300,6 +345,34 @@ function rowToFormData(row: any): ProductFormData {
     categoryId: String(row.categoryId ?? ""),
     images: parseImages(row.images),
   };
+}
+
+/**
+ * Cleans a product image URL before storing it in Turso.
+ * - Strips Unsplash/CDN query params to stay well under Stripe's 2048-char URL limit.
+ * - Drops any URL (non-data) that is still over 2048 chars after cleaning.
+ * - Base64 data: URLs are kept as-is (used for display only; stripped at checkout).
+ */
+function cleanImageUrl(url: string): string {
+  if (!url) return url;
+  if (url.startsWith("data:")) return url; // Keep base64 for display; safeImageUrl strips at checkout
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) return url;
+    // Strip query params for Unsplash and other CDN-style image hosts
+    const hostsThatBloat = ["unsplash.com", "images.unsplash.com", "source.unsplash.com", "picsum.photos", "cloudinary.com", "imgix.net"];
+    if (hostsThatBloat.some((h) => parsed.hostname.includes(h))) {
+      const clean = `${parsed.origin}${parsed.pathname}`;
+      return clean.length <= 2048 ? clean : "";
+    }
+    return url.length <= 2048 ? url : "";
+  } catch {
+    return url;
+  }
+}
+
+function cleanImages(images: string[]): string[] {
+  return images.map(cleanImageUrl).filter(Boolean);
 }
 
 function slugifyProductName(name: string, fallbackId?: string) {
@@ -324,6 +397,7 @@ async function ensureProductSchemaColumns(turso: any) {
     "ALTER TABLE Product ADD COLUMN categoryId TEXT",
     "ALTER TABLE Product ADD COLUMN inventory INTEGER DEFAULT 0",
     "ALTER TABLE Product ADD COLUMN stock INTEGER DEFAULT 0",
+    "ALTER TABLE Product ADD COLUMN trackStock INTEGER DEFAULT 0",
   ];
 
   for (const sql of statements) {
@@ -361,13 +435,31 @@ async function seedTemplateProductsInShopManager(turso: any, templateId?: string
   }
 }
 
+type ColKey = "status" | "category" | "stock" | "sku" | "type" | "price";
+
+const DEFAULT_COLS: Record<ColKey, boolean> = {
+  status: true,
+  category: false,
+  stock: false,
+  sku: false,
+  type: false,
+  price: true,
+};
+
 function ProductsTab({ turso, project }: { turso: any; project: Project }) {
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterCategory, setFilterCategory] = useState("all");
+  const [filterType, setFilterType] = useState("all");
+  const [cols, setCols] = useState<Record<ColKey, boolean>>(DEFAULT_COLS);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<ProductFormData> | null>(null);
+
+  const toggleCol = (key: ColKey) =>
+    setCols((prev) => ({ ...prev, [key]: !prev[key] }));
 
   const loadData = async () => {
     setLoading(true);
@@ -405,6 +497,7 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
     try {
       await turso.execute({ sql: "DELETE FROM Product WHERE id = ?", args: [id] });
       toast.success("Product deleted");
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
       loadData();
     } catch {
       toast.error("Failed to delete product");
@@ -412,7 +505,7 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
   };
 
   const handleSave = async (data: ProductFormData) => {
-    const imagesJson = JSON.stringify(data.images);
+    const imagesJson = JSON.stringify(cleanImages(data.images));
     const now = new Date().toISOString();
     try {
       await ensureProductSchemaColumns(turso);
@@ -421,12 +514,13 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
         await turso.execute({
           sql: `UPDATE Product SET
             name = ?, description = ?, price = ?, compareAtPrice = ?,
-            stock = ?, inventory = ?, sku = ?, slug = ?, isVirtual = ?, status = ?, categoryId = ?, images = ?,
+            trackStock = ?, stock = ?, inventory = ?, sku = ?, slug = ?, isVirtual = ?, status = ?, categoryId = ?, images = ?,
             updatedAt = ?
             WHERE id = ?`,
           args: [
             data.name, data.description, data.price, data.compareAtPrice,
-            data.stock, data.stock, data.sku, slugifyProductName(data.name, data.id), data.isVirtual ? 1 : 0,
+            data.trackStock ? 1 : 0, data.stock, data.stock, data.sku,
+            slugifyProductName(data.name, data.id), data.isVirtual ? 1 : 0,
             data.status.toUpperCase(), data.categoryId || null,
             imagesJson, now, data.id,
           ],
@@ -436,17 +530,19 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
         const id = `prod_${Math.random().toString(36).slice(2, 10)}`;
         await turso.execute({
           sql: `INSERT INTO Product
-            (id, name, slug, description, price, compareAtPrice, stock, inventory, sku, isVirtual, status, categoryId, images, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (id, name, slug, description, price, compareAtPrice, trackStock, stock, inventory, sku, isVirtual, status, categoryId, images, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             id, data.name, slugifyProductName(data.name, id), data.description, data.price, data.compareAtPrice,
-            data.stock, data.stock, data.sku, data.isVirtual ? 1 : 0, data.status.toUpperCase(), data.categoryId || null,
+            data.trackStock ? 1 : 0, data.stock, data.stock, data.sku,
+            data.isVirtual ? 1 : 0, data.status.toUpperCase(), data.categoryId || null,
             imagesJson, now, now,
           ],
         });
         toast.success("Product added");
       }
       await loadData();
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
     } catch (error: any) {
       console.error("Failed to save product", error);
       toast.error(error?.message || "Failed to save product");
@@ -464,9 +560,29 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
     setSheetOpen(true);
   };
 
-  const filtered = products.filter((p) =>
-    !search || String(p.name).toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = products.filter((p) => {
+    if (search && !String(p.name).toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterStatus !== "all") {
+      const s = String(p.status).toLowerCase();
+      if (filterStatus === "active" && s === "draft") return false;
+      if (filterStatus === "draft" && s !== "draft") return false;
+    }
+    if (filterCategory !== "all" && String(p.categoryId) !== filterCategory) return false;
+    if (filterType !== "all") {
+      const isVirtual = Boolean(Number(p.isVirtual));
+      if (filterType === "physical" && isVirtual) return false;
+      if (filterType === "virtual" && !isVirtual) return false;
+    }
+    return true;
+  });
+
+  const activeFilters = [
+    filterStatus !== "all",
+    filterCategory !== "all",
+    filterType !== "all",
+  ].filter(Boolean).length;
+
+  const visibleColCount = 2 + (cols.status ? 1 : 0) + (cols.category ? 1 : 0) + (cols.stock ? 1 : 0) + (cols.sku ? 1 : 0) + (cols.type ? 1 : 0) + (cols.price ? 1 : 0) + 1;
 
   if (loading) {
     return (
@@ -478,19 +594,117 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
 
   return (
     <>
-      <div className="space-y-4">
+      <div className="space-y-3">
         {/* Toolbar */}
-        <div className="flex items-center justify-between gap-3">
-          <div className="relative flex-1 max-w-xs">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Search */}
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
             <Input
               placeholder="Search products…"
-              className="pl-9"
+              className="pl-9 h-9"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          <Button size="sm" className="gap-2 shrink-0" onClick={openNew}>
+
+          {/* Status filter */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", filterStatus !== "all" && "border-primary text-primary")}>
+                <SlidersHorizontal className="size-3.5" />
+                {filterStatus === "all" ? "Status" : filterStatus === "active" ? "Active" : "Draft"}
+                <ChevronDown className="size-3.5 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-36">
+              <DropdownMenuLabel>Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={filterStatus} onValueChange={setFilterStatus}>
+                <DropdownMenuRadioItem value="all">All</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="active">Active</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="draft">Draft</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Category filter */}
+          {categories.length > 0 && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", filterCategory !== "all" && "border-primary text-primary")}>
+                  <Tag className="size-3.5" />
+                  {filterCategory === "all" ? "Category" : (categories.find(c => c.id === filterCategory)?.name ?? "Category")}
+                  <ChevronDown className="size-3.5 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-44">
+                <DropdownMenuLabel>Category</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup value={filterCategory} onValueChange={setFilterCategory}>
+                  <DropdownMenuRadioItem value="all">All categories</DropdownMenuRadioItem>
+                  {categories.map((c) => (
+                    <DropdownMenuRadioItem key={c.id} value={c.id}>{c.name}</DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* Type filter */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className={cn("h-9 gap-1.5", filterType !== "all" && "border-primary text-primary")}>
+                <Package className="size-3.5" />
+                {filterType === "all" ? "Type" : filterType === "physical" ? "Physical" : "Virtual"}
+                <ChevronDown className="size-3.5 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-36">
+              <DropdownMenuLabel>Fulfillment</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuRadioGroup value={filterType} onValueChange={setFilterType}>
+                <DropdownMenuRadioItem value="all">All types</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="physical">Physical</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="virtual">Virtual</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Reset filters */}
+          {activeFilters > 0 && (
+            <Button variant="ghost" size="sm" className="h-9 px-2 text-muted-foreground text-xs gap-1" onClick={() => { setFilterStatus("all"); setFilterCategory("all"); setFilterType("all"); }}>
+              <X className="size-3.5" /> Clear ({activeFilters})
+            </Button>
+          )}
+
+          {/* Columns toggle */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1.5 ml-auto">
+                <Columns3 className="size-3.5" />
+                Columns
+                <ChevronDown className="size-3.5 text-muted-foreground" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-40">
+              <DropdownMenuLabel>Show columns</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {(Object.keys(DEFAULT_COLS) as ColKey[]).map((key) => (
+                <DropdownMenuCheckboxItem
+                  key={key}
+                  checked={cols[key]}
+                  onCheckedChange={() => toggleCol(key)}
+                  className="capitalize"
+                >
+                  {key === "sku" ? "SKU" : key.charAt(0).toUpperCase() + key.slice(1)}
+                </DropdownMenuCheckboxItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Add product */}
+          <Button size="sm" className="h-9 gap-1.5 shrink-0" onClick={openNew}>
             <Plus className="size-4" /> Add product
           </Button>
         </div>
@@ -500,38 +714,39 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/30">
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground w-14" />
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Product</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Stock</th>
-                <th className="px-4 py-3 text-right font-medium text-muted-foreground">Price</th>
-                <th className="px-4 py-3 text-right font-medium text-muted-foreground w-20" />
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground w-14" />
+                <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Product</th>
+                {cols.status   && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Status</th>}
+                {cols.category && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Category</th>}
+                {cols.stock    && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Stock</th>}
+                {cols.sku      && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">SKU</th>}
+                {cols.type     && <th className="px-4 py-2.5 text-left font-medium text-muted-foreground">Type</th>}
+                {cols.price    && <th className="px-4 py-2.5 text-right font-medium text-muted-foreground">Price</th>}
+                <th className="px-4 py-2.5 w-20" />
               </tr>
             </thead>
             <tbody className="divide-y">
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
-                    {search ? "No products match your search." : "No products yet. Click \"Add product\" to get started."}
+                  <td colSpan={visibleColCount} className="px-4 py-12 text-center text-muted-foreground">
+                    {search || activeFilters > 0 ? "No products match your filters." : "No products yet. Click \"Add product\" to get started."}
                   </td>
                 </tr>
               ) : (
                 filtered.map((p) => {
                   const images = parseImages(p.images);
                   const thumb = images[0];
+                  const tracksStock = Boolean(Number(p.trackStock));
                   const stock = Number(p.stock ?? p.inventory ?? 0);
+                  const catName = categories.find((c) => c.id === String(p.categoryId))?.name;
                   return (
                     <tr key={p.id} className="hover:bg-muted/20 transition-colors group">
-                      <td className="px-4 py-3">
-                        <div className="size-10 rounded-lg bg-muted overflow-hidden border shrink-0">
+                      {/* Thumbnail */}
+                      <td className="px-4 py-2.5">
+                        <div className="size-9 rounded-lg bg-muted overflow-hidden border shrink-0">
                           {thumb ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img
-                              src={thumb}
-                              alt={String(p.name)}
-                              className="w-full h-full object-cover"
-                              onError={(e) => { e.currentTarget.style.display = "none"; }}
-                            />
+                            <img src={thumb} alt={String(p.name)} className="w-full h-full object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
                           ) : (
                             <div className="w-full h-full flex items-center justify-center">
                               <Package className="size-4 text-muted-foreground/40" />
@@ -539,51 +754,58 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3">
+                      {/* Name */}
+                      <td className="px-4 py-2.5">
                         <div className="font-medium leading-tight">{String(p.name)}</div>
-                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
-                          {p.sku ? <span>SKU: {String(p.sku)}</span> : null}
-                          <span>{Number(p.isVirtual) ? "Virtual" : "Ships"}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge
-                          variant={p.status === "draft" ? "secondary" : "outline"}
-                          className={cn(
-                            "text-xs capitalize",
-                            String(p.status).toLowerCase() !== "draft" && "border-green-500/30 bg-green-500/10 text-green-700",
-                          )}
-                        >
-                          {String(p.status).toLowerCase() === "draft" ? "Draft" : "Active"}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 tabular-nums">
-                        <span className={cn("text-sm", stock === 0 && "text-red-500 font-medium")}>
-                          {stock}
-                        </span>
-                        {stock === 0 && (
-                          <span className="ml-1.5 text-xs text-red-400">out of stock</span>
+                        {!cols.sku && p.sku && (
+                          <div className="text-xs text-muted-foreground mt-0.5">SKU: {String(p.sku)}</div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-right tabular-nums font-medium">
-                        €{Number(p.price).toFixed(2)}
-                      </td>
-                      <td className="px-4 py-3 text-right">
+                      {/* Status */}
+                      {cols.status && (
+                        <td className="px-4 py-2.5">
+                          <Badge variant="outline" className={cn("text-xs", String(p.status).toLowerCase() !== "draft" ? "border-green-500/30 bg-green-500/10 text-green-700" : "")}>
+                            {String(p.status).toLowerCase() === "draft" ? "Draft" : "Active"}
+                          </Badge>
+                        </td>
+                      )}
+                      {/* Category */}
+                      {cols.category && (
+                        <td className="px-4 py-2.5 text-sm text-muted-foreground">{catName ?? "—"}</td>
+                      )}
+                      {/* Stock */}
+                      {cols.stock && (
+                        <td className="px-4 py-2.5 tabular-nums">
+                          {!tracksStock ? (
+                            <span className="flex items-center gap-1 text-muted-foreground text-xs"><InfinityIcon className="size-3" /> Unlimited</span>
+                          ) : (
+                            <span className={cn("text-sm", stock === 0 && "text-red-500 font-medium", stock > 0 && stock <= 5 && "text-amber-600 font-medium")}>
+                              {stock}
+                              {stock === 0 && <span className="ml-1 text-xs font-normal text-red-400">out</span>}
+                              {stock > 0 && stock <= 5 && <span className="ml-1 text-xs font-normal text-amber-500">low</span>}
+                            </span>
+                          )}
+                        </td>
+                      )}
+                      {/* SKU */}
+                      {cols.sku && (
+                        <td className="px-4 py-2.5 text-sm text-muted-foreground tabular-nums">{p.sku ? String(p.sku) : "—"}</td>
+                      )}
+                      {/* Type */}
+                      {cols.type && (
+                        <td className="px-4 py-2.5 text-sm text-muted-foreground">{Number(p.isVirtual) ? "Virtual" : "Physical"}</td>
+                      )}
+                      {/* Price */}
+                      {cols.price && (
+                        <td className="px-4 py-2.5 text-right tabular-nums font-medium">€{Number(p.price).toFixed(2)}</td>
+                      )}
+                      {/* Actions */}
+                      <td className="px-4 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-8"
-                            onClick={() => openEdit(p)}
-                          >
+                          <Button size="icon" variant="ghost" className="size-8" onClick={() => openEdit(p)}>
                             <Edit className="size-3.5 text-muted-foreground" />
                           </Button>
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="size-8 hover:text-red-500"
-                            onClick={() => handleDelete(String(p.id))}
-                          >
+                          <Button size="icon" variant="ghost" className="size-8 hover:text-red-500" onClick={() => handleDelete(String(p.id))}>
                             <Trash2 className="size-3.5" />
                           </Button>
                         </div>
@@ -614,17 +836,518 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
   );
 }
 
-function OrdersTab({ turso }: { turso: any }) {
+// ── Inventory Tab ────────────────────────────────────────────────────────────
+
+function InventoryTab({ turso }: { turso: any }) {
+  const [products, setProducts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [editingStock, setEditingStock] = useState<Record<string, string>>({});
+
+  const loadProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      await ensureProductSchemaColumns(turso);
+      const res = await turso.execute("SELECT id, name, trackStock, stock, inventory, status FROM Product ORDER BY name ASC");
+      setProducts(res.rows);
+    } catch {
+      toast.error("Failed to load inventory");
+    } finally {
+      setLoading(false);
+    }
+  }, [turso]);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  const saveStock = async (id: string) => {
+    const raw = editingStock[id];
+    if (raw === undefined) return;
+    const qty = parseInt(raw) || 0;
+    setSaving(id);
+    try {
+      await turso.execute({
+        sql: "UPDATE Product SET stock = ?, inventory = ?, trackStock = 1, updatedAt = ? WHERE id = ?",
+        args: [qty, qty, new Date().toISOString(), id],
+      });
+      toast.success("Stock updated");
+      setEditingStock((prev) => { const n = { ...prev }; delete n[id]; return n; });
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
+      loadProducts();
+    } catch {
+      toast.error("Failed to update stock");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const setUnlimited = async (id: string) => {
+    setSaving(id);
+    try {
+      await turso.execute({
+        sql: "UPDATE Product SET trackStock = 0, updatedAt = ? WHERE id = ?",
+        args: [new Date().toISOString(), id],
+      });
+      toast.success("Set to unlimited");
+      loadProducts();
+    } catch {
+      toast.error("Failed to update");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  if (loading) return <div className="flex justify-center p-12"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+
+  const tracked = products.filter((p) => Boolean(Number(p.trackStock)));
+  const unlimited = products.filter((p) => !Boolean(Number(p.trackStock)));
+  const outOfStock = tracked.filter((p) => Number(p.stock ?? p.inventory ?? 0) === 0);
+  const lowStock = tracked.filter((p) => { const s = Number(p.stock ?? p.inventory ?? 0); return s > 0 && s <= 5; });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-medium">Inventory</h3>
+        <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadProducts()}>
+          <RotateCw className="size-3.5" /> Refresh
+        </Button>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="p-4 border rounded-xl bg-card shadow-sm">
+          <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5"><Package className="size-3.5" /> Total products</div>
+          <div className="text-2xl font-bold">{products.length}</div>
+        </div>
+        <div className="p-4 border rounded-xl bg-card shadow-sm">
+          <div className="text-xs text-muted-foreground mb-1 flex items-center gap-1.5"><InfinityIcon className="size-3.5" /> Unlimited</div>
+          <div className="text-2xl font-bold">{unlimited.length}</div>
+        </div>
+        <div className="p-4 border rounded-xl bg-card shadow-sm">
+          <div className="text-xs text-amber-600 mb-1 flex items-center gap-1.5"><AlertTriangle className="size-3.5" /> Low stock (≤5)</div>
+          <div className={cn("text-2xl font-bold", lowStock.length > 0 && "text-amber-600")}>{lowStock.length}</div>
+        </div>
+        <div className="p-4 border rounded-xl bg-card shadow-sm">
+          <div className="text-xs text-red-500 mb-1 flex items-center gap-1.5"><X className="size-3.5" /> Out of stock</div>
+          <div className={cn("text-2xl font-bold", outOfStock.length > 0 && "text-red-500")}>{outOfStock.length}</div>
+        </div>
+      </div>
+
+      {/* Products table */}
+      <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-muted/30">
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Product</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tracking</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Stock</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground w-44">Actions</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {products.length === 0 ? (
+              <tr><td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">No products yet.</td></tr>
+            ) : products.map((p) => {
+              const tracksStock = Boolean(Number(p.trackStock));
+              const stock = Number(p.stock ?? p.inventory ?? 0);
+              const isEditing = editingStock[String(p.id)] !== undefined;
+              return (
+                <tr key={String(p.id)} className="hover:bg-muted/20 transition-colors">
+                  <td className="px-4 py-3 font-medium">{String(p.name)}</td>
+                  <td className="px-4 py-3">
+                    {tracksStock ? (
+                      <Badge variant="outline" className="text-xs border-blue-500/30 bg-blue-500/10 text-blue-700">Tracked</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs gap-1">
+                        <InfinityIcon className="size-3" /> Unlimited
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {tracksStock ? (
+                      <span className={cn(
+                        "text-sm font-medium tabular-nums",
+                        stock === 0 && "text-red-500",
+                        stock > 0 && stock <= 5 && "text-amber-600",
+                      )}>
+                        {stock}
+                        {stock === 0 && <span className="ml-1 text-xs font-normal text-red-400">out of stock</span>}
+                        {stock > 0 && stock <= 5 && <span className="ml-1 text-xs font-normal text-amber-500">low</span>}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground text-sm">—</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-1.5">
+                      {tracksStock ? (
+                        <>
+                          {isEditing ? (
+                            <>
+                              <Input
+                                type="number"
+                                min="0"
+                                className="h-7 w-20 text-xs"
+                                value={editingStock[String(p.id)]}
+                                onChange={(e) => setEditingStock((prev) => ({ ...prev, [String(p.id)]: e.target.value }))}
+                                onKeyDown={(e) => { if (e.key === "Enter") saveStock(String(p.id)); if (e.key === "Escape") setEditingStock((prev) => { const n = { ...prev }; delete n[String(p.id)]; return n; }); }}
+                                autoFocus
+                              />
+                              <Button size="sm" className="h-7 px-2 text-xs" onClick={() => saveStock(String(p.id))} disabled={saving === String(p.id)}>
+                                {saving === String(p.id) ? <Loader2 className="size-3 animate-spin" /> : "Save"}
+                              </Button>
+                            </>
+                          ) : (
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setEditingStock((prev) => ({ ...prev, [String(p.id)]: String(stock) }))}>
+                              <Edit className="size-3" /> Edit stock
+                            </Button>
+                          )}
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => setUnlimited(String(p.id))} disabled={saving === String(p.id)}>
+                            Set unlimited
+                          </Button>
+                        </>
+                      ) : (
+                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setEditingStock((prev) => ({ ...prev, [String(p.id)]: "0" }))}>
+                          <BarChart3 className="size-3" /> Track stock
+                        </Button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ── Shipping Tab ─────────────────────────────────────────────────────────────
+
+async function ensureShippingSchema(turso: any) {
+  const tables = [
+    `CREATE TABLE IF NOT EXISTS ShippingZone (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      countries TEXT DEFAULT '[]',
+      createdAt TEXT,
+      updatedAt TEXT
+    )`,
+    `CREATE TABLE IF NOT EXISTS ShippingRate (
+      id TEXT PRIMARY KEY,
+      zoneId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'flat',
+      price REAL DEFAULT 0,
+      minOrderAmount REAL,
+      estimatedDays TEXT DEFAULT '2-5',
+      active INTEGER DEFAULT 1,
+      createdAt TEXT,
+      updatedAt TEXT
+    )`,
+  ];
+  for (const sql of tables) {
+    try { await turso.execute(sql); } catch { /* already exists */ }
+  }
+}
+
+const COUNTRY_GROUPS: Record<string, string[]> = {
+  "Netherlands": ["NL"],
+  "Belgium & Luxembourg": ["BE", "LU"],
+  "Europe": ["DE","FR","GB","ES","IT","AT","CH","SE","NO","DK","FI","PL","PT","IE","NL","BE","LU"],
+  "Worldwide": ["*"],
+};
+
+function ShippingTab({ turso }: { turso: any }) {
+  const [zones, setZones] = useState<any[]>([]);
+  const [rates, setRates] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showZoneForm, setShowZoneForm] = useState(false);
+  const [showRateForm, setShowRateForm] = useState<string | null>(null); // zoneId
+  const [zoneName, setZoneName] = useState("");
+  const [zoneCountries, setZoneCountries] = useState("Netherlands");
+  const [rateName, setRateName] = useState("");
+  const [rateType, setRateType] = useState<"flat" | "free" | "free_above">("flat");
+  const [ratePrice, setRatePrice] = useState("0");
+  const [rateMinOrder, setRateMinOrder] = useState("");
+  const [rateDays, setRateDays] = useState("2-5");
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      await ensureShippingSchema(turso);
+      const [zRes, rRes] = await Promise.all([
+        turso.execute("SELECT * FROM ShippingZone ORDER BY name ASC"),
+        turso.execute("SELECT * FROM ShippingRate WHERE active = 1 ORDER BY zoneId, name ASC"),
+      ]);
+      setZones(zRes.rows);
+      setRates(rRes.rows);
+    } catch {
+      toast.error("Failed to load shipping settings");
+    } finally {
+      setLoading(false);
+    }
+  }, [turso]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const addZone = async () => {
+    if (!zoneName.trim()) return;
+    setSaving(true);
+    try {
+      const id = `zone_${Math.random().toString(36).slice(2, 9)}`;
+      const countries = JSON.stringify(COUNTRY_GROUPS[zoneCountries] ?? [zoneCountries]);
+      await turso.execute({
+        sql: "INSERT INTO ShippingZone (id, name, countries, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?)",
+        args: [id, zoneName.trim(), countries, new Date().toISOString(), new Date().toISOString()],
+      });
+      toast.success("Shipping zone added");
+      setZoneName(""); setZoneCountries("Netherlands"); setShowZoneForm(false);
+      load();
+    } catch { toast.error("Failed to add zone"); }
+    finally { setSaving(false); }
+  };
+
+  const addRate = async (zoneId: string) => {
+    if (!rateName.trim()) return;
+    setSaving(true);
+    try {
+      const id = `rate_${Math.random().toString(36).slice(2, 9)}`;
+      const price = rateType === "free" ? 0 : parseFloat(ratePrice) || 0;
+      const minOrder = rateType === "free_above" ? parseFloat(rateMinOrder) || 0 : null;
+      await turso.execute({
+        sql: "INSERT INTO ShippingRate (id, zoneId, name, type, price, minOrderAmount, estimatedDays, active, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)",
+        args: [id, zoneId, rateName.trim(), rateType, price, minOrder, rateDays.trim() || "2-5", new Date().toISOString(), new Date().toISOString()],
+      });
+      toast.success("Shipping rate added");
+      setRateName(""); setRateType("flat"); setRatePrice("0"); setRateMinOrder(""); setRateDays("2-5"); setShowRateForm(null);
+      load();
+    } catch { toast.error("Failed to add rate"); }
+    finally { setSaving(false); }
+  };
+
+  const deleteRate = async (id: string) => {
+    try {
+      await turso.execute({ sql: "UPDATE ShippingRate SET active = 0 WHERE id = ?", args: [id] });
+      load();
+    } catch { toast.error("Failed to delete rate"); }
+  };
+
+  const deleteZone = async (id: string) => {
+    if (!confirm("Delete this zone and all its rates?")) return;
+    try {
+      await turso.execute({ sql: "DELETE FROM ShippingRate WHERE zoneId = ?", args: [id] });
+      await turso.execute({ sql: "DELETE FROM ShippingZone WHERE id = ?", args: [id] });
+      load();
+    } catch { toast.error("Failed to delete zone"); }
+  };
+
+  if (loading) return <div className="flex justify-center p-12"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium">Shipping</h3>
+          <p className="text-sm text-muted-foreground mt-0.5">Define where you ship and how much it costs.</p>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={() => setShowZoneForm(true)}>
+          <Plus className="size-4" /> Add zone
+        </Button>
+      </div>
+
+      {/* Add zone form */}
+      {showZoneForm && (
+        <div className="rounded-xl border bg-card p-4 shadow-sm space-y-3">
+          <h4 className="font-medium text-sm flex items-center gap-2"><MapPin className="size-4" /> New shipping zone</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Zone name</label>
+              <Input placeholder="e.g. Netherlands" value={zoneName} onChange={(e) => setZoneName(e.target.value)} className="h-8 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Countries</label>
+              <select
+                className="w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                value={zoneCountries}
+                onChange={(e) => setZoneCountries(e.target.value)}
+              >
+                {Object.keys(COUNTRY_GROUPS).map((g) => <option key={g}>{g}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={addZone} disabled={saving || !zoneName.trim()} className="gap-1.5">
+              {saving && <Loader2 className="size-3 animate-spin" />} Add zone
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowZoneForm(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state */}
+      {zones.length === 0 && !showZoneForm && (
+        <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
+          <Truck className="size-8 mx-auto mb-3 opacity-30" />
+          <p className="font-medium text-foreground mb-1">No shipping zones yet</p>
+          <p className="text-sm mb-4">Add a zone to define where and how you ship.</p>
+          <Button size="sm" onClick={() => setShowZoneForm(true)} className="gap-1.5">
+            <Plus className="size-4" /> Add your first zone
+          </Button>
+        </div>
+      )}
+
+      {/* Zones list */}
+      {zones.map((zone) => {
+        const zoneRates = rates.filter((r) => String(r.zoneId) === String(zone.id));
+        return (
+          <div key={String(zone.id)} className="rounded-xl border bg-card shadow-sm overflow-hidden">
+            {/* Zone header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b bg-muted/20">
+              <div className="flex items-center gap-2">
+                <MapPin className="size-4 text-muted-foreground" />
+                <span className="font-medium">{String(zone.name)}</span>
+                <Badge variant="outline" className="text-xs">{(() => { try { const c = JSON.parse(String(zone.countries)); return c[0] === "*" ? "Worldwide" : `${c.length} countries`; } catch { return "—"; } })()}</Badge>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={() => setShowRateForm(String(zone.id))}>
+                  <Plus className="size-3" /> Add rate
+                </Button>
+                <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-red-500" onClick={() => deleteZone(String(zone.id))}>
+                  <Trash2 className="size-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            {/* Add rate form */}
+            {showRateForm === String(zone.id) && (
+              <div className="px-4 py-3 border-b bg-muted/10 space-y-3">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Rate name</label>
+                    <Input placeholder="e.g. Standard shipping" value={rateName} onChange={(e) => setRateName(e.target.value)} className="h-7 text-xs" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Type</label>
+                    <select
+                      className="w-full h-7 rounded-md border border-input bg-background px-2 text-xs"
+                      value={rateType}
+                      onChange={(e) => setRateType(e.target.value as typeof rateType)}
+                    >
+                      <option value="flat">Flat rate</option>
+                      <option value="free">Always free</option>
+                      <option value="free_above">Free above amount</option>
+                    </select>
+                  </div>
+                  {rateType === "flat" && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Price (€)</label>
+                      <Input type="number" min="0" step="0.01" placeholder="4.99" value={ratePrice} onChange={(e) => setRatePrice(e.target.value)} className="h-7 text-xs" />
+                    </div>
+                  )}
+                  {rateType === "free_above" && (
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Free above (€)</label>
+                      <Input type="number" min="0" step="0.01" placeholder="50.00" value={rateMinOrder} onChange={(e) => setRateMinOrder(e.target.value)} className="h-7 text-xs" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Est. days</label>
+                    <Input placeholder="2-5" value={rateDays} onChange={(e) => setRateDays(e.target.value)} className="h-7 text-xs" />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button size="sm" className="h-7 px-3 text-xs gap-1" onClick={() => addRate(String(zone.id))} disabled={saving || !rateName.trim()}>
+                    {saving && <Loader2 className="size-3 animate-spin" />} Add rate
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setShowRateForm(null)}>Cancel</Button>
+                </div>
+              </div>
+            )}
+
+            {/* Rates list */}
+            {zoneRates.length === 0 ? (
+              <div className="px-4 py-4 text-sm text-muted-foreground text-center">
+                No rates yet. Click "Add rate" to add a shipping option.
+              </div>
+            ) : (
+              <table className="w-full text-sm">
+                <tbody className="divide-y">
+                  {zoneRates.map((rate) => (
+                    <tr key={String(rate.id)} className="hover:bg-muted/10 group">
+                      <td className="px-4 py-2.5 font-medium">{String(rate.name)}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">
+                        {rate.type === "flat" && `€${Number(rate.price).toFixed(2)}`}
+                        {rate.type === "free" && "Free"}
+                        {rate.type === "free_above" && `Free above €${Number(rate.minOrderAmount).toFixed(2)}`}
+                      </td>
+                      <td className="px-4 py-2.5 text-muted-foreground text-xs">{rate.estimatedDays ? `${rate.estimatedDays} days` : ""}</td>
+                      <td className="px-4 py-2.5 text-right">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-7 text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => deleteRate(String(rate.id))}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+type OrderAction = "cancel" | "refund" | "delete" | null;
+
+const ORDER_STATUS_STYLES: Record<string, string> = {
+  PAID:       "bg-green-500/10 text-green-600 border-green-500/20",
+  COMPLETED:  "bg-green-500/10 text-green-600 border-green-500/20",
+  PENDING:    "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
+  CANCELLED:  "bg-red-500/10 text-red-600 border-red-500/20",
+  REFUNDED:   "bg-purple-500/10 text-purple-600 border-purple-500/20",
+};
+
+function OrderStatusBadge({ status }: { status: string }) {
+  return (
+    <span className={cn(
+      "px-2 py-0.5 rounded-full text-xs font-medium border",
+      ORDER_STATUS_STYLES[status] ?? "bg-muted text-muted-foreground border-border",
+    )}>
+      {status}
+    </span>
+  );
+}
+
+function OrdersTab({ turso, project }: { turso: any; project: Project }) {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [orderItems, setOrderItems] = useState<any[]>([]);
+  const [loadingItems, setLoadingItems] = useState(false);
+  const [pendingAction, setPendingAction] = useState<{ id: string; orderNumber: string; action: OrderAction } | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
   const { bump, label } = useLastUpdated();
+  const { getToken } = useAuth();
+  const client = useMemo(() => createApiClient(getToken), [getToken]);
 
   const loadOrders = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
     try {
       const res = await turso.execute(`
-        SELECT o.*, c.email, c.firstName, c.lastName
+        SELECT o.id, o.orderNumber, o.status, o.totalAmount, o.createdAt,
+               o.shippingAddress, o.billingAddress,
+               c.email, c.firstName, c.lastName
         FROM [Order] o
         LEFT JOIN Customer c ON o.customerId = c.id
         ORDER BY o.createdAt DESC
@@ -645,62 +1368,381 @@ function OrdersTab({ turso }: { turso: any }) {
     return () => clearInterval(timer);
   }, [loadOrders]);
 
+  const openOrder = async (order: any) => {
+    setSelectedOrder(order);
+    setLoadingItems(true);
+    try {
+      const res = await turso.execute({
+        sql: `SELECT oi.quantity, oi.unitPrice, p.name, p.images, p.sku
+              FROM OrderItem oi
+              LEFT JOIN Product p ON oi.productId = p.id
+              WHERE oi.orderId = ?`,
+        args: [order.id],
+      });
+      setOrderItems(res.rows);
+    } catch {
+      setOrderItems([]);
+    } finally {
+      setLoadingItems(false);
+    }
+  };
+
+  const confirmAction = async () => {
+    if (!pendingAction) return;
+    setActionLoading(true);
+    try {
+      if (pendingAction.action === "cancel") {
+        // Direct Turso update — no worker needed
+        await turso.execute({
+          sql: `UPDATE [Order] SET status = 'CANCELLED', updatedAt = datetime('now') WHERE id = ?`,
+          args: [pendingAction.id],
+        });
+        toast.success(`Order ${pendingAction.orderNumber} cancelled.`);
+        // Keep selected order in sync
+        if (selectedOrder?.id === pendingAction.id) {
+          setSelectedOrder((o: any) => ({ ...o, status: "CANCELLED" }));
+        }
+      } else if (pendingAction.action === "refund") {
+        await client.orders.refund(project.id, pendingAction.id, project.paymentMode === "live" ? "live" : "test");
+        toast.success(`Order ${pendingAction.orderNumber} refunded — refund email sent.`);
+        if (selectedOrder?.id === pendingAction.id) {
+          setSelectedOrder((o: any) => ({ ...o, status: "REFUNDED" }));
+        }
+      } else if (pendingAction.action === "delete") {
+        // Direct Turso delete — no worker needed
+        await turso.execute({ sql: "DELETE FROM OrderItem WHERE orderId = ?", args: [pendingAction.id] });
+        await turso.execute({ sql: "DELETE FROM [Order] WHERE id = ?", args: [pendingAction.id] });
+        toast.success(`Order ${pendingAction.orderNumber} deleted.`);
+        if (selectedOrder?.id === pendingAction.id) setSelectedOrder(null);
+      }
+      await loadOrders(true);
+    } catch (err: any) {
+      toast.error(err?.message || "Action failed. Please try again.");
+    } finally {
+      setActionLoading(false);
+      setPendingAction(null);
+    }
+  };
+
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
 
+  const actionMeta: Record<NonNullable<OrderAction>, { title: string; desc: (o: string) => string; label: string; destructive?: boolean }> = {
+    cancel: {
+      title: "Cancel order",
+      desc: (n) => `Cancel order ${n}? The status will be updated to Cancelled. This cannot be undone.`,
+      label: "Cancel order",
+    },
+    refund: {
+      title: "Refund order",
+      desc: (n) => `Issue a full refund for order ${n} via Stripe? The customer will receive a refund and a confirmation email.`,
+      label: "Issue refund",
+      destructive: true,
+    },
+    delete: {
+      title: "Delete order",
+      desc: (n) => `Permanently delete order ${n} from your database? This cannot be undone.`,
+      label: "Delete",
+      destructive: true,
+    },
+  };
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium">Recent Orders</h3>
-        <div className="flex items-center gap-2">
-          {label && <span className="text-xs text-muted-foreground">{label}</span>}
-          <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadOrders(true)} disabled={refreshing}>
-            <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
-            Refresh
-          </Button>
+    <>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-medium">Orders</h3>
+          <div className="flex items-center gap-2">
+            {label && <span className="text-xs text-muted-foreground">{label}</span>}
+            <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadOrders(true)} disabled={refreshing}>
+              <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
+              Refresh
+            </Button>
+          </div>
+        </div>
+
+        <div className="border rounded-lg overflow-hidden bg-card">
+          <table className="w-full text-sm text-left">
+            <thead className="bg-muted/50 text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide">Order #</th>
+                <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide">Date</th>
+                <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide">Customer</th>
+                <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide">Status</th>
+                <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-right">Total</th>
+                <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {orders.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground text-sm">
+                    No orders yet. They will appear here when customers checkout.
+                  </td>
+                </tr>
+              ) : orders.map(o => {
+                const isDone = o.status === "CANCELLED" || o.status === "REFUNDED";
+                const isPaid = o.status === "PAID" || o.status === "COMPLETED";
+                return (
+                  <React.Fragment key={o.id}>
+                    <tr className="hover:bg-muted/20 transition-colors cursor-pointer" onClick={() => openOrder(o)}>
+                      <td className="px-4 py-3 font-medium text-primary">{o.orderNumber}</td>
+                      <td className="px-4 py-3 text-muted-foreground text-xs">
+                        {new Date(o.createdAt).toLocaleDateString("nl-NL", { day: "2-digit", month: "short", year: "numeric" })}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col">
+                          <span>{o.firstName ? `${o.firstName} ${o.lastName ?? ""}`.trim() : "Guest"}</span>
+                          {o.email && <span className="text-xs text-muted-foreground">{o.email}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3"><OrderStatusBadge status={o.status} /></td>
+                      <td className="px-4 py-3 text-right font-medium">€{Number(o.totalAmount).toFixed(2)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 p-0"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <MoreHorizontal className="size-3.5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuLabel className="text-xs text-muted-foreground">Order actions</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <button
+                              disabled={isDone}
+                              onClick={(e) => { e.stopPropagation(); setPendingAction({ id: o.id, orderNumber: o.orderNumber, action: "cancel" }); }}
+                              className={cn(
+                                "relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                                isDone ? "opacity-30 pointer-events-none" : "hover:bg-accent hover:text-accent-foreground",
+                              )}
+                            >
+                              <XCircle className="size-3.5 text-muted-foreground" />
+                              Cancel order
+                            </button>
+                            <button
+                              disabled={!isPaid}
+                              onClick={(e) => { e.stopPropagation(); setPendingAction({ id: o.id, orderNumber: o.orderNumber, action: "refund" }); }}
+                              className={cn(
+                                "relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors",
+                                !isPaid ? "opacity-30 pointer-events-none" : "hover:bg-accent hover:text-accent-foreground",
+                              )}
+                            >
+                              <DollarSign className="size-3.5 text-muted-foreground" />
+                              Refund via Stripe
+                            </button>
+                            <DropdownMenuSeparator />
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setPendingAction({ id: o.id, orderNumber: o.orderNumber, action: "delete" }); }}
+                              className="relative flex w-full cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors hover:bg-destructive/10 hover:text-destructive text-destructive/80"
+                            >
+                              <Trash2 className="size-3.5" />
+                              Delete order
+                            </button>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </td>
+                    </tr>
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </div>
-      <div className="border rounded-md overflow-hidden bg-card">
-        <table className="w-full text-sm text-left">
-          <thead className="bg-muted/50 text-muted-foreground uppercase">
-            <tr>
-              <th className="px-4 py-3 font-medium">Order #</th>
-              <th className="px-4 py-3 font-medium">Date</th>
-              <th className="px-4 py-3 font-medium">Customer</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {orders.length === 0 ? (
-              <tr><td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">No orders yet. They will appear here when customers checkout.</td></tr>
-            ) : orders.map(o => (
-              <tr key={o.id} className="hover:bg-muted/30">
-                <td className="px-4 py-3 font-medium">{o.orderNumber}</td>
-                <td className="px-4 py-3 text-muted-foreground">
-                  {new Date(o.createdAt).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-3">
-                  {o.firstName ? `${o.firstName} ${o.lastName}` : o.email || 'Guest'}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={cn(
-                    "px-2 py-1 rounded-full text-xs font-medium",
-                    o.status === 'COMPLETED' ? "bg-green-500/10 text-green-600" :
-                    o.status === 'PENDING' ? "bg-yellow-500/10 text-yellow-600" :
-                    "bg-muted text-muted-foreground"
-                  )}>
-                    {o.status}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-right font-medium">
-                  €{Number(o.totalAmount).toFixed(2)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+
+      {/* ── Order detail side panel ─────────────────────────────────────── */}
+      {selectedOrder && (
+        <div className="fixed inset-y-0 right-0 z-50 flex">
+          {/* Backdrop */}
+          <div className="fixed inset-0 bg-black/40" onClick={() => setSelectedOrder(null)} />
+
+          {/* Panel */}
+          <div className="relative ml-auto w-[420px] max-w-full h-full bg-background border-l shadow-2xl flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
+              <div>
+                <p className="text-xs text-muted-foreground uppercase tracking-widest font-medium">Order</p>
+                <h3 className="text-base font-semibold">{selectedOrder.orderNumber}</h3>
+              </div>
+              <div className="flex items-center gap-2">
+                <OrderStatusBadge status={selectedOrder.status} />
+                <button
+                  onClick={() => setSelectedOrder(null)}
+                  className="rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable content */}
+            <div className="flex-1 overflow-y-auto p-5 space-y-5">
+              {/* Customer */}
+              <section className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Customer</p>
+                <div className="rounded-lg border bg-muted/20 p-3 text-sm space-y-0.5">
+                  <p className="font-medium">
+                    {selectedOrder.firstName
+                      ? `${selectedOrder.firstName} ${selectedOrder.lastName ?? ""}`.trim()
+                      : "Guest"}
+                  </p>
+                  {selectedOrder.email && <p className="text-muted-foreground">{selectedOrder.email}</p>}
+                </div>
+              </section>
+
+              {/* Items */}
+              <section className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Items</p>
+                {loadingItems ? (
+                  <div className="flex justify-center py-4"><Loader2 className="size-4 animate-spin text-muted-foreground" /></div>
+                ) : orderItems.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No items found.</p>
+                ) : (
+                  <div className="rounded-lg border overflow-hidden divide-y">
+                    {orderItems.map((item: any, i: number) => {
+                      let imgSrc: string | null = null;
+                      try { imgSrc = JSON.parse(item.images)?.[0] ?? null; } catch { /* ignore */ }
+                      return (
+                        <div key={i} className="flex items-center gap-3 px-3 py-2.5 bg-card text-sm">
+                          {imgSrc ? (
+                            <img src={imgSrc} alt={item.name} className="size-9 rounded object-cover shrink-0 bg-muted" />
+                          ) : (
+                            <div className="size-9 rounded bg-muted shrink-0 flex items-center justify-center">
+                              <Package className="size-4 text-muted-foreground" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{item.name}</p>
+                            {item.sku && <p className="text-xs text-muted-foreground">SKU: {item.sku}</p>}
+                          </div>
+                          <div className="text-right shrink-0">
+                            <p className="font-medium">€{Number(item.unitPrice).toFixed(2)}</p>
+                            <p className="text-xs text-muted-foreground">×{item.quantity}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+
+              {/* Totals */}
+              <section className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Summary</p>
+                <div className="rounded-lg border bg-card p-3 text-sm space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Date</span>
+                    <span>{new Date(selectedOrder.createdAt).toLocaleString("nl-NL")}</span>
+                  </div>
+                  <div className="flex justify-between font-semibold pt-1 border-t">
+                    <span>Total</span>
+                    <span>€{Number(selectedOrder.totalAmount).toFixed(2)}</span>
+                  </div>
+                </div>
+              </section>
+
+              {/* Addresses */}
+              {(selectedOrder.shippingAddress || selectedOrder.billingAddress) && (
+                <section className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Addresses</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { label: "Shipping", raw: selectedOrder.shippingAddress },
+                      { label: "Billing", raw: selectedOrder.billingAddress },
+                    ].map(({ label: lbl, raw }) => {
+                      if (!raw) return null;
+                      let addr: any = {};
+                      try { addr = JSON.parse(raw); } catch { return null; }
+                      return (
+                        <div key={lbl} className="rounded-lg border bg-muted/20 p-3 text-xs space-y-0.5">
+                          <p className="font-semibold text-muted-foreground mb-1">{lbl}</p>
+                          {addr.name && <p>{addr.name}</p>}
+                          {addr.line1 && <p>{addr.line1}{addr.line2 ? `, ${addr.line2}` : ""}</p>}
+                          {(addr.postalCode || addr.city) && <p>{[addr.postalCode, addr.city].filter(Boolean).join(" ")}</p>}
+                          {addr.country && <p>{addr.country}</p>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              {/* Order ID */}
+              <section className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Order ID</p>
+                <p className="font-mono text-xs text-muted-foreground break-all bg-muted/30 rounded px-2 py-1.5">{selectedOrder.id}</p>
+              </section>
+            </div>
+
+            {/* Footer actions */}
+            <div className="shrink-0 border-t px-5 py-3 flex gap-2 flex-wrap">
+              {(selectedOrder.status !== "CANCELLED" && selectedOrder.status !== "REFUNDED") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setPendingAction({ id: selectedOrder.id, orderNumber: selectedOrder.orderNumber, action: "cancel" })}
+                >
+                  <XCircle className="size-3.5" /> Cancel
+                </Button>
+              )}
+              {(selectedOrder.status === "PAID" || selectedOrder.status === "COMPLETED") && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => setPendingAction({ id: selectedOrder.id, orderNumber: selectedOrder.orderNumber, action: "refund" })}
+                >
+                  <DollarSign className="size-3.5" /> Refund via Stripe
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-destructive hover:text-destructive ml-auto"
+                onClick={() => setPendingAction({ id: selectedOrder.id, orderNumber: selectedOrder.orderNumber, action: "delete" })}
+              >
+                <Trash2 className="size-3.5" /> Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation dialog */}
+      <AlertDialog open={!!pendingAction} onOpenChange={(open) => { if (!open && !actionLoading) setPendingAction(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {pendingAction ? actionMeta[pendingAction.action!].title : ""}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingAction ? actionMeta[pendingAction.action!].desc(pendingAction.orderNumber) : ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={actionLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={actionLoading}
+              onClick={(e) => { e.preventDefault(); confirmAction(); }}
+              className={cn(
+                pendingAction && actionMeta[pendingAction.action!]?.destructive
+                  ? "bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                  : "",
+              )}
+            >
+              {actionLoading
+                ? <><Loader2 className="size-4 animate-spin mr-2" /> Processing…</>
+                : pendingAction ? actionMeta[pendingAction.action!].label : "Confirm"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -958,286 +2000,245 @@ function PaymentsTab({
     }
   };
 
+  // Determine which step is currently active (0-indexed)
+  const activeStep = !step1Complete ? 0 : !step2Complete ? 1 : !step3Complete ? 2 : 3;
+
   return (
-    <div className="space-y-8 max-w-4xl">
-      <div className="flex items-start justify-between gap-4">
+    <div className="space-y-6 max-w-2xl">
+
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <h3 className="text-lg font-medium">Payments</h3>
-          <p className="text-sm text-muted-foreground">
-            Start accepting payments with Stripe in three simple steps.
-          </p>
-          <p className="text-sm text-muted-foreground mt-2">
-            What do you want me to do now? Complete Step 1, then Step 2, then Step 3.
-          </p>
+          <h3 className="text-lg font-semibold">Payments</h3>
+          <p className="text-sm text-muted-foreground mt-0.5">Accept payments in 3 steps.</p>
         </div>
-        <img
-          src="/Stripe_Logo,_revised_2016.svg.png"
-          alt="Stripe"
-          className="h-8 w-auto opacity-90 mr-6"
-        />
+        <img src="/Stripe_Logo,_revised_2016.svg.png" alt="Stripe" className="h-6 w-auto opacity-60" />
       </div>
 
-      <>
-          <div className="space-y-5">
-            <div className="rounded-2xl border bg-card p-7 shadow-sm space-y-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground flex items-center gap-2">
-                    <span className="inline-flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px]">1</span>
-                    Stripe onboarding
-                  </div>
-                  <h4 className="text-xl font-semibold mt-2">
-                    {!accountId
-                      ? "Connect Stripe"
-                      : isOnboarded
-                        ? "Ready"
-                        : "Onboarding in progress"}
-                  </h4>
-                </div>
-                {isOnboarded ? (
-                  <Badge
-                    variant="outline"
-                    className="inline-flex items-center gap-2 text-xs font-medium border-border bg-muted/40 text-foreground"
-                  >
-                    <CheckCircle2 className="size-3.5" />
-                    Onboarded
-                  </Badge>
-                ) : (
-                  <Badge
-                    variant="outline"
-                    className="inline-flex items-center gap-2 text-xs font-medium border-border bg-muted/40 text-muted-foreground"
-                  >
-                    <Settings2 className="size-3.5" />
-                    {accountId ? "Action needed" : "Not connected"}
-                  </Badge>
-                )}
+      {/* Steps */}
+      <div className="space-y-3">
+
+        {/* ── Step 1: Connect Stripe ── */}
+        <div className={cn(
+          "rounded-xl border transition-all",
+          activeStep === 0
+            ? "bg-card border-border shadow-sm"
+            : step1Complete
+              ? "bg-muted/20 border-border/50 opacity-60"
+              : "bg-muted/5 border-border/20 opacity-20 pointer-events-none select-none",
+        )}>
+          <div className="p-5 space-y-4">
+            {/* Step label + status */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <span className={cn(
+                  "inline-flex size-5 items-center justify-center rounded-full text-[10px] font-bold shrink-0",
+                  step1Complete ? "bg-green-500 text-white" : "bg-primary text-primary-foreground",
+                )}>
+                  {step1Complete ? "✓" : "1"}
+                </span>
+                <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                  Connect Stripe
+                </span>
               </div>
-
-              <p className="text-sm text-muted-foreground">
-                {!accountId
-                  ? "We work with Stripe, a trusted global payment provider. Connect your Stripe account to start onboarding."
-                  : isOnboarded
-                    ? "Great, Stripe onboarding is complete. Next you can choose test or live payment mode."
-                    : "Quick setup: finish Stripe onboarding so your shop can securely accept payments."}
-              </p>
-
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  variant={selectedMode === "test" ? "default" : "outline"}
-                  onClick={() => setSelectedMode("test")}
-                  disabled={isLoading}
-                >
-                  Test account
-                </Button>
-                <Button
-                  type="button"
-                  variant={selectedMode === "live" ? "default" : "outline"}
-                  onClick={() => setSelectedMode("live")}
-                  disabled={isLoading}
-                >
-                  Live account
-                </Button>
-              </div>
-
-              <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground space-y-3">
-                <div>
-                  {accountId ? (
-                    <>
-                      Account ID: <span className="font-mono text-foreground">{accountId}</span>
-                    </>
-                  ) : (
-                    <>No {selectedMode} Stripe account connected yet.</>
-                  )}
-                </div>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    value={manualAccountId}
-                    onChange={(e) => setManualAccountId(e.target.value)}
-                    placeholder={`Paste ${selectedMode} acct_...`}
-                    className="font-mono"
-                    disabled={isLoading}
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={saveManualAccountId}
-                    disabled={isLoading || !manualAccountId.trim()}
-                    className="shrink-0"
-                  >
-                    Save account ID
-                  </Button>
-                </div>
-                <p className="text-xs">
-                  Paste an existing Stripe {selectedMode} account ID if you want to reuse it manually instead of creating a new onboarding account.
-                </p>
-                {stripeStatus?.requirements?.currently_due?.length ? (
-                  <details className="mt-2">
-                    <summary className="cursor-pointer font-medium text-foreground">
-                      View onboarding details
-                    </summary>
-                    <p className="mt-2 text-xs">
-                      Stripe still asks for a few business details:
-                    </p>
-                    <p className="mt-1 text-xs break-words">
-                      {stripeStatus.requirements.currently_due.join(", ")}
-                    </p>
-                  </details>
+              <div className="flex items-center gap-2">
+                {step1Complete ? (
+                  <Badge variant="outline" className="text-xs gap-1.5 border-green-500/30 bg-green-500/10 text-green-700">
+                    <CheckCircle2 className="size-3" /> Connected
+                  </Badge>
+                ) : accountId ? (
+                  <Badge variant="outline" className="text-xs gap-1.5 text-amber-600 border-amber-500/30 bg-amber-500/10">
+                    Action needed
+                  </Badge>
                 ) : null}
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={startOnboarding} disabled={isLoading} className="gap-2">
-                  {isLoading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}
-                  {!accountId ? "Connect Stripe" : isOnboarded ? "Re-onboard" : "Continue onboarding"}
-                </Button>
+                {/* Refresh icon-only */}
                 {accountId && (
-                  <>
-                    <Button variant="outline" onClick={() => refreshStripeState().catch(() => toast.error("Failed to refresh Stripe status"))} disabled={isLoading} className="gap-2">
-                      <RotateCw className="size-4" />
-                      Refresh status
-                    </Button>
-                    <Button variant="outline" onClick={openDashboard} disabled={isLoading || !isOnboarded} className="gap-2">
-                      <ExternalLink className="size-4" />
-                      Stripe Dashboard
-                    </Button>
-                    <Button variant="ghost" onClick={disconnectStripe} disabled={isLoading} className="text-destructive hover:text-destructive gap-2">
-                      <Trash2 className="size-4" />
-                      Disconnect
-                    </Button>
-                  </>
+                  <button
+                    type="button"
+                    onClick={() => refreshStripeState().catch(() => toast.error("Failed to refresh"))}
+                    disabled={isLoading}
+                    title="Refresh Stripe status"
+                    className="rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-40"
+                  >
+                    <RotateCw className={cn("size-3.5", isLoading && "animate-spin")} />
+                  </button>
                 )}
               </div>
             </div>
 
-            <div
-              className={cn(
-                "rounded-2xl border bg-card p-7 shadow-sm space-y-5 transition-opacity",
-                !step1Complete && "opacity-60",
-              )}
-            >
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground flex items-center gap-2">
-                  <span className="inline-flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px]">2</span>
-                  Published shop payment mode
-                </div>
-                <h4 className="text-xl font-semibold mt-2">
-                  {paymentMode === "off"
-                    ? "Payments are off"
-                    : paymentMode === "test"
-                      ? "Test mode is active"
-                      : "Live payments are active"}
-                </h4>
+            {/* Title */}
+            <h4 className="text-base font-semibold">
+              {!accountId ? "Connect your Stripe account" : isOnboarded ? "Stripe is ready" : "Finish Stripe setup"}
+            </h4>
+
+            {/* Description */}
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              {!accountId
+                ? "We use Stripe to handle payments securely. Click below to create or connect a Stripe account."
+                : isOnboarded
+                  ? "Your Stripe account is fully set up and ready to accept payments."
+                  : "Almost there — complete the onboarding form to activate your account."}
+            </p>
+
+            {/* Test / Live toggle + Setup Stripe side by side */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5 gap-0.5">
+                {(["test", "live"] as const).map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setSelectedMode(m)}
+                    disabled={isLoading}
+                    className={cn(
+                      "rounded-md px-4 py-1.5 text-sm font-medium transition-all",
+                      selectedMode === m
+                        ? "bg-background shadow-sm text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {m === "test" ? "Test" : "Live"}
+                  </button>
+                ))}
               </div>
 
-              <p className="text-sm text-muted-foreground">
-                {!isPublished
-                  ? "Choose which mode should be active when this shop is published."
-                  : paymentMode === "off"
-                    ? "Checkout is disabled on the published site until you choose test or live mode."
-                    : paymentMode === "test"
-                      ? "Customers can complete Stripe test checkouts and you can verify orders and webhooks safely."
-                      : "Customers can place real orders and payouts will go to the connected live Stripe account."}
-              </p>
-
-              <div className="grid grid-cols-3 gap-2">
-                <Button variant={paymentMode === "off" ? "default" : "outline"} onClick={() => setMode("off")} disabled={isLoading || !step1Complete}>
-                  Off
-                </Button>
-                <Button variant={paymentMode === "test" ? "default" : "outline"} onClick={() => setMode("test")} disabled={isLoading || !step1Complete}>
-                  Test
-                </Button>
-                <Button variant={paymentMode === "live" ? "default" : "outline"} onClick={() => setMode("live")} disabled={isLoading || !step1Complete}>
-                  Live
-                </Button>
-              </div>
-
-              <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-                {!step1Complete ? (
-                  "Complete Step 1 onboarding first."
-                ) : !accountId ? (
-                  "Connect Stripe in the selected mode first."
-                ) : !isOnboarded ? (
-                  "Finish onboarding to unlock this mode."
-                ) : !isPublished ? (
-                  "This mode is ready. Publish the shop when you want the hosted storefront to use it."
-                ) : (
-                  "The platform will sync Stripe config to the published shop automatically when you change it here."
-                )}
-              </div>
-            </div>
-
-            <div
-              className={cn(
-                "rounded-2xl border bg-card p-7 shadow-sm space-y-5 transition-opacity",
-                !step2Complete && "opacity-60",
-              )}
-            >
-              <div>
-                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground flex items-center gap-2">
-                  <span className="inline-flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px]">3</span>
-                  Publish
-                </div>
-                <h4 className="text-xl font-semibold mt-2">
-                  {isPublished ? "Shop is published" : "Publish your shop"}
-                </h4>
-              </div>
-
-              <p className="text-sm text-muted-foreground">
-                {isPublished
-                  ? "Your storefront is already live. You can republish anytime from the Publish tab."
-                  : "When onboarding and payment mode are ready, publish to make checkout available on your hosted storefront."}
-              </p>
-
-              <div className="rounded-xl border bg-muted/30 p-4 text-sm text-muted-foreground">
-                {!accountId
-                  ? "Step 1 is incomplete: connect Stripe first."
-                  : !isOnboarded
-                    ? "Step 1 is incomplete: finish Stripe onboarding."
-                    : paymentMode === "off"
-                      ? "Step 2 is incomplete: choose test or live mode."
-                      : !isPublished
-                        ? "Ready to publish."
-                        : "Published and running."}
-              </div>
-
-              <Button
-                onClick={() => onNavigate("publish")}
-                className="gap-2"
-                variant={isPublished ? "outline" : "default"}
-                disabled={!step2Complete}
-              >
-                <Globe className="size-4" />
-                {isPublished ? "Open Publish tab" : "Go to Publish"}
+              <Button onClick={startOnboarding} disabled={isLoading} className="gap-2">
+                {isLoading
+                  ? <Loader2 className="size-4 animate-spin" />
+                  : <ArrowUpRight className="size-4" />}
+                {!accountId ? "Setup Stripe" : isOnboarded ? "Re-onboard" : "Setup Stripe"}
               </Button>
+
+              {accountId && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={disconnectStripe}
+                  disabled={isLoading}
+                  className="gap-1.5 text-destructive hover:text-destructive ml-auto"
+                >
+                  <Trash2 className="size-3.5" /> Disconnect
+                </Button>
+              )}
             </div>
           </div>
+        </div>
 
-          {step3Complete && (
-            <div className="grid gap-4 md:grid-cols-4">
-              <div className="rounded-2xl border bg-card p-6 shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground mb-2">Total orders</div>
-                <div className="text-3xl font-bold">{orderCount}</div>
-              </div>
-              <div className="rounded-2xl border bg-card p-6 shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground mb-2">Total revenue</div>
-                <div className="text-3xl font-bold">€{orderRevenue.toFixed(2)}</div>
-              </div>
-              <div className="rounded-2xl border bg-card p-6 shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground mb-2">Current balance</div>
-                <div className="text-3xl font-bold">
-                  €{((balance?.available?.[0]?.amount || 0) / 100).toFixed(2)}
-                </div>
-              </div>
-              <div className="rounded-2xl border bg-card p-6 shadow-sm">
-                <div className="text-sm font-medium text-muted-foreground mb-2">Recent payouts</div>
-                <div className="text-sm text-muted-foreground">
-                  {payouts.length > 0 ? `${payouts.length} recent payout${payouts.length === 1 ? "" : "s"}` : "No payouts yet"}
-                </div>
-              </div>
+        {/* ── Step 2: Payment mode ── */}
+        <div className={cn(
+          "rounded-xl border transition-all",
+          activeStep === 1
+            ? "bg-card border-border shadow-sm"
+            : step2Complete
+              ? "bg-muted/20 border-border/50 opacity-60"
+              : "bg-muted/5 border-border/20 opacity-15 pointer-events-none select-none",
+        )}>
+          <div className="p-5 space-y-4">
+            <div className="flex items-center gap-2.5">
+              <span className={cn(
+                "inline-flex size-5 items-center justify-center rounded-full text-[10px] font-bold shrink-0",
+                step2Complete ? "bg-green-500 text-white" : "bg-primary text-primary-foreground",
+              )}>
+                {step2Complete ? "✓" : "2"}
+              </span>
+              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Payment mode
+              </span>
             </div>
-          )}
-        </>
+
+            <h4 className="text-base font-semibold">
+              {paymentMode === "off" ? "Choose a payment mode" : paymentMode === "test" ? "Test mode active" : "Live payments active"}
+            </h4>
+
+            <p className="text-sm text-muted-foreground">
+              {paymentMode === "test"
+                ? "Use test card numbers to simulate purchases without real money."
+                : paymentMode === "live"
+                  ? "Real customers can pay and funds go to your Stripe account."
+                  : "Choose whether to enable test or live payments."}
+            </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              {(["off", "test", "live"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setMode(m)}
+                  disabled={isLoading || !step1Complete}
+                  className={cn(
+                    "rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors capitalize",
+                    paymentMode === m
+                      ? "border-primary bg-primary/5 text-primary"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  {m === "off" ? "Off" : m === "test" ? "Test" : "Live"}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Step 3: Publish ── */}
+        <div className={cn(
+          "rounded-xl border transition-all",
+          activeStep === 2
+            ? "bg-card border-border shadow-sm"
+            : step3Complete
+              ? "bg-muted/20 border-border/50 opacity-60"
+              : "bg-muted/5 border-border/20 opacity-15 pointer-events-none select-none",
+        )}>
+          <div className="p-5 space-y-4">
+            <div className="flex items-center gap-2.5">
+              <span className={cn(
+                "inline-flex size-5 items-center justify-center rounded-full text-[10px] font-bold shrink-0",
+                step3Complete ? "bg-green-500 text-white" : "bg-primary text-primary-foreground",
+              )}>
+                {step3Complete ? "✓" : "3"}
+              </span>
+              <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Publish
+              </span>
+            </div>
+
+            <h4 className="text-base font-semibold">
+              {isPublished ? "Shop is live" : "Publish your shop"}
+            </h4>
+
+            <p className="text-sm text-muted-foreground">
+              {isPublished
+                ? "Your storefront is live and accepting payments."
+                : "Once Stripe is connected and a payment mode is set, publish to go live."}
+            </p>
+
+            <Button
+              onClick={() => onNavigate("publish")}
+              variant={isPublished ? "outline" : "default"}
+              disabled={!step2Complete}
+              className="gap-2"
+            >
+              <Globe className="size-4" />
+              {isPublished ? "Go to Publish" : "Publish now"}
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Stats (shown after full setup) */}
+      {step3Complete && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+          {[
+            { label: "Orders", value: String(orderCount) },
+            { label: "Revenue", value: `€${orderRevenue.toFixed(2)}` },
+            { label: "Balance", value: `€${((balance?.available?.[0]?.amount || 0) / 100).toFixed(2)}` },
+            { label: "Payouts", value: payouts.length > 0 ? `${payouts.length}` : "—" },
+          ].map((s) => (
+            <div key={s.label} className="rounded-xl border bg-card p-4 shadow-sm">
+              <div className="text-xs text-muted-foreground mb-1">{s.label}</div>
+              <div className="text-2xl font-bold">{s.value}</div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

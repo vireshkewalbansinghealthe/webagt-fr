@@ -172,6 +172,80 @@ export async function sendOwnerOrderEmailForSession(
   }
 }
 
+export async function sendOrderCancelledEmail(
+  env: Env,
+  project: Project,
+  order: { orderId: string; orderNumber: string; totalAmount: number; customerEmail?: string; customerName?: string },
+): Promise<void> {
+  const { from, replyTo } = resolveSender(project, env);
+  if (!from || !env.RESEND_API_KEY) return;
+
+  const shouldSendCustomer = project.orderCustomerEmailsEnabled !== false;
+  if (!shouldSendCustomer || !isValidEmail(order.customerEmail)) return;
+
+  const amount = order.totalAmount.toFixed(2);
+  const currency = "EUR";
+
+  try {
+    await sendIdempotent(env, from, {
+      to: order.customerEmail!,
+      subject: `Order cancelled (${order.orderNumber})`,
+      html: `
+        <p>Hi ${order.customerName || "there"},</p>
+        <p>Your order <strong>${order.orderNumber}</strong> from <strong>${project.name}</strong> has been cancelled.</p>
+        <ul>
+          <li>Order: ${order.orderNumber}</li>
+          <li>Total: ${amount} ${currency}</li>
+        </ul>
+        <p>If you have any questions, please reply to this email.</p>
+      `,
+      recipientType: "customer",
+      idempotencyKey: `order-email:${project.id}:${order.orderId}:cancelled`,
+      replyTo,
+    });
+  } catch (error) {
+    console.error("[order-email] cancel send failed:", error);
+  }
+}
+
+export async function sendOrderRefundedEmail(
+  env: Env,
+  project: Project,
+  order: { orderId: string; orderNumber: string; totalAmount: number; customerEmail?: string; customerName?: string; refundId?: string },
+): Promise<void> {
+  const { from, replyTo } = resolveSender(project, env);
+  if (!from || !env.RESEND_API_KEY) return;
+
+  const shouldSendCustomer = project.orderCustomerEmailsEnabled !== false;
+  if (!shouldSendCustomer || !isValidEmail(order.customerEmail)) return;
+
+  const amount = order.totalAmount.toFixed(2);
+  const currency = "EUR";
+
+  try {
+    await sendIdempotent(env, from, {
+      to: order.customerEmail!,
+      subject: `Refund processed (${order.orderNumber})`,
+      html: `
+        <p>Hi ${order.customerName || "there"},</p>
+        <p>Your refund for order <strong>${order.orderNumber}</strong> from <strong>${project.name}</strong> has been processed.</p>
+        <ul>
+          <li>Order: ${order.orderNumber}</li>
+          <li>Refund amount: ${amount} ${currency}</li>
+          ${order.refundId ? `<li>Refund ID: ${order.refundId}</li>` : ""}
+        </ul>
+        <p>Refunds typically appear on your bank statement within 5–10 business days.</p>
+        <p>If you have any questions, please reply to this email.</p>
+      `,
+      recipientType: "customer",
+      idempotencyKey: `order-email:${project.id}:${order.orderId}:refunded`,
+      replyTo,
+    });
+  } catch (error) {
+    console.error("[order-email] refund send failed:", error);
+  }
+}
+
 export async function sendCustomerPaidEmailForSession(
   env: Env,
   project: Project,

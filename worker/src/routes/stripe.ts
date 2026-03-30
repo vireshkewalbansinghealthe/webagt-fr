@@ -8,6 +8,28 @@
 
 import { Hono } from "hono";
 import Stripe from "stripe";
+
+/**
+ * Sanitize an image URL before passing to Stripe.
+ * Stripe rejects URLs > 2048 chars, base64 data: URLs, and non-http(s) URLs.
+ * For Unsplash and CDN-style hosts, strip query params (the bare path still loads the image).
+ */
+function sanitizeStripeImageUrl(url: string | undefined | null): string | undefined {
+  if (!url) return undefined;
+  if (url.startsWith("data:")) return undefined;
+  try {
+    const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) return undefined;
+    const cdnHosts = ["unsplash.com", "images.unsplash.com", "source.unsplash.com", "picsum.photos", "cloudinary.com", "imgix.net"];
+    if (cdnHosts.some((h) => parsed.hostname.includes(h))) {
+      const clean = `${parsed.origin}${parsed.pathname}`;
+      return clean.length <= 2048 ? clean : undefined;
+    }
+    return url.length <= 2048 ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
 import type { Env, AppVariables } from "../types";
 import type { Project } from "../types/project";
 import {
@@ -24,6 +46,8 @@ import {
 import {
   sendCustomerPaidEmailForSession,
   sendOwnerOrderEmailForSession,
+  sendOrderCancelledEmail,
+  sendOrderRefundedEmail,
 } from "../services/order-emails";
 
 const stripeRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
@@ -347,7 +371,7 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
           currency,
           product_data: {
             name: item.name,
-            images: item.image ? [item.image] : undefined,
+            images: item.image ? [sanitizeStripeImageUrl(item.image)].filter((u): u is string => !!u) : undefined,
           },
           unit_amount: item.unitAmount,
         },
@@ -770,6 +794,179 @@ stripeRoutes.post("/webhook", async (c) => {
   } catch (error: any) {
     console.error("Webhook error:", error);
     return c.json({ error: error.message }, 400);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Helpers shared by order management endpoints
+// ---------------------------------------------------------------------------
+async function getOrderFromDb(
+  db: Awaited<ReturnType<typeof import("@libsql/client/web").createClient>>,
+  orderId: string,
+): Promise<{
+  id: string;
+  orderNumber: string;
+  status: string;
+  totalAmount: number;
+  customerEmail: string | null;
+  customerName: string | null;
+} | null> {
+  const res = await db.execute({
+    sql: `SELECT o.id, o.orderNumber, o.status, o.totalAmount,
+                 c.email as customerEmail,
+                 (c.firstName || ' ' || COALESCE(c.lastName, '')) as customerName
+          FROM [Order] o
+          LEFT JOIN Customer c ON o.customerId = c.id
+          WHERE o.id = ?
+          LIMIT 1`,
+    args: [orderId],
+  });
+  if (!res.rows[0]) return null;
+  const row = res.rows[0] as any;
+  return {
+    id: String(row.id),
+    orderNumber: String(row.orderNumber),
+    status: String(row.status),
+    totalAmount: Number(row.totalAmount),
+    customerEmail: row.customerEmail ? String(row.customerEmail).trim() || null : null,
+    customerName: row.customerName ? String(row.customerName).trim() || null : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/stripe/orders/cancel
+// Body: { projectId, orderId }
+// ---------------------------------------------------------------------------
+stripeRoutes.post("/orders/cancel", async (c) => {
+  try {
+    const { projectId, orderId } = await c.req.json<{ projectId?: string; orderId?: string }>();
+    if (!projectId || !orderId) return c.json({ error: "projectId and orderId are required" }, 400);
+
+    const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+    if (!project) return c.json({ error: "Project not found" }, 404);
+    if (!project.databaseUrl) return c.json({ error: "Project has no database configured" }, 400);
+
+    const { createClient } = await import("@libsql/client/web");
+    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+
+    const order = await getOrderFromDb(db, orderId);
+    if (!order) return c.json({ error: "Order not found" }, 404);
+    if (order.status === "CANCELLED") return c.json({ error: "Order is already cancelled" }, 400);
+    if (order.status === "REFUNDED") return c.json({ error: "Order has already been refunded" }, 400);
+
+    await db.execute({
+      sql: `UPDATE [Order] SET status = 'CANCELLED', updatedAt = datetime('now') WHERE id = ?`,
+      args: [orderId],
+    });
+
+    // Send cancellation email to customer
+    await sendOrderCancelledEmail(c.env, project, {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      totalAmount: order.totalAmount,
+      customerEmail: order.customerEmail ?? undefined,
+      customerName: order.customerName ?? undefined,
+    });
+
+    return c.json({ success: true, status: "CANCELLED" });
+  } catch (error: any) {
+    console.error("Order cancel error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/stripe/orders/refund
+// Body: { projectId, orderId, mode? }
+// ---------------------------------------------------------------------------
+stripeRoutes.post("/orders/refund", async (c) => {
+  try {
+    const { projectId, orderId, mode } = await c.req.json<{
+      projectId?: string;
+      orderId?: string;
+      mode?: StripeMode;
+    }>();
+    if (!projectId || !orderId) return c.json({ error: "projectId and orderId are required" }, 400);
+
+    const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+    if (!project) return c.json({ error: "Project not found" }, 404);
+    if (!project.databaseUrl) return c.json({ error: "Project has no database configured" }, 400);
+
+    const { createClient } = await import("@libsql/client/web");
+    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+
+    const order = await getOrderFromDb(db, orderId);
+    if (!order) return c.json({ error: "Order not found" }, 404);
+    if (order.status === "REFUNDED") return c.json({ error: "Order has already been refunded" }, 400);
+    if (order.status === "CANCELLED") return c.json({ error: "Cannot refund a cancelled order" }, 400);
+
+    // orderId IS the Stripe checkout session ID — retrieve it to get the payment_intent
+    const stripeMode = resolveStripeMode(mode ?? (getProjectPaymentMode(project) as StripeMode));
+    const stripeClient = getStripeClient(c.env, stripeMode);
+
+    let paymentIntentId: string | null = null;
+    try {
+      const session = await stripeClient.checkout.sessions.retrieve(orderId);
+      paymentIntentId = typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id ?? null;
+    } catch {
+      // Session might not exist if the order was created manually; try treating orderId as payment_intent
+      paymentIntentId = orderId.startsWith("pi_") ? orderId : null;
+    }
+
+    let refundId: string | undefined;
+    if (paymentIntentId) {
+      const refund = await stripeClient.refunds.create({ payment_intent: paymentIntentId });
+      refundId = refund.id;
+    }
+
+    await db.execute({
+      sql: `UPDATE [Order] SET status = 'REFUNDED', updatedAt = datetime('now') WHERE id = ?`,
+      args: [orderId],
+    });
+
+    await sendOrderRefundedEmail(c.env, project, {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      totalAmount: order.totalAmount,
+      customerEmail: order.customerEmail ?? undefined,
+      customerName: order.customerName ?? undefined,
+      refundId,
+    });
+
+    return c.json({ success: true, status: "REFUNDED", refundId: refundId ?? null });
+  } catch (error: any) {
+    console.error("Order refund error:", error);
+    return c.json({ error: error.message }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/stripe/orders/:orderId
+// Query: ?projectId=xxx
+// ---------------------------------------------------------------------------
+stripeRoutes.delete("/orders/:orderId", async (c) => {
+  try {
+    const orderId = c.req.param("orderId");
+    const projectId = c.req.query("projectId");
+    if (!projectId || !orderId) return c.json({ error: "projectId and orderId are required" }, 400);
+
+    const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+    if (!project) return c.json({ error: "Project not found" }, 404);
+    if (!project.databaseUrl) return c.json({ error: "Project has no database configured" }, 400);
+
+    const { createClient } = await import("@libsql/client/web");
+    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+
+    // Cascade-delete order items first, then order
+    await db.execute({ sql: "DELETE FROM OrderItem WHERE orderId = ?", args: [orderId] });
+    await db.execute({ sql: "DELETE FROM [Order] WHERE id = ?", args: [orderId] });
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error("Order delete error:", error);
+    return c.json({ error: error.message }, 500);
   }
 });
 

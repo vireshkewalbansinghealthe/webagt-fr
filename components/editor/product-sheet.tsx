@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { Infinity as InfinityIcon } from "lucide-react";
 
 export interface ProductFormData {
   id?: string;
@@ -33,6 +34,7 @@ export interface ProductFormData {
   description: string;
   price: number;
   compareAtPrice: number | null;
+  trackStock: boolean; // false = unlimited (default)
   stock: number;
   sku: string;
   isVirtual: boolean;
@@ -54,6 +56,7 @@ const EMPTY_FORM: ProductFormData = {
   description: "",
   price: 0,
   compareAtPrice: null,
+  trackStock: false,
   stock: 0,
   sku: "",
   isVirtual: false,
@@ -448,23 +451,75 @@ export function ProductSheet({
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                 Inventory
               </h3>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="p-stock">Stock quantity</Label>
-                  <Input
-                    id="p-stock"
-                    type="number"
-                    min="0"
-                    step="1"
-                    placeholder="0"
-                    value={form.stock === 0 ? "" : form.stock}
-                    onChange={(e) =>
-                      set("stock", parseInt(e.target.value) || 0)
-                    }
-                  />
+
+              {/* Stock tracking toggle */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => set("trackStock", false)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    !form.trackStock
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <div className="flex items-center gap-1.5 font-medium text-sm">
+                    <InfinityIcon className="size-3.5" />
+                    Unlimited stock
+                  </div>
+                  <div className="text-xs mt-0.5 text-muted-foreground">
+                    Never runs out
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => set("trackStock", true)}
+                  className={cn(
+                    "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    form.trackStock
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-border text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <div className="font-medium text-sm">Track quantity</div>
+                  <div className="text-xs mt-0.5 text-muted-foreground">
+                    Set a stock level
+                  </div>
+                </button>
+              </div>
+
+              {/* Stock quantity — only when tracking */}
+              {form.trackStock && (
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="p-stock">Stock quantity</Label>
+                    <Input
+                      id="p-stock"
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="0"
+                      value={form.stock === 0 ? "" : form.stock}
+                      onChange={(e) => set("stock", parseInt(e.target.value) || 0)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="p-sku">SKU</Label>
+                    <Input
+                      id="p-sku"
+                      placeholder="e.g. PERF-001"
+                      value={form.sku}
+                      onChange={(e) => set("sku", e.target.value)}
+                    />
+                  </div>
                 </div>
+              )}
+
+              {/* SKU when unlimited */}
+              {!form.trackStock && (
                 <div className="space-y-2">
-                  <Label htmlFor="p-sku">SKU</Label>
+                  <Label htmlFor="p-sku">SKU <span className="text-muted-foreground font-normal">(optional)</span></Label>
                   <Input
                     id="p-sku"
                     placeholder="e.g. PERF-001"
@@ -472,7 +527,9 @@ export function ProductSheet({
                     onChange={(e) => set("sku", e.target.value)}
                   />
                 </div>
-              </div>
+              )}
+
+              {/* Fulfillment */}
               <div className="space-y-2">
                 <Label>Fulfillment</Label>
                 <div className="grid grid-cols-2 gap-2">
@@ -486,9 +543,9 @@ export function ProductSheet({
                         : "border-border text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <div className="font-medium">Physical product</div>
-                    <div className="text-xs mt-1 text-muted-foreground">
-                      Collect shipping address at checkout
+                    <div className="font-medium text-sm">Physical</div>
+                    <div className="text-xs mt-0.5 text-muted-foreground">
+                      Collect shipping address
                     </div>
                   </button>
                   <button
@@ -501,9 +558,9 @@ export function ProductSheet({
                         : "border-border text-muted-foreground hover:text-foreground",
                     )}
                   >
-                    <div className="font-medium">Virtual product</div>
-                    <div className="text-xs mt-1 text-muted-foreground">
-                      No shipping fields needed
+                    <div className="font-medium text-sm">Virtual / Digital</div>
+                    <div className="text-xs mt-0.5 text-muted-foreground">
+                      No shipping needed
                     </div>
                   </button>
                 </div>

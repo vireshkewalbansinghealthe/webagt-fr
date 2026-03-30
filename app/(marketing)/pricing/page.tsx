@@ -46,7 +46,7 @@ export default function PricingPage() {
         </div>
 
         {/* Clerk PricingTable — auto-renders all public plans with checkout */}
-        <PricingTable />
+        <PricingTable newSubscriptionRedirectUrl="/dashboard" />
 
         {/* Shared features note */}
         <p className="mt-8 text-center text-sm text-muted-foreground">

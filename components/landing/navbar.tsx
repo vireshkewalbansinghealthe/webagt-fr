@@ -41,7 +41,7 @@ export function Navbar() {
               WebAGT
             </span>
             <span className="font-outfit text-[10px] font-medium text-white/50 leading-none mt-1 uppercase tracking-widest">
-              Prompt to live storefront
+              Stop Coding. Start Building.
             </span>
           </div>
         </Link>

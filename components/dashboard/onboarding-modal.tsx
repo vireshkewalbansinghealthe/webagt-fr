@@ -16,6 +16,7 @@ import {
   ArrowRight,
   Check,
   X,
+  PartyPopper,
 } from "lucide-react";
 
 const STORAGE_KEY = "webagt_onboarding_seen";
@@ -24,37 +25,34 @@ const STEPS = [
   {
     step: 1,
     icon: FolderPlus,
-    color: "from-blue-500 to-blue-600",
     iconBg: "bg-blue-500/10 text-blue-500",
     badge: "Step 1",
     title: "Create your first project",
     description:
-      'Click the "New Project" button in the top right of the dashboard. Choose between a website or webshop, pick a template (or start from scratch), and you\'re off.',
+      'Click the "New Project" button in the top right of the dashboard. Choose a website or webshop, pick a template (or start from scratch), and you\'re off!',
     highlight: "Look for the + New Project button →",
     cta: null,
   },
   {
     step: 2,
     icon: Sparkles,
-    color: "from-violet-500 to-violet-600",
     iconBg: "bg-violet-500/10 text-violet-500",
     badge: "Step 2",
     title: "Build with AI",
     description:
-      "Once inside your project, describe what you want in the chat. The AI will generate, style and update your site in real time. Click elements in the live preview to edit them directly.",
+      "Inside your project, describe what you want in the chat. The AI generates and updates your site in real time. Click any element in the live preview to edit it directly — no code needed.",
     highlight: "Type your idea in the chat — the AI does the rest.",
     cta: null,
   },
   {
     step: 3,
     icon: Crown,
-    color: "from-amber-500 to-orange-500",
     iconBg: "bg-amber-500/10 text-amber-500",
     badge: "Step 3",
     title: "Go Pro for unlimited power",
     description:
-      "The free plan includes 3 projects and limited AI credits. Upgrade to Pro for unlimited projects, more AI credits, webshop publishing, custom domains and priority support.",
-    highlight: "Upgrade anytime from the sidebar or billing page.",
+      "The free plan gives you 3 projects and limited AI credits. Upgrade to Pro for unlimited projects, more AI credits, webshop publishing, custom domains and priority support.",
+    highlight: "Upgrade anytime — from the sidebar or billing page.",
     cta: "Upgrade to Pro",
   },
 ];
@@ -71,22 +69,18 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !user) return;
 
-    // Show only for new users who haven't seen it yet
     const seen = localStorage.getItem(STORAGE_KEY);
     if (seen) return;
 
-    // Consider user "new" if created within the last 7 days
     const createdAt = user.createdAt;
     if (!createdAt) return;
     const ageMs = Date.now() - new Date(createdAt).getTime();
     const sevenDays = 7 * 24 * 60 * 60 * 1000;
     if (ageMs > sevenDays) {
-      // Existing user — mark as seen so we don't bother them
       localStorage.setItem(STORAGE_KEY, "1");
       return;
     }
 
-    // Small delay so the dashboard loads first
     const t = setTimeout(() => setOpen(true), 800);
     return () => clearTimeout(t);
   }, [isLoaded, isSignedIn, user]);
@@ -104,6 +98,7 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
     }
   };
 
+  const firstName = user?.firstName || user?.username || "there";
   const current = STEPS[step];
   const Icon = current.icon;
   const isLast = step === STEPS.length - 1;
@@ -111,29 +106,42 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) dismiss(); }}>
       <DialogContent className="sm:max-w-md p-0 overflow-hidden gap-0 border-border/60">
-        {/* Progress bar */}
-        <div className="flex gap-1 p-4 pb-0">
-          {STEPS.map((s, i) => (
-            <div
-              key={s.step}
-              className={cn(
-                "h-1 flex-1 rounded-full transition-all duration-300",
-                i <= step ? "bg-primary" : "bg-muted"
-              )}
-            />
-          ))}
+
+        {/* ── Welcome header ── */}
+        <div className="relative bg-gradient-to-br from-primary/10 via-primary/5 to-transparent px-6 pt-6 pb-5 border-b border-border/50">
+          <div className="flex items-start gap-3">
+            <div className="text-3xl leading-none">👋</div>
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-primary mb-1">
+                Welcome to WebAGT
+              </p>
+              <h1 className="text-xl font-bold leading-snug">
+                Hey {firstName}, great to have you here!
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1 leading-relaxed">
+                Let&apos;s get you started in 3 quick steps — it only takes a minute. 🚀
+              </p>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div className="flex gap-1.5 mt-4">
+            {STEPS.map((s, i) => (
+              <button
+                key={s.step}
+                onClick={() => setStep(i)}
+                className={cn(
+                  "h-1 flex-1 rounded-full transition-all duration-300",
+                  i <= step ? "bg-primary" : "bg-muted"
+                )}
+              />
+            ))}
+          </div>
         </div>
 
-        {/* Close button */}
-        <button
-          onClick={dismiss}
-          className="absolute top-3 right-3 rounded-full p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors z-10"
-        >
-          <X className="size-4" />
-        </button>
+        {/* ── Step content ── */}
+        <div className="p-6 space-y-4">
 
-        {/* Content */}
-        <div className="p-6 pt-4 space-y-5">
           {/* Icon + badge */}
           <div className="flex items-center gap-3">
             <div className={cn("p-2.5 rounded-xl", current.iconBg)}>
@@ -145,8 +153,8 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
           </div>
 
           {/* Title + description */}
-          <div className="space-y-2">
-            <h2 className="text-xl font-bold leading-tight">{current.title}</h2>
+          <div className="space-y-1.5">
+            <h2 className="text-lg font-bold leading-tight">{current.title}</h2>
             <p className="text-sm text-muted-foreground leading-relaxed">
               {current.description}
             </p>
@@ -178,7 +186,7 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
                   <Sparkles className="size-3 text-primary" />
                 </div>
                 <div className="bg-muted rounded-lg px-3 py-2 text-xs text-muted-foreground flex-1">
-                  Build me a modern parfum webshop with dark theme…
+                  Build me a modern parfum webshop with a dark luxury theme…
                 </div>
               </div>
               <div className="flex items-start gap-2 flex-row-reverse">
@@ -186,7 +194,7 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
                   <Zap className="size-3 text-violet-500" />
                 </div>
                 <div className="bg-violet-500/10 rounded-lg px-3 py-2 text-xs text-violet-700 dark:text-violet-300 flex-1 text-right">
-                  Generating your webshop with hero, products, cart…
+                  ✨ Generating your webshop — hero, products, cart…
                 </div>
               </div>
             </div>
@@ -194,31 +202,27 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
 
           {step === 2 && (
             <div className="rounded-xl border bg-gradient-to-br from-amber-500/10 to-orange-500/5 p-4 space-y-2.5">
+              <div className="flex justify-between text-[10px] font-semibold uppercase tracking-widest text-muted-foreground pb-1">
+                <span>Free</span>
+                <span className="text-amber-500">Pro ✦</span>
+              </div>
               {[
-                { label: "Unlimited projects", free: false, pro: true },
-                { label: "More AI credits", free: false, pro: true },
-                { label: "Webshop + payments", free: false, pro: true },
-                { label: "Custom domains", free: false, pro: true },
+                "Unlimited projects",
+                "More AI credits",
+                "Webshop + payments",
+                "Custom domains",
+                "Priority support",
               ].map((f) => (
-                <div key={f.label} className="flex items-center gap-3 text-sm">
-                  <div className="w-5 flex justify-center">
-                    <X className="size-3.5 text-muted-foreground/50" />
-                  </div>
-                  <span className="flex-1 text-muted-foreground">{f.label}</span>
-                  <div className="w-5 flex justify-center">
-                    <Check className="size-3.5 text-amber-500" />
-                  </div>
+                <div key={f} className="flex items-center gap-3 text-sm">
+                  <X className="size-3.5 text-muted-foreground/40 shrink-0" />
+                  <span className="flex-1 text-muted-foreground">{f}</span>
+                  <Check className="size-3.5 text-amber-500 shrink-0" />
                 </div>
               ))}
-              <div className="flex justify-between text-[10px] font-semibold uppercase tracking-widest text-muted-foreground pt-1">
-                <span className="w-5 text-center">Free</span>
-                <span className="flex-1" />
-                <span className="w-5 text-center text-amber-500">Pro</span>
-              </div>
             </div>
           )}
 
-          {/* Actions */}
+          {/* ── Actions ── */}
           <div className="flex items-center gap-2 pt-1">
             {/* Step dots */}
             <div className="flex gap-1.5 flex-1">
@@ -227,14 +231,14 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
                   key={i}
                   onClick={() => setStep(i)}
                   className={cn(
-                    "size-1.5 rounded-full transition-all",
-                    i === step ? "bg-primary w-4" : "bg-muted-foreground/30"
+                    "h-1.5 rounded-full transition-all duration-200",
+                    i === step ? "bg-primary w-4" : "bg-muted-foreground/30 w-1.5"
                   )}
                 />
               ))}
             </div>
 
-            {isLast && current.cta ? (
+            {isLast ? (
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={dismiss}>
                   Maybe later
@@ -248,13 +252,13 @@ export function OnboardingModal({ onCreateProject }: OnboardingModalProps) {
                   }}
                 >
                   <Crown className="size-3.5" />
-                  {current.cta}
+                  Upgrade to Pro
                 </Button>
               </div>
             ) : step === 0 ? (
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={next}>
-                  Skip intro
+                  Skip
                 </Button>
                 <Button
                   size="sm"

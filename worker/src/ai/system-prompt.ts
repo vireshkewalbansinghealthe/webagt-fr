@@ -348,7 +348,13 @@ CREATE TABLE [OrderItem] (
     }
     \`\`\`
 
-    Then in App.tsx: \`useEffect(() => { seedIfEmpty(); }, []);\`
+    Then in App.tsx, track seed completion with state so product pages wait for it:
+    \`\`\`tsx
+    const [seeded, setSeeded] = useState(false);
+    useEffect(() => { seedIfEmpty().finally(() => setSeeded(true)); }, []);
+    \`\`\`
+    Pass \`seeded\` to any route/component that reads products. Show a loading spinner until \`seeded\` is true.
+    This prevents "No products" flashing before the seed finishes.
 
     Seed safety rules:
     - ALWAYS insert \`Category\` rows first, then insert \`Product\` rows using valid \`categoryId\` values.

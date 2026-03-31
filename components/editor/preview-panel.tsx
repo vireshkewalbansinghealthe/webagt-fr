@@ -788,8 +788,13 @@ function GenerationOverlay({ streamingContent }: { streamingContent: string }) {
 }
 
 /**
- * Forces a Sandpack refresh when streaming transitions from true→false,
+ * Forces staggered Sandpack refreshes when streaming transitions from true→false,
  * then signals PreviewPanel to dismiss the overlay once the preview is ready.
+ *
+ * Multiple refresh waves handle:
+ * 1. Sandpack needing time to process the new files prop
+ * 2. The generated app's seed() function needing time to insert DB data
+ * 3. Edge cases where the first refresh fires before Sandpack is ready
  */
 function StreamEndRefresher({
   isStreaming,
@@ -810,16 +815,26 @@ function StreamEndRefresher({
     if (!wasStreamingRef.current) return;
     wasStreamingRef.current = false;
 
-    // Force Sandpack to pick up all the final files
-    try { dispatch({ type: "refresh" }); } catch {}
-    setTimeout(() => {
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    const doRefresh = () => {
+      try { dispatch({ type: "refresh" }); } catch {}
       try {
         const iframe = document.querySelector(".sp-preview-iframe") as HTMLIFrameElement | null;
         if (iframe?.contentWindow) iframe.contentWindow.location.reload();
       } catch {}
-    }, 600);
+    };
 
-    // Listen for Sandpack "done" event — the preview rendered the new code
+    // Wave 1: immediate Sandpack dispatch (files are already set via props)
+    try { dispatch({ type: "refresh" }); } catch {}
+
+    // Wave 2: after 800ms — Sandpack has had time to process the new file props
+    timers.push(setTimeout(doRefresh, 800));
+
+    // Wave 3: after 2.5s — seed() has likely finished inserting products
+    timers.push(setTimeout(doRefresh, 2500));
+
+    // Listen for Sandpack "done" event after wave 3
     let settled = false;
     const settle = () => {
       if (settled) return;
@@ -828,17 +843,19 @@ function StreamEndRefresher({
     };
 
     const unsub = listen((msg) => {
-      if ((msg as any).type === "done" || (msg as any).type === "success") {
-        setTimeout(settle, 400);
+      const type = (msg as any).type;
+      if (type === "done" || type === "success") {
+        // Only settle after wave 3 has fired to ensure seed() completed
+        timers.push(setTimeout(settle, 500));
       }
     });
 
-    // Safety net: dismiss after 4 seconds even if no "done" message arrives
-    const fallback = setTimeout(settle, 4000);
+    // Safety net: dismiss overlay after 5 seconds no matter what
+    timers.push(setTimeout(settle, 5000));
 
     return () => {
       unsub();
-      clearTimeout(fallback);
+      timers.forEach(clearTimeout);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isStreaming]);

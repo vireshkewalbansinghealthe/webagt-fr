@@ -1772,6 +1772,7 @@ function PaymentsTab({
     project.paymentMode === "live" ? "live" : "test",
   );
   const [isLoading, setIsLoading] = useState(false);
+  const [initialLoading, setInitialLoading] = useState(true);
   const [stripeStatus, setStripeStatus] = useState<{
     type?: string;
     details_submitted: boolean;
@@ -1831,9 +1832,12 @@ function PaymentsTab({
   };
 
   useEffect(() => {
-    refreshStripeState().catch((error) => {
-      console.error("Failed to load Stripe state:", error);
-    });
+    setInitialLoading(true);
+    refreshStripeState()
+      .catch((error) => {
+        console.error("Failed to load Stripe state:", error);
+      })
+      .finally(() => setInitialLoading(false));
   }, [project.id, project.stripeAccountId, project.stripeTestAccountId, project.stripeLiveAccountId, selectedMode]);
 
   useEffect(() => {
@@ -2013,6 +2017,30 @@ function PaymentsTab({
 
   // Determine which step is currently active (0-indexed)
   const activeStep = !step1Complete ? 0 : !step2Complete ? 1 : !step3Complete ? 2 : 3;
+
+  if (initialLoading) {
+    return (
+      <div className="space-y-6 max-w-2xl animate-pulse">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="h-5 w-32 rounded bg-muted" />
+            <div className="h-3 w-48 rounded bg-muted mt-2" />
+          </div>
+          <div className="h-6 w-16 rounded bg-muted" />
+        </div>
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="rounded-xl border border-border/50 p-5 space-y-3">
+            <div className="flex items-center gap-2.5">
+              <div className="size-5 rounded-full bg-muted" />
+              <div className="h-3 w-28 rounded bg-muted" />
+            </div>
+            <div className="h-4 w-44 rounded bg-muted" />
+            <div className="h-3 w-72 rounded bg-muted" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-2xl">

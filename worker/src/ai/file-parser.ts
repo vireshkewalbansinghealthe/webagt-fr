@@ -110,6 +110,11 @@ export function parseFilesFromResponse(response: string): ProjectFile[] {
     // E.g., ```typescript\n...\n``` → just the inner code.
     content = stripMarkdownFences(content);
 
+    // Strip stray HTML tags from CSS files — the AI frequently adds </style> at the end
+    if (/\.css$/i.test(path)) {
+      content = content.replace(/<\/?style\b[^>]*>/gi, "").trimEnd() + "\n";
+    }
+
     // Validate the file path — must be a relative path, no traversal
     if (isValidFilePath(path)) {
       files.push({ path, content });

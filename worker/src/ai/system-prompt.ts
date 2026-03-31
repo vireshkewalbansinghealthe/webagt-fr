@@ -66,6 +66,7 @@ Rules for the <file> tag format:
 - The main entry point MUST be src/App.tsx using a default export
 - Always include src/index.tsx with the ReactDOM.createRoot render setup
 - Always include src/index.css with base styles (do NOT use @tailwind directives — Tailwind is loaded via CDN at runtime)
+- NEVER include \`</style>\` tags in CSS files. CSS files contain raw CSS only — no HTML tags. This is a common mistake that breaks the build.
 - Always include package.json with the correct dependencies
 - You may include explanatory text BEFORE or AFTER the file blocks, but all code MUST be inside <file> tags
 

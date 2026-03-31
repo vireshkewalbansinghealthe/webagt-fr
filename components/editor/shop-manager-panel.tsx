@@ -115,6 +115,12 @@ export function ShopManagerPanel({ project }: { project: Project }) {
       .catch(() => { /* silently ignore — stale UI is acceptable */ });
   }, [activeTab]);
   
+  useEffect(() => {
+    const handler = () => setActiveTab("products");
+    window.addEventListener("webagt:edit-product-image", handler);
+    return () => window.removeEventListener("webagt:edit-product-image", handler);
+  }, []);
+
   const turso = useMemo(() => {
     if (!projectState.databaseUrl || !projectState.databaseToken) return null;
     return createClient({
@@ -495,6 +501,25 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
   };
 
   useEffect(() => { loadData(); }, [turso]);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const imgSrc = (e as CustomEvent).detail?.imageSrc as string;
+      if (!imgSrc || products.length === 0) return;
+      const match = products.find((p) => {
+        const imgs = parseImages(p.images);
+        return imgs.some((i: string) => imgSrc.includes(i) || i.includes(imgSrc));
+      });
+      if (match) {
+        setEditingProduct(rowToFormData(match));
+        setSheetOpen(true);
+      } else {
+        toast.info("No matching product found for this image");
+      }
+    };
+    window.addEventListener("webagt:edit-product-image", handler);
+    return () => window.removeEventListener("webagt:edit-product-image", handler);
+  }, [products]);
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this product? This cannot be undone.")) return;

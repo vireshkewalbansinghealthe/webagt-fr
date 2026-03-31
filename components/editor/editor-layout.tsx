@@ -156,6 +156,12 @@ export function EditorLayout({
   const [mobilePanel, setMobilePanel] = useState<"chat" | "content">("chat");
   const containerRef = useRef<HTMLDivElement>(null);
 
+  useEffect(() => {
+    const handler = () => setActiveTab("shop-manager");
+    window.addEventListener("webagt:edit-product-image", handler);
+    return () => window.removeEventListener("webagt:edit-product-image", handler);
+  }, []);
+
   /**
    * Keep the chat panel width in sync when the browser window resizes.
    * If the current percentage would make the chat panel narrower than

@@ -162,27 +162,43 @@ function toSandpackFiles(
  * Listens for the 'webagt:shop-changed' window event (dispatched by ShopManagerPanel
  * after any product / inventory / shipping save) and refreshes the Sandpack preview
  * so the storefront re-fetches its data from Turso without a full page reload.
+ *
+ * Uses a ref for `dispatch` so the event handler never captures a stale closure,
+ * even if Sandpack initializes clients asynchronously after the effect runs.
  */
 function ShopRefreshListener() {
-  const { sandpack } = useSandpack();
+  const { dispatch, sandpack } = useSandpack();
+  const dispatchRef = useRef(dispatch);
+
+  // Keep the ref current without re-registering the event listener
+  useEffect(() => {
+    dispatchRef.current = dispatch;
+  }, [dispatch]);
 
   useEffect(() => {
     const handler = () => {
-      // Dispatch a Sandpack 'refresh' message to all active clients
-      // (equivalent to clicking the refresh button inside the preview iframe)
-      const clients = sandpack.clients;
-      Object.values(clients).forEach((client: any) => {
-        try {
-          client.dispatch({ type: "refresh" });
-        } catch {
-          // client not ready yet
+      // Primary: use the stable dispatch ref (sends to all active Sandpack clients)
+      try {
+        dispatchRef.current({ type: "refresh" });
+      } catch {
+        // ignore if not ready
+      }
+
+      // Fallback: directly find the preview iframe and reload it
+      try {
+        const iframe = document.querySelector(".sp-preview-iframe") as HTMLIFrameElement | null;
+        if (iframe?.contentWindow) {
+          iframe.contentWindow.location.reload();
         }
-      });
+      } catch {
+        // cross-origin guard
+      }
     };
 
     window.addEventListener("webagt:shop-changed", handler);
     return () => window.removeEventListener("webagt:shop-changed", handler);
-  }, [sandpack]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // intentionally empty — handler uses ref, not sandpack directly
 
   return null;
 }

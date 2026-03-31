@@ -583,7 +583,40 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
           ],
         });
         toast.success("Product added");
+        data.id = id;
       }
+
+      // Save variants
+      const productId = data.id!;
+      if (data.variantGroups) {
+        try {
+          await turso.execute({ sql: "DELETE FROM ProductVariant WHERE productId = ?", args: [productId] });
+          await turso.execute({ sql: "DELETE FROM VariantGroup WHERE productId = ?", args: [productId] });
+        } catch { /* tables might not exist yet for old DBs */ }
+
+        try {
+          await turso.execute(`CREATE TABLE IF NOT EXISTS VariantGroup (id TEXT PRIMARY KEY, productId TEXT NOT NULL, name TEXT NOT NULL, sortOrder INTEGER DEFAULT 0, createdAt TEXT)`);
+          await turso.execute(`CREATE TABLE IF NOT EXISTS ProductVariant (id TEXT PRIMARY KEY, productId TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, sku TEXT, priceAdjustment REAL DEFAULT 0, stock INTEGER DEFAULT 0, trackStock INTEGER DEFAULT 0, sortOrder INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT)`);
+        } catch { /* already exists */ }
+
+        for (let gi = 0; gi < data.variantGroups.length; gi++) {
+          const group = data.variantGroups[gi];
+          if (!group.name.trim()) continue;
+          await turso.execute({
+            sql: "INSERT INTO VariantGroup (id, productId, name, sortOrder, createdAt) VALUES (?, ?, ?, ?, ?)",
+            args: [group.id, productId, group.name.trim(), gi, now],
+          });
+          for (let vi = 0; vi < group.values.length; vi++) {
+            const v = group.values[vi];
+            if (!v.value.trim()) continue;
+            await turso.execute({
+              sql: "INSERT INTO ProductVariant (id, productId, name, value, sku, priceAdjustment, stock, trackStock, sortOrder, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              args: [v.id, productId, group.name.trim(), v.value.trim(), v.sku || null, v.priceAdjustment, v.stock, v.trackStock ? 1 : 0, vi, now, now],
+            });
+          }
+        }
+      }
+
       await loadData();
       window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
     } catch (error: any) {
@@ -598,8 +631,30 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
     setSheetOpen(true);
   };
 
-  const openEdit = (row: any) => {
-    setEditingProduct(rowToFormData(row));
+  const openEdit = async (row: any) => {
+    const formData = rowToFormData(row);
+    try {
+      const [groupsRes, variantsRes] = await Promise.all([
+        turso.execute({ sql: "SELECT * FROM VariantGroup WHERE productId = ? ORDER BY sortOrder ASC", args: [formData.id] }).catch(() => ({ rows: [] })),
+        turso.execute({ sql: "SELECT * FROM ProductVariant WHERE productId = ? ORDER BY sortOrder ASC", args: [formData.id] }).catch(() => ({ rows: [] })),
+      ]);
+      const groups = (groupsRes.rows as any[]).map((g) => ({
+        id: String(g.id),
+        name: String(g.name),
+        values: (variantsRes.rows as any[])
+          .filter((v) => String(v.name) === String(g.name))
+          .map((v) => ({
+            id: String(v.id),
+            value: String(v.value),
+            sku: v.sku ? String(v.sku) : undefined,
+            priceAdjustment: Number(v.priceAdjustment) || 0,
+            stock: Number(v.stock) || 0,
+            trackStock: Boolean(Number(v.trackStock)),
+          })),
+      }));
+      formData.variantGroups = groups;
+    } catch { /* no variant tables */ }
+    setEditingProduct(formData);
     setSheetOpen(true);
   };
 

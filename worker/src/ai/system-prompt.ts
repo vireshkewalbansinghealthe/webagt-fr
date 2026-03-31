@@ -174,6 +174,7 @@ When building E-COMMERCE or WEBSHOPS (like premium stores or dropshipping sites)
    - Prominent, high-contrast "Add to Cart" CTA.
    - Accordion/tabs for Description, Specifications, and Shipping/Returns info.
    - Shipping info section: query ShippingRate/ShippingZone tables for real rates and display them (e.g., "Standard €4.95 (2-5 days)", "Free above €50"). Do NOT hardcode shipping costs.
+   - Product variants: query \`VariantGroup\` and \`ProductVariant\` for this product. If variants exist (e.g. Size: S/M/L/XL, Color: Red/Blue), render selectors (buttons or dropdown). Apply \`priceAdjustment\` to the base price. Check variant-level stock if \`trackStock = 1\`. Include the selected variant in the cart item and pass \`variantId\` + \`variantLabel\` to checkout.
 4. Cart/Checkout Drawer or Page: Order summary, quantity toggles, subtotal, tax calculation from TaxGroup table (query the default tax rate), shipping cost from ShippingRate table, and secure checkout badges below the checkout button. Display stock availability from the Product table (if trackStock = 1 and stock <= 0, show "Out of stock" and disable Add to Cart).
 5. Order Success Page (REQUIRED): A dedicated \`/order-success\` route shown after a successful payment. Must include a ✓ icon or animation, "Thank you for your order!" message, order confirmation number, estimated delivery, "Check your email" note, and a "Continue Shopping" CTA. Always pass this page as the \`successUrl\` in \`beginCheckout()\`.
 6. About Us Page: A compelling story about the brand, mission, and team.
@@ -296,6 +297,18 @@ CREATE TABLE [ShopSetting] (
 );
 -- Key "prices_include_tax": "true" (default) = prices shown incl. BTW, "false" = prices shown excl. BTW
 
+CREATE TABLE [VariantGroup] (
+  id TEXT PRIMARY KEY, productId TEXT NOT NULL, name TEXT NOT NULL, sortOrder INTEGER DEFAULT 0, createdAt TEXT,
+  FOREIGN KEY (productId) REFERENCES [Product](id)
+);
+-- e.g. name = "Size", "Color", "Material"
+
+CREATE TABLE [ProductVariant] (
+  id TEXT PRIMARY KEY, productId TEXT NOT NULL, name TEXT NOT NULL, value TEXT NOT NULL, sku TEXT, priceAdjustment REAL DEFAULT 0, stock INTEGER DEFAULT 0, trackStock INTEGER DEFAULT 0, sortOrder INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT,
+  FOREIGN KEY (productId) REFERENCES [Product](id)
+);
+-- e.g. name = "Size", value = "M", priceAdjustment = 0, stock = 5
+
 CREATE TABLE [Customer] (
   id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, firstName TEXT, lastName TEXT, phone TEXT, createdAt TEXT, updatedAt TEXT
 );
@@ -305,7 +318,7 @@ CREATE TABLE [Order] (
 );
 
 CREATE TABLE [OrderItem] (
-  id TEXT PRIMARY KEY, orderId TEXT NOT NULL, productId TEXT NOT NULL, quantity INTEGER NOT NULL, unitPrice REAL NOT NULL, createdAt TEXT, updatedAt TEXT, FOREIGN KEY (orderId) REFERENCES [Order](id), FOREIGN KEY (productId) REFERENCES [Product](id)
+  id TEXT PRIMARY KEY, orderId TEXT NOT NULL, productId TEXT, variantId TEXT, variantLabel TEXT, quantity INTEGER NOT NULL, unitPrice REAL NOT NULL, createdAt TEXT, updatedAt TEXT, FOREIGN KEY (orderId) REFERENCES [Order](id), FOREIGN KEY (productId) REFERENCES [Product](id)
 );
 \`\`\`
 

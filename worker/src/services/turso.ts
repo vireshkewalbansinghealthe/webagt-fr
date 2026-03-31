@@ -350,17 +350,19 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
     CREATE TABLE IF NOT EXISTS [Product] (
       id TEXT PRIMARY KEY,
       categoryId TEXT,
+      taxGroupId TEXT,
       name TEXT NOT NULL,
       slug TEXT UNIQUE NOT NULL,
       description TEXT,
       price REAL NOT NULL,
-      originalPrice REAL, -- aka compareAtPrice
+      originalPrice REAL,
       compareAtPrice REAL,
       sku TEXT,
-      images TEXT, -- JSON array of URLs
+      images TEXT,
       featured INTEGER DEFAULT 0,
       inventory INTEGER DEFAULT 0,
-      stock INTEGER DEFAULT 0, -- alias for inventory
+      stock INTEGER DEFAULT 0,
+      trackStock INTEGER DEFAULT 0,
       isVirtual INTEGER DEFAULT 0,
       status TEXT DEFAULT 'ACTIVE',
       rating REAL DEFAULT 0,
@@ -370,14 +372,41 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       FOREIGN KEY (categoryId) REFERENCES [Category](id)
     );
 
+    CREATE TABLE IF NOT EXISTS [ProductVariant] (
+      id TEXT PRIMARY KEY,
+      productId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      value TEXT NOT NULL,
+      sku TEXT,
+      priceAdjustment REAL DEFAULT 0,
+      stock INTEGER DEFAULT 0,
+      trackStock INTEGER DEFAULT 0,
+      sortOrder INTEGER DEFAULT 0,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (productId) REFERENCES [Product](id)
+    );
+
+    CREATE TABLE IF NOT EXISTS [VariantGroup] (
+      id TEXT PRIMARY KEY,
+      productId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      sortOrder INTEGER DEFAULT 0,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (productId) REFERENCES [Product](id)
+    );
+
     CREATE TABLE IF NOT EXISTS [Order] (
       id TEXT PRIMARY KEY,
       orderNumber TEXT UNIQUE NOT NULL,
       customerId TEXT,
       status TEXT DEFAULT 'PENDING',
       totalAmount REAL NOT NULL,
-      shippingAddress TEXT, -- JSON object
-      billingAddress TEXT, -- JSON object
+      taxAmount REAL DEFAULT 0,
+      shippingAmount REAL DEFAULT 0,
+      invoiceNumber TEXT,
+      shippingAddress TEXT,
+      billingAddress TEXT,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (customerId) REFERENCES [Customer](id)
@@ -387,6 +416,8 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       id TEXT PRIMARY KEY,
       orderId TEXT NOT NULL,
       productId TEXT,
+      variantId TEXT,
+      variantLabel TEXT,
       quantity INTEGER NOT NULL,
       unitPrice REAL NOT NULL,
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -419,16 +450,46 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       updatedAt TEXT
     );
 
-    ALTER TABLE [Product] ADD COLUMN sku TEXT;
-    ALTER TABLE [Product] ADD COLUMN isVirtual INTEGER DEFAULT 0;
-    ALTER TABLE [Product] ADD COLUMN taxGroupId TEXT;
-    ALTER TABLE [Product] ADD COLUMN trackStock INTEGER DEFAULT 0;
-    ALTER TABLE [Order] ADD COLUMN shippingAddress TEXT;
-    ALTER TABLE [Order] ADD COLUMN billingAddress TEXT;
-    ALTER TABLE [Order] ADD COLUMN taxAmount REAL DEFAULT 0;
-    ALTER TABLE [Order] ADD COLUMN shippingAmount REAL DEFAULT 0;
-    ALTER TABLE [Order] ADD COLUMN invoiceNumber TEXT;
+    CREATE TABLE IF NOT EXISTS [ShippingZone] (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      countries TEXT DEFAULT '[]',
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS [ShippingRate] (
+      id TEXT PRIMARY KEY,
+      zoneId TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'flat',
+      price REAL DEFAULT 0,
+      minOrderAmount REAL,
+      estimatedDays TEXT DEFAULT '2-5',
+      active INTEGER DEFAULT 1,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `;
 
   await executeTursoSQL(dbUrl, authToken, schema);
+
+  // Backward-compat ALTER TABLEs for databases created before these columns existed.
+  // Each runs independently so one failure doesn't block others.
+  const alters = [
+    "ALTER TABLE [Product] ADD COLUMN sku TEXT",
+    "ALTER TABLE [Product] ADD COLUMN isVirtual INTEGER DEFAULT 0",
+    "ALTER TABLE [Product] ADD COLUMN taxGroupId TEXT",
+    "ALTER TABLE [Product] ADD COLUMN trackStock INTEGER DEFAULT 0",
+    "ALTER TABLE [Order] ADD COLUMN shippingAddress TEXT",
+    "ALTER TABLE [Order] ADD COLUMN billingAddress TEXT",
+    "ALTER TABLE [Order] ADD COLUMN taxAmount REAL DEFAULT 0",
+    "ALTER TABLE [Order] ADD COLUMN shippingAmount REAL DEFAULT 0",
+    "ALTER TABLE [Order] ADD COLUMN invoiceNumber TEXT",
+    "ALTER TABLE [OrderItem] ADD COLUMN variantId TEXT",
+    "ALTER TABLE [OrderItem] ADD COLUMN variantLabel TEXT",
+  ];
+  for (const sql of alters) {
+    try { await executeTursoSQL(dbUrl, authToken, sql); } catch { /* column already exists */ }
+  }
 }

@@ -3,7 +3,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
-import { Loader2, ImagePlus, X, GripVertical, Trash2 } from "lucide-react";
+import { Loader2, ImagePlus, X, GripVertical, Trash2, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,21 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { cn } from "@/lib/utils";
 import { Infinity as InfinityIcon } from "lucide-react";
 
+export interface VariantGroupData {
+  id: string;
+  name: string;
+  values: VariantValueData[];
+}
+
+export interface VariantValueData {
+  id: string;
+  value: string;
+  sku?: string;
+  priceAdjustment: number;
+  stock: number;
+  trackStock: boolean;
+}
+
 export interface ProductFormData {
   id?: string;
   name: string;
@@ -42,6 +57,7 @@ export interface ProductFormData {
   categoryId: string;
   taxGroupId: string;
   images: string[];
+  variantGroups?: VariantGroupData[];
 }
 
 interface ProductSheetProps {
@@ -635,6 +651,152 @@ export function ProductSheet({
                   </Select>
                 </div>
               )}
+            </section>
+
+            {/* ── Variants ── */}
+            <section className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  Variants
+                </h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5 h-7 text-xs"
+                  onClick={() => {
+                    const groups = form.variantGroups ?? [];
+                    set("variantGroups", [
+                      ...groups,
+                      {
+                        id: `vg_${Math.random().toString(36).slice(2, 8)}`,
+                        name: "",
+                        values: [],
+                      },
+                    ]);
+                  }}
+                >
+                  <Plus className="size-3" /> Add option
+                </Button>
+              </div>
+
+              {(form.variantGroups ?? []).length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  No variants. Add options like Size, Color, or Material.
+                </p>
+              )}
+
+              {(form.variantGroups ?? []).map((group, gi) => (
+                <div key={group.id} className="rounded-xl border bg-muted/10 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      placeholder="e.g. Size, Color"
+                      value={group.name}
+                      onChange={(e) => {
+                        const gs = [...(form.variantGroups ?? [])];
+                        gs[gi] = { ...gs[gi], name: e.target.value };
+                        set("variantGroups", gs);
+                      }}
+                      className="h-7 text-xs flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="size-7 text-muted-foreground hover:text-red-500 shrink-0"
+                      onClick={() => {
+                        const gs = (form.variantGroups ?? []).filter((_, i) => i !== gi);
+                        set("variantGroups", gs);
+                      }}
+                    >
+                      <Trash2 className="size-3.5" />
+                    </Button>
+                  </div>
+
+                  {group.values.map((val, vi) => (
+                    <div key={val.id} className="flex items-center gap-1.5 pl-3">
+                      <Input
+                        placeholder="e.g. M, Red"
+                        value={val.value}
+                        onChange={(e) => {
+                          const gs = [...(form.variantGroups ?? [])];
+                          const vs = [...gs[gi].values];
+                          vs[vi] = { ...vs[vi], value: e.target.value };
+                          gs[gi] = { ...gs[gi], values: vs };
+                          set("variantGroups", gs);
+                        }}
+                        className="h-7 text-xs flex-1"
+                      />
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="+/- price"
+                        value={val.priceAdjustment || ""}
+                        onChange={(e) => {
+                          const gs = [...(form.variantGroups ?? [])];
+                          const vs = [...gs[gi].values];
+                          vs[vi] = { ...vs[vi], priceAdjustment: parseFloat(e.target.value) || 0 };
+                          gs[gi] = { ...gs[gi], values: vs };
+                          set("variantGroups", gs);
+                        }}
+                        className="h-7 text-xs w-20"
+                      />
+                      <Input
+                        type="number"
+                        placeholder="Stock"
+                        value={val.stock || ""}
+                        onChange={(e) => {
+                          const gs = [...(form.variantGroups ?? [])];
+                          const vs = [...gs[gi].values];
+                          vs[vi] = { ...vs[vi], stock: parseInt(e.target.value) || 0 };
+                          gs[gi] = { ...gs[gi], values: vs };
+                          set("variantGroups", gs);
+                        }}
+                        className="h-7 text-xs w-16"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="size-6 text-muted-foreground hover:text-red-500 shrink-0"
+                        onClick={() => {
+                          const gs = [...(form.variantGroups ?? [])];
+                          gs[gi] = { ...gs[gi], values: gs[gi].values.filter((_, i) => i !== vi) };
+                          set("variantGroups", gs);
+                        }}
+                      >
+                        <X className="size-3" />
+                      </Button>
+                    </div>
+                  ))}
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs gap-1 ml-3"
+                    onClick={() => {
+                      const gs = [...(form.variantGroups ?? [])];
+                      gs[gi] = {
+                        ...gs[gi],
+                        values: [
+                          ...gs[gi].values,
+                          {
+                            id: `pv_${Math.random().toString(36).slice(2, 8)}`,
+                            value: "",
+                            priceAdjustment: 0,
+                            stock: 0,
+                            trackStock: false,
+                          },
+                        ],
+                      };
+                      set("variantGroups", gs);
+                    }}
+                  >
+                    <Plus className="size-3" /> Add value
+                  </Button>
+                </div>
+              ))}
             </section>
           </div>
         </form>

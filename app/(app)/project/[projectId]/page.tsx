@@ -1043,7 +1043,7 @@ export default function EditorPage({
       databaseUrl={project?.databaseUrl}
       databaseToken={project?.databaseToken}
       shopManagerPanel={project && project.type === "webshop" ? <ShopManagerPanel project={project} /> : undefined}
-      previewPanel={<PreviewPanel files={files} onError={handleSandpackError} isStreaming={isStreaming} onFilesChange={handleFilesChange} />}
+      previewPanel={<PreviewPanel files={files} onError={handleSandpackError} isStreaming={isStreaming} onFilesChange={handleFilesChange} streamingContent={isStreaming ? (messages.findLast(m => m.role === "assistant")?.content ?? "") : ""} />}
       codeEditorPanel={
         <CodeEditorPanel
           files={files}

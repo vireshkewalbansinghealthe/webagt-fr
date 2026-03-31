@@ -23,15 +23,16 @@
 
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   SandpackProvider,
   SandpackPreview,
   SandpackLayout,
   useSandpack,
 } from "@codesandbox/sandpack-react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
 /**
  * Props for the PreviewPanel component.
@@ -43,6 +44,7 @@ export interface PreviewPanelProps {
   onError?: (error: { message: string }) => void;
   isStreaming?: boolean;
   onFilesChange?: (files: Record<string, string>) => void;
+  streamingContent?: string;
 }
 
 /**
@@ -547,7 +549,225 @@ const inspectorUrl = "data:application/javascript;charset=utf-8," + encodeURICom
  *
  * @param files - Current project files to render in the preview
  */
-export function PreviewPanel({ files, onError, isStreaming, onFilesChange }: PreviewPanelProps) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Generation Overlay — shown while AI is streaming code
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FILE_OPEN_RE = /<file\s+path="([^"]+)">/g;
+const FILE_DONE_RE = /<file\s+path="([^"]+)">[\s\S]*?<\/file>/g;
+
+/** Typical number of files for a full webshop build — used for progress estimation */
+const EXPECTED_FILES = 18;
+
+const FACTS_AND_QUOTES = [
+  "The first website ever built was by Tim Berners-Lee in 1991 — it was just text.",
+  "React was created by Jordan Walke at Facebook and open-sourced in 2013.",
+  "Tailwind CSS processes millions of utility classes, but ships only the ones you actually use.",
+  "The word 'bug' in software comes from an actual moth found in a relay of Harvard's Mark II computer in 1947.",
+  "TypeScript has over 50 million weekly npm downloads — making it one of the most adopted languages.",
+  "Turso (LibSQL) can serve database reads in under 1ms from edge locations worldwide.",
+  "Stripe processed over $1 trillion in payments in 2023.",
+  "A well-structured checkout flow can increase conversion rates by up to 35%.",
+  "Mobile commerce accounts for more than 60% of global e-commerce traffic.",
+  "The average page load time for top e-commerce sites is under 2 seconds.",
+  "WebAssembly lets browsers run code at near-native speed — opening the door to full apps in the browser.",
+  "Sandpack (powering this preview) runs a full Node.js-compatible bundler entirely inside your browser.",
+  "Cloudflare Workers execute at over 200 edge locations around the world, usually under 10ms cold start.",
+  "The first online purchase was a Pepperoni pizza ordered via Pizza Hut's website in 1994.",
+  "Product images with white backgrounds have a 20% higher conversion rate than lifestyle shots.",
+  "Great copy on a CTA button can increase clicks by up to 90% versus generic 'Click here'.",
+  "Free shipping is the #1 reason shoppers complete a purchase online.",
+  "The WCAG guidelines ensure websites are accessible to the 1.3 billion people with disabilities worldwide.",
+  "Dark mode reduces eye strain and can lower battery usage on OLED screens by up to 63%.",
+  "localStorage can hold up to 5–10 MB of data per origin — great for offline-first features.",
+  "CSS Grid was designed to solve the problem that float-based layouts were never meant to solve.",
+  "'use client' in Next.js opts a component into the React tree running in the browser.",
+  "Next.js App Router uses React Server Components by default — JS that never reaches the browser.",
+  "Lighthouse scores above 90 in all categories correlate with 25% better e-commerce conversion.",
+  "The average cart abandonment rate is 70% — mostly due to unexpected shipping costs.",
+  "Personalized product recommendations can increase average order value by 10–30%.",
+  "Resend delivers transactional emails using the same infrastructure that powers Vercel.",
+  "An SEO-optimized product title can make you 4× more discoverable on Google Shopping.",
+  "Edge functions execute geographically close to the user — slashing latency globally.",
+  "Open Graph meta tags are what make your links look rich when shared on WhatsApp or Slack.",
+  "\"Any application that can be written in JavaScript, will eventually be written in JavaScript.\" — Jeff Atwood",
+  "\"The best interface is no interface.\" — Golden Krishna",
+  "\"Make it work, make it right, make it fast.\" — Kent Beck",
+  "\"Simplicity is the ultimate sophistication.\" — Leonardo da Vinci",
+  "\"Programs must be written for people to read, and only incidentally for machines to execute.\" — Harold Abelson",
+  "\"First, solve the problem. Then, write the code.\" — John Johnson",
+  "\"The most disruptive thing you can do is ship something.\" — unknown",
+  "\"Design is not just what it looks like. Design is how it works.\" — Steve Jobs",
+  "\"There are only two hard things in computer science: cache invalidation and naming things.\" — Phil Karlton",
+  "\"Move fast and fix things.\" — the modern engineering philosophy",
+  "\"Code is like humor. When you have to explain it, it's bad.\" — Cory House",
+  "\"The best error message is the one that never shows up.\" — Thomas Fuchs",
+  "\"Talk is cheap. Show me the code.\" — Linus Torvalds",
+  "\"Every great design begins with an even better story.\" — Lorinda Mamo",
+  "\"The details are not the details. They make the design.\" — Charles Eames",
+  "\"Speed is a feature.\" — Fred Wilson",
+  "\"You can't use up creativity. The more you use the more you have.\" — Maya Angelou",
+  "\"Strive not to be a success, but rather to be of value.\" — Albert Einstein",
+  "\"Done is better than perfect.\" — Sheryl Sandberg",
+  "\"Accessibility is not a feature — it's a baseline.\" — unknown",
+];
+
+function GenerationOverlay({ streamingContent }: { streamingContent: string }) {
+  const [factIndex, setFactIndex] = useState(() => Math.floor(Math.random() * FACTS_AND_QUOTES.length));
+  const [visible, setVisible] = useState(true);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Rotate facts every 4 seconds with a fade transition
+  useEffect(() => {
+    intervalRef.current = setInterval(() => {
+      setVisible(false);
+      setTimeout(() => {
+        setFactIndex((i) => (i + 1) % FACTS_AND_QUOTES.length);
+        setVisible(true);
+      }, 400);
+    }, 4000);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, []);
+
+  // Parse file progress from streaming content
+  const { doneCount, totalCount, phase } = useMemo(() => {
+    const opened: string[] = [];
+    FILE_OPEN_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = FILE_OPEN_RE.exec(streamingContent)) !== null) opened.push(m[1]);
+
+    const done = new Set<string>();
+    FILE_DONE_RE.lastIndex = 0;
+    while ((m = FILE_DONE_RE.exec(streamingContent)) !== null) done.add(m[1]);
+
+    const unique = [...new Set(opened)];
+    const doneCount = unique.filter(p => done.has(p)).length;
+    const totalCount = unique.length;
+    const phase = totalCount === 0 ? "thinking" : "writing";
+    return { doneCount, totalCount, phase };
+  }, [streamingContent]);
+
+  // Smooth progress: during thinking ramp to 15%, during writing show actual file progress
+  // capped at EXPECTED_FILES so bar doesn't jump weirdly
+  const progressPct = useMemo(() => {
+    if (phase === "thinking") return 8;
+    const expected = Math.max(totalCount, EXPECTED_FILES);
+    return 15 + Math.min((doneCount / expected) * 82, 82);
+  }, [phase, doneCount, totalCount]);
+
+  const fact = FACTS_AND_QUOTES[factIndex];
+  const isQuote = fact.startsWith('"');
+
+  return (
+    <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-background">
+      {/* Subtle grid background */}
+      <div
+        className="absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage: "linear-gradient(to right, currentColor 1px, transparent 1px), linear-gradient(to bottom, currentColor 1px, transparent 1px)",
+          backgroundSize: "40px 40px",
+        }}
+      />
+
+      <div className="relative w-full max-w-md px-8 flex flex-col items-center gap-8">
+        {/* Icon */}
+        <div className="relative">
+          <div className="absolute -inset-3 rounded-full bg-primary/10 animate-pulse" />
+          <div className="relative flex size-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+            <Sparkles className="size-7 text-primary animate-pulse" />
+          </div>
+        </div>
+
+        {/* Status */}
+        <div className="text-center space-y-1.5">
+          {phase === "thinking" ? (
+            <>
+              <h3 className="text-base font-semibold tracking-tight">
+                Thinking
+                <span className="inline-flex w-6 ml-0.5">
+                  <span className="animate-[dotPulse_1.4s_infinite]">.</span>
+                  <span className="animate-[dotPulse_1.4s_0.2s_infinite]">.</span>
+                  <span className="animate-[dotPulse_1.4s_0.4s_infinite]">.</span>
+                </span>
+              </h3>
+              <p className="text-xs text-muted-foreground">Planning your project structure</p>
+            </>
+          ) : (
+            <>
+              <h3 className="text-base font-semibold tracking-tight">
+                Building your project
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                {doneCount} of ~{Math.max(totalCount, EXPECTED_FILES)} files written
+              </p>
+            </>
+          )}
+        </div>
+
+        {/* Progress bar */}
+        <div className="w-full space-y-2">
+          <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            {/* Shimmer on the unfilled portion */}
+            <div className="absolute inset-0 -translate-x-full animate-[shimmer_2s_infinite] bg-gradient-to-r from-transparent via-primary/10 to-transparent" />
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[10px] text-muted-foreground">
+            <span>{phase === "thinking" ? "Analyzing request" : `${doneCount} files done`}</span>
+            <span>{Math.round(progressPct)}%</span>
+          </div>
+        </div>
+
+        {/* File pills — show up to 5 recent files */}
+        {totalCount > 0 && (
+          <div className="flex flex-wrap justify-center gap-1.5 max-w-sm">
+            {[...new Set(
+              [...streamingContent.matchAll(/<file\s+path="([^"]+)">/g)].map(m => m[1])
+            )].slice(-6).map(path => {
+              const name = path.split("/").pop() || path;
+              const done = FILE_DONE_RE.test(streamingContent.slice(streamingContent.lastIndexOf(`path="${path}">`)));
+              FILE_DONE_RE.lastIndex = 0;
+              return (
+                <span
+                  key={path}
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-mono transition-colors",
+                    "border-border bg-muted/40 text-muted-foreground"
+                  )}
+                >
+                  {name}
+                </span>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Did you know / quote */}
+        <div
+          className={cn(
+            "w-full rounded-xl border border-border/50 bg-card/60 p-4 transition-opacity duration-400",
+            visible ? "opacity-100" : "opacity-0",
+          )}
+        >
+          {isQuote ? (
+            <div className="space-y-1.5">
+              <p className="text-xs leading-relaxed text-foreground/80 italic">{fact}</p>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold uppercase tracking-widest text-primary/70">Did you know?</p>
+              <p className="text-xs leading-relaxed text-foreground/80">{fact}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function PreviewPanel({ files, onError, isStreaming, onFilesChange, streamingContent = "" }: PreviewPanelProps) {
   const sandpackFiles = toSandpackFiles(files);
   const dependencies = extractDependencies(files);
 
@@ -758,20 +978,9 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange }: Pre
 
   return (
     <div className="sandpack-stretch h-full w-full relative">
-      {/* Overlay when generating/auto-fixing to prevent flickering */}
+      {/* Rich generation overlay */}
       {isStreaming && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background">
-          <div className="flex flex-col items-center gap-4 rounded-xl border bg-card p-6 shadow-lg">
-            <div className="relative">
-              <div className="absolute -inset-1 rounded-full bg-primary/20 animate-pulse" />
-              <Loader2 className="relative h-8 w-8 animate-spin text-primary" />
-            </div>
-            <div className="flex flex-col items-center gap-1 text-center">
-              <p className="text-sm font-medium">Generating changes...</p>
-              <p className="text-xs text-muted-foreground">Fixing problems or updating code</p>
-            </div>
-          </div>
-        </div>
+        <GenerationOverlay streamingContent={streamingContent} />
       )}
 
       {/* Visual Edit Mode Overlay Indicator */}

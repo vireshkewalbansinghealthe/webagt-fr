@@ -500,6 +500,11 @@ chatRoutes.post("/:projectId", async (c) => {
         maxOutputTokens: modelConfig.maxOutputTokens,
       });
 
+      // ── FREE MEMORY: prompt data handed off to AI SDK, no longer needed ──
+      sdkMessages.length = 0;
+      images.length = 0;
+      (enrichedImages as any[]).length = 0;
+
       let chunkCount = 0;
       let lastChunkTime = Date.now();
       for await (const chunk of result.textStream) {
@@ -536,9 +541,6 @@ chatRoutes.post("/:projectId", async (c) => {
         plog.error("chat", "❌ ZERO FILES PARSED from AI response — user will see default template", `Response starts with: ${fullResponse.slice(0, 500)}...\nResponse ends with: ...${fullResponse.slice(-500)}`);
       }
 
-      console.log(
-        `[chat] Parsed ${parsedFiles.length} files from AI response (${acceptedFiles.length} accepted, ${rejectedFiles.length} rejected)`,
-      );
       if (rejectedFiles.length > 0) {
         console.warn(
           `[chat] Rejected unsafe generated files: ${rejectedFiles
@@ -547,16 +549,28 @@ chatRoutes.post("/:projectId", async (c) => {
         );
       }
 
-      // If the AI returned no files, just send the text as explanation
-      // This handles cases where the AI only provides advice without code
+      // Extract text summaries from fullResponse before freeing it
+      const blockedChangeNote =
+        rejectedFiles.length > 0
+          ? `\n\nBlocked unsafe AI file changes: ${rejectedFiles
+              .map((file) => `\`${file.path}\` (${file.reason})`)
+              .join(", ")}.`
+          : "";
+      const explanationText =
+        extractExplanation(fullResponse) + blockedChangeNote;
+      const suggestions = extractSuggestions(fullResponse);
+
+      // ── FREE MEMORY: fullResponse is no longer needed ──
+      fullResponse = "";
+
       const rawMergedFiles =
         acceptedFiles.length > 0
           ? mergeFiles(existingFiles, acceptedFiles)
           : existingFiles;
 
-      // Rewrite @/ alias imports → relative paths so Sandpack can resolve them.
-      // The AI sometimes generates `import X from "@/components/Y"` which
-      // is valid Vite (tsconfig paths) but breaks Sandpack's bundler.
+      // ── FREE MEMORY: existingFiles is no longer needed ──
+      existingFiles.length = 0;
+
       const mergedFiles = rewriteAtAliasImportsForSandbox(rawMergedFiles);
 
       // --- 9. Store new version in R2 (only if files changed) ---
@@ -590,6 +604,8 @@ chatRoutes.post("/:projectId", async (c) => {
           plog.error("chat", `❌ R2 put FAILED: ${r2Key}`, r2Error?.message || String(r2Error));
           throw r2Error;
         }
+        // ── FREE MEMORY: R2 payload no longer needed ──
+        (newVersion as any).files = null;
 
         project.currentVersion = newVersionNumber;
         project.updatedAt = new Date().toISOString();
@@ -617,21 +633,11 @@ chatRoutes.post("/:projectId", async (c) => {
       );
 
       // --- 11. Save chat messages to KV ---
-      const blockedChangeNote =
-        rejectedFiles.length > 0
-          ? `\n\nBlocked unsafe AI file changes: ${rejectedFiles
-              .map((file) => `\`${file.path}\` (${file.reason})`)
-              .join(", ")}.`
-          : "";
-      const explanationText =
-        extractExplanation(fullResponse) + blockedChangeNote;
-
       const newUserMessage: ChatMessage = {
         id: `msg-${Date.now()}-user`,
         role: "user",
         content: userMessage,
         timestamp: new Date().toISOString(),
-        // Strip base64 when a persistent URL exists — saves KV space, URL is enough for display
         images: enrichedImages.length > 0
           ? enrichedImages.map((img) => ({
               base64: img.url ? "" : img.base64,
@@ -641,8 +647,6 @@ chatRoutes.post("/:projectId", async (c) => {
             }))
           : undefined,
       };
-
-      const suggestions = extractSuggestions(fullResponse);
 
       const newAssistantMessage: ChatMessage = {
         id: `msg-${Date.now()}-assistant`,

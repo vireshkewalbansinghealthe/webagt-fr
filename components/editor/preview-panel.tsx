@@ -787,9 +787,85 @@ function GenerationOverlay({ streamingContent }: { streamingContent: string }) {
   );
 }
 
+/**
+ * Forces a Sandpack refresh when streaming transitions from true→false,
+ * then signals PreviewPanel to dismiss the overlay once the preview is ready.
+ */
+function StreamEndRefresher({
+  isStreaming,
+  onReady,
+}: {
+  isStreaming: boolean;
+  onReady: () => void;
+}) {
+  const { dispatch, listen } = useSandpack();
+  const wasStreamingRef = useRef(false);
+
+  useEffect(() => {
+    if (isStreaming) {
+      wasStreamingRef.current = true;
+      return;
+    }
+
+    if (!wasStreamingRef.current) return;
+    wasStreamingRef.current = false;
+
+    // Force Sandpack to pick up all the final files
+    try { dispatch({ type: "refresh" }); } catch {}
+    setTimeout(() => {
+      try {
+        const iframe = document.querySelector(".sp-preview-iframe") as HTMLIFrameElement | null;
+        if (iframe?.contentWindow) iframe.contentWindow.location.reload();
+      } catch {}
+    }, 600);
+
+    // Listen for Sandpack "done" event — the preview rendered the new code
+    let settled = false;
+    const settle = () => {
+      if (settled) return;
+      settled = true;
+      onReady();
+    };
+
+    const unsub = listen((msg) => {
+      if ((msg as any).type === "done" || (msg as any).type === "success") {
+        setTimeout(settle, 400);
+      }
+    });
+
+    // Safety net: dismiss after 4 seconds even if no "done" message arrives
+    const fallback = setTimeout(settle, 4000);
+
+    return () => {
+      unsub();
+      clearTimeout(fallback);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStreaming]);
+
+  return null;
+}
+
 export function PreviewPanel({ files, onError, isStreaming, onFilesChange, streamingContent = "" }: PreviewPanelProps) {
   const sandpackFiles = toSandpackFiles(files);
   const dependencies = extractDependencies(files);
+
+  // Keep the overlay visible until Sandpack has rebuilt after streaming ends
+  const [showOverlay, setShowOverlay] = useState(false);
+  const [overlayFading, setOverlayFading] = useState(false);
+
+  useEffect(() => {
+    if (isStreaming) {
+      setShowOverlay(true);
+      setOverlayFading(false);
+    }
+  }, [isStreaming]);
+
+  const handlePreviewReady = useCallback(() => {
+    setOverlayFading(true);
+    const t = setTimeout(() => { setShowOverlay(false); setOverlayFading(false); }, 500);
+    return () => clearTimeout(t);
+  }, []);
 
   const [isVisualEditMode, setIsVisualEditMode] = useState(false);
 
@@ -998,9 +1074,11 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange, strea
 
   return (
     <div className="sandpack-stretch h-full w-full relative">
-      {/* Rich generation overlay */}
-      {isStreaming && (
-        <GenerationOverlay streamingContent={streamingContent} />
+      {/* Rich generation overlay — stays visible until Sandpack finishes rebuilding */}
+      {showOverlay && (
+        <div className={cn("transition-opacity duration-500", overlayFading ? "opacity-0" : "opacity-100")}>
+          <GenerationOverlay streamingContent={streamingContent} />
+        </div>
       )}
 
       {/* Visual Edit Mode Overlay Indicator */}
@@ -1031,6 +1109,9 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange, strea
 
         {/* Refresh the preview when Shop Manager data changes (new product, stock update, etc.) */}
         <ShopRefreshListener />
+
+        {/* Force refresh when streaming ends, then signal overlay dismissal */}
+        <StreamEndRefresher isStreaming={!!isStreaming} onReady={handlePreviewReady} />
 
         <SandpackLayout
           style={{

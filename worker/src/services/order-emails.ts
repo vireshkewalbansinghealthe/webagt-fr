@@ -442,15 +442,26 @@ export async function sendOrderCancelledEmail(
   env: Env,
   project: Project,
   order: { orderId: string; orderNumber: string; totalAmount: number; customerEmail?: string; customerName?: string },
-): Promise<void> {
+): Promise<{ sent: boolean; reason?: string }> {
   const { from, replyTo } = resolveSender(project, env);
-  if (!from || !env.RESEND_API_KEY) return;
+  if (!from || !env.RESEND_API_KEY) {
+    console.warn(`[order-cancel-email] Skipping: missing from="${from}" or RESEND_API_KEY`);
+    return { sent: false, reason: "missing_config" };
+  }
 
   const shouldSendCustomer = project.orderCustomerEmailsEnabled !== false;
-  if (!shouldSendCustomer || !isValidEmail(order.customerEmail)) return;
+  if (!shouldSendCustomer) {
+    console.log(`[order-cancel-email] Skipping: orderCustomerEmailsEnabled is false for project ${project.id}`);
+    return { sent: false, reason: "emails_disabled" };
+  }
+
+  if (!isValidEmail(order.customerEmail)) {
+    console.warn(`[order-cancel-email] Skipping: invalid customerEmail="${order.customerEmail}" for order ${order.orderId}`);
+    return { sent: false, reason: `invalid_email:${order.customerEmail}` };
+  }
 
   try {
-    await sendIdempotent(env, from, {
+    const result = await sendIdempotent(env, from, {
       to: order.customerEmail!,
       subject: `Order cancelled — ${order.orderNumber} (${project.name})`,
       html: buildEmailHtml({
@@ -467,8 +478,15 @@ export async function sendOrderCancelledEmail(
       idempotencyKey: `order-email:${project.id}:${order.orderId}:cancelled`,
       replyTo,
     });
+    if (!result.sent) {
+      console.log(`[order-cancel-email] Skipped: ${result.skippedReason}`);
+      return { sent: false, reason: result.skippedReason };
+    }
+    console.log(`[order-cancel-email] Sent to ${order.customerEmail} for order ${order.orderNumber}`);
+    return { sent: true };
   } catch (error) {
-    console.error("[order-email] cancel send failed:", error);
+    console.error("[order-cancel-email] send failed:", error);
+    return { sent: false, reason: `error:${error}` };
   }
 }
 
@@ -476,15 +494,26 @@ export async function sendOrderRefundedEmail(
   env: Env,
   project: Project,
   order: { orderId: string; orderNumber: string; totalAmount: number; customerEmail?: string; customerName?: string; refundId?: string },
-): Promise<void> {
+): Promise<{ sent: boolean; reason?: string }> {
   const { from, replyTo } = resolveSender(project, env);
-  if (!from || !env.RESEND_API_KEY) return;
+  if (!from || !env.RESEND_API_KEY) {
+    console.warn(`[order-refund-email] Skipping: missing from="${from}" or RESEND_API_KEY`);
+    return { sent: false, reason: "missing_config" };
+  }
 
   const shouldSendCustomer = project.orderCustomerEmailsEnabled !== false;
-  if (!shouldSendCustomer || !isValidEmail(order.customerEmail)) return;
+  if (!shouldSendCustomer) {
+    console.log(`[order-refund-email] Skipping: orderCustomerEmailsEnabled is false`);
+    return { sent: false, reason: "emails_disabled" };
+  }
+
+  if (!isValidEmail(order.customerEmail)) {
+    console.warn(`[order-refund-email] Skipping: invalid customerEmail="${order.customerEmail}" for order ${order.orderId}`);
+    return { sent: false, reason: `invalid_email:${order.customerEmail}` };
+  }
 
   try {
-    await sendIdempotent(env, from, {
+    const result = await sendIdempotent(env, from, {
       to: order.customerEmail!,
       subject: `Refund processed — ${order.orderNumber} (${project.name})`,
       html: buildEmailHtml({
@@ -502,7 +531,14 @@ export async function sendOrderRefundedEmail(
       idempotencyKey: `order-email:${project.id}:${order.orderId}:refunded`,
       replyTo,
     });
+    if (!result.sent) {
+      console.log(`[order-refund-email] Skipped: ${result.skippedReason}`);
+      return { sent: false, reason: result.skippedReason };
+    }
+    console.log(`[order-refund-email] Sent to ${order.customerEmail} for order ${order.orderNumber}`);
+    return { sent: true };
   } catch (error) {
-    console.error("[order-email] refund send failed:", error);
+    console.error("[order-refund-email] send failed:", error);
+    return { sent: false, reason: `error:${error}` };
   }
 }

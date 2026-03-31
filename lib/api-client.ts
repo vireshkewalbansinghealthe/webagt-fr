@@ -544,7 +544,7 @@ export function createApiClient(getToken: GetTokenFunction) {
 
     orders: {
       cancel: (projectId: string, orderId: string) =>
-        authenticatedFetch<{ success: boolean; status: string }>(getToken, "/api/stripe/orders/cancel", {
+        authenticatedFetch<{ success: boolean; status: string; emailSent?: boolean; emailReason?: string }>(getToken, "/api/stripe/orders/cancel", {
           method: "POST",
           body: JSON.stringify({ projectId, orderId }),
         }),

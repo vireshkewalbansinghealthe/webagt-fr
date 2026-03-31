@@ -853,26 +853,40 @@ stripeRoutes.post("/orders/cancel", async (c) => {
     if (!order) return c.json({ error: "Order not found" }, 404);
     if (order.status === "REFUNDED") return c.json({ error: "Order has already been refunded" }, 400);
 
-    // Update status (allow re-cancel to retry email)
+    console.log(`[order-cancel] Order ${order.orderNumber}: status=${order.status}, customerEmail=${order.customerEmail}, customerId linked=${!!order.customerEmail}`);
+
+    // If customer email is missing from DB, try to retrieve from Stripe session
+    let customerEmail = order.customerEmail ?? undefined;
+    let customerName = order.customerName ?? undefined;
+    if (!customerEmail && orderId.startsWith("cs_")) {
+      try {
+        const paymentMode = getProjectPaymentMode(project);
+        const stripeMode: StripeMode = paymentMode === "live" ? "live" : "test";
+        const stripe = getStripeClient(c.env, stripeMode);
+        const session = await stripe.checkout.sessions.retrieve(orderId);
+        customerEmail = session.customer_details?.email || session.customer_email || undefined;
+        customerName = session.customer_details?.name || customerName;
+        console.log(`[order-cancel] Stripe session fallback: email=${customerEmail}, name=${customerName}`);
+      } catch (stripErr) {
+        console.warn("[order-cancel] Stripe session lookup failed:", stripErr);
+      }
+    }
+
     await db.execute({
       sql: `UPDATE [Order] SET status = 'CANCELLED', updatedAt = datetime('now') WHERE id = ?`,
       args: [orderId],
     });
 
-    // Send cancellation email to customer
-    try {
-      await sendOrderCancelledEmail(c.env, project, {
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        totalAmount: order.totalAmount,
-        customerEmail: order.customerEmail ?? undefined,
-        customerName: order.customerName ?? undefined,
-      });
-    } catch (emailErr) {
-      console.error("[order-cancel] email send failed:", emailErr);
-    }
+    const emailResult = await sendOrderCancelledEmail(c.env, project, {
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      totalAmount: order.totalAmount,
+      customerEmail,
+      customerName,
+    });
 
-    return c.json({ success: true, status: "CANCELLED" });
+    console.log(`[order-cancel] Email result:`, JSON.stringify(emailResult));
+    return c.json({ success: true, status: "CANCELLED", emailSent: emailResult.sent, emailReason: emailResult.reason });
   } catch (error: any) {
     console.error("Order cancel error:", error);
     return c.json({ error: error.message }, 500);
@@ -925,20 +939,35 @@ stripeRoutes.post("/orders/refund", async (c) => {
       refundId = refund.id;
     }
 
+    // If customer email is missing from DB, try to retrieve from Stripe session
+    let customerEmail = order.customerEmail ?? undefined;
+    let customerName = order.customerName ?? undefined;
+    if (!customerEmail && orderId.startsWith("cs_")) {
+      try {
+        const session = await stripeClient.checkout.sessions.retrieve(orderId);
+        customerEmail = session.customer_details?.email || session.customer_email || undefined;
+        customerName = session.customer_details?.name || customerName;
+        console.log(`[order-refund] Stripe session fallback: email=${customerEmail}`);
+      } catch (stripErr) {
+        console.warn("[order-refund] Stripe session lookup failed:", stripErr);
+      }
+    }
+
     await db.execute({
       sql: `UPDATE [Order] SET status = 'REFUNDED', updatedAt = datetime('now') WHERE id = ?`,
       args: [orderId],
     });
 
-    await sendOrderRefundedEmail(c.env, project, {
+    const emailResult = await sendOrderRefundedEmail(c.env, project, {
       orderId: order.id,
       orderNumber: order.orderNumber,
       totalAmount: order.totalAmount,
-      customerEmail: order.customerEmail ?? undefined,
-      customerName: order.customerName ?? undefined,
+      customerEmail,
+      customerName,
       refundId,
     });
 
+    console.log(`[order-refund] Email result:`, JSON.stringify(emailResult));
     return c.json({ success: true, status: "REFUNDED", refundId: refundId ?? null });
   } catch (error: any) {
     console.error("Order refund error:", error);

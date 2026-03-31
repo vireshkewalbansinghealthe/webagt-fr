@@ -106,30 +106,14 @@ For webshop projects, you MUST use the following schema and best practices:
 - Use \`generateId()\` from \`src/lib/db.ts\` for all IDs.
 - Use \`generateSlug(name)\` from \`src/lib/db.ts\` for all slug values.
 - Use \`appLog(level, source, message, detail?)\` from \`src/lib/db.ts\` to log events — these appear in Shop Manager > Logs.
-- Use \`db.batch()\` when inserting an Order and its OrderItems to ensure atomicity.
 - IMPORTANT: Do NOT call \`ensureSchema()\`. The tables are pre-provisioned by the platform. Only INSERT/SELECT data.
-- IMPORTANT: Always create or update the \`Customer\` record BEFORE inserting an \`Order\` that references its ID to avoid "FOREIGN KEY constraint failed".
 
-Recommended Order Flow:
-1. Check if Customer exists by email.
-2. If exists, update their details and get their \`id\`. If not, generate a new \`id\` and insert them.
-3. Insert \`Order\` with the \`customerId\`.
-4. Insert \`OrderItem\`s with \`orderId\`.
-5. Call the platform-managed payment helper to begin checkout.
-
-Example DB logic:
-\`\`\`typescript
-const { rows } = await db.execute({ sql: "SELECT id FROM Customer WHERE email = ?", args: [email] });
-let customerId;
-if (rows.length > 0) {
-  customerId = rows[0].id;
-  await db.execute({ sql: "UPDATE Customer SET firstName = ?, lastName = ? WHERE id = ?", args: [firstName, lastName, customerId] });
-} else {
-  customerId = generateId();
-  await db.execute({ sql: "INSERT INTO Customer (id, email, firstName, lastName) VALUES (?, ?, ?, ?)", args: [customerId, email, firstName, lastName] });
-}
-// Now safe to insert Order with customerId
-\`\`\`
+PLATFORM-MANAGED ORDERS (DO NOT CREATE ORDERS IN GENERATED CODE):
+- The \`Order\`, \`OrderItem\`, and \`Customer\` tables are MANAGED BY THE PLATFORM.
+- The platform webhook automatically creates Customer, Order, and OrderItem records when a Stripe payment succeeds.
+- NEVER INSERT INTO \`Order\`, \`OrderItem\`, or \`Customer\` tables in generated shop code. This causes duplicate orders.
+- Your checkout flow should ONLY: 1) collect cart items, 2) call \`beginCheckout()\`. The platform handles the rest.
+- You MAY SELECT/read from these tables (e.g., to show order history or customer data), but NEVER write to them.
 
 ═══════════════════════════════════════
 PLATFORM-MANAGED PAYMENTS

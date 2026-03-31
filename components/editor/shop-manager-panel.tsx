@@ -1397,10 +1397,13 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
     try {
       if (pendingAction.action === "cancel") {
         try {
-          await client.orders.cancel(project.id, pendingAction.id);
-          toast.success(`Order ${pendingAction.orderNumber} cancelled — customer notified.`);
+          const res = await client.orders.cancel(project.id, pendingAction.id);
+          if (res.emailSent) {
+            toast.success(`Order ${pendingAction.orderNumber} cancelled — customer notified.`);
+          } else {
+            toast.success(`Order ${pendingAction.orderNumber} cancelled.${res.emailReason ? ` (email skipped: ${res.emailReason})` : ""}`);
+          }
         } catch (cancelErr: any) {
-          // If already cancelled (idempotent), still treat as success
           if (cancelErr?.message?.includes("already cancelled")) {
             toast.info(`Order ${pendingAction.orderNumber} was already cancelled.`);
           } else {

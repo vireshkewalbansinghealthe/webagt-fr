@@ -191,7 +191,18 @@ The shop owner configures shipping rates, tax groups, and stock in the Shop Mana
 - **Price display**: Query \`ShopSetting\` table for key \`prices_include_tax\` (default "true"). When "true" (default, most common for B2C), product prices are displayed as entered (incl. BTW) and the tax breakdown is shown in the cart. When "false" (B2B), prices are shown ex. BTW and tax is added at checkout.
 - **Stock**: Read \`trackStock\` and \`stock\` from the Product table. If \`trackStock = 1\` and \`stock <= 0\`, show "Uitverkocht" / "Out of stock" and disable purchase. If \`trackStock = 1\` and \`stock < 10\`, show "Nog {stock} op voorraad" urgency. If \`trackStock = 0\`, stock is unlimited — show nothing.
 - **Product detail page**: Show shipping info, stock status, and tax-inclusive pricing — all from DB.
-- Create a \`src/lib/shopSettings.ts\` that exports async functions \`getShippingRates()\`, \`getDefaultTaxRate()\`, and \`getShippingInfo()\` which query the DB and are used by components. This avoids duplicating queries everywhere.
+- **Variants**: Query \`VariantGroup\` and \`ProductVariant\` tables for each product. A product can have multiple variant groups (e.g. "Size" and "Color"). Each group has values in \`ProductVariant\` (e.g. Size → S, M, L, XL). The AI MUST:
+  1. In \`seed.ts\`: when seeding products that logically have variants (clothing → sizes, shoes → sizes, items with colors), also INSERT rows into \`VariantGroup\` and \`ProductVariant\`. Example:
+     \`\`\`sql
+     INSERT INTO VariantGroup (id, productId, name, sortOrder, createdAt) VALUES ('vg_1', 'prod_1', 'Size', 0, datetime('now'));
+     INSERT INTO ProductVariant (id, productId, name, value, priceAdjustment, stock, trackStock, sortOrder, createdAt, updatedAt) VALUES ('pv_1', 'prod_1', 'Size', 'S', 0, 10, 1, 0, datetime('now'), datetime('now'));
+     INSERT INTO ProductVariant (id, productId, name, value, priceAdjustment, stock, trackStock, sortOrder, createdAt, updatedAt) VALUES ('pv_2', 'prod_1', 'Size', 'M', 0, 15, 1, 1, datetime('now'), datetime('now'));
+     INSERT INTO ProductVariant (id, productId, name, value, priceAdjustment, stock, trackStock, sortOrder, createdAt, updatedAt) VALUES ('pv_3', 'prod_1', 'Size', 'L', 0, 8, 1, 2, datetime('now'), datetime('now'));
+     \`\`\`
+  2. In ProductDetail: query variants for the product, render option selectors (buttons/dropdown), apply \`priceAdjustment\` to the base price, check variant-level stock, and pass \`variantId\` + \`variantLabel\` (e.g. "Size: M") to the cart and checkout.
+  3. In Cart/Checkout: display the selected variant label next to the product name.
+  4. The \`ProductVariant.name\` column MUST match the \`VariantGroup.name\` column exactly (e.g. both "Size") — this is how they are linked.
+- Create a \`src/lib/shopSettings.ts\` that exports async functions \`getShippingRates()\`, \`getDefaultTaxRate()\`, \`getShippingInfo()\`, and \`getProductVariants(productId)\` which query the DB and are used by components. This avoids duplicating queries everywhere.
 
 Structure requirements:
 - ALWAYS generate ALL required files in a single response. NEVER leave files "missing", "to be implemented later", or output partial apps. You must provide the full code for \`src/data/index.ts\`, \`src/components/Checkout.tsx\`, and all other necessary files immediately.
@@ -411,6 +422,15 @@ CREATE TABLE [OrderItem] (
     - NEVER insert \`Product\` rows until you have confirmed the final category IDs you will reference.
     - If a foreign key failure happens during seeding, the category-to-product mapping is wrong. Fix the ID lookup, not the schema.
     - Use real Unsplash image URLs (e.g., \`https://images.unsplash.com/photo-xxx\`). Keep URLs SHORT — no query params. Store as stringified JSON arrays: \`'["https://images.unsplash.com/photo-xxx"]'\`.
+    - **Variants**: After seeding products, seed \`VariantGroup\` and \`ProductVariant\` for products that logically have variants:
+      - Clothing / fashion → "Size" (XS, S, M, L, XL) and optionally "Color"
+      - Shoes / sneakers → "Size" (36, 37, 38, 39, 40, 41, 42, 43, 44, 45)
+      - Electronics → "Storage" (64GB, 128GB, 256GB) or "Color"
+      - Parfum / cosmetics → "Size" (30ml, 50ml, 100ml)
+      - If variants don't apply, skip — not every product needs variants.
+      - The \`ProductVariant.name\` MUST exactly match \`VariantGroup.name\` (both e.g. "Size").
+      - Use \`generateId()\` for all variant IDs. Set \`sortOrder\` incrementally.
+      - Use \`priceAdjustment\` for size-dependent pricing (e.g. 100ml costs +€10 more than 50ml).
 
 Requirements for non-database projects:
 - Lists and grids must have at least 8-12 items (products, users, posts, etc.)

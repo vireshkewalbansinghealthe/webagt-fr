@@ -232,7 +232,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
                 <NotificationsTab project={projectState} />
               )}
               {activeTab === "settings" && (
-                <SettingsTab project={projectState} />
+                <SettingsTab project={projectState} turso={turso} />
               )}
               {activeTab === "logs" && <LogsTab turso={turso} />}
             </div>
@@ -2974,8 +2974,56 @@ function NotificationsTab({ project }: { project: Project }) {
   return <NotificationSettingsSection project={project} showHeader />;
 }
 
-function SettingsTab({ project }: { project: Project }) {
+async function ensureShopSettingsTable(turso: any) {
+  try {
+    await turso.execute(`CREATE TABLE IF NOT EXISTS ShopSetting (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updatedAt TEXT
+    )`);
+  } catch { /* already exists */ }
+}
+
+async function getShopSetting(turso: any, key: string, fallback: string): Promise<string> {
+  try {
+    const res = await turso.execute({ sql: "SELECT value FROM ShopSetting WHERE key = ?", args: [key] });
+    return res.rows[0] ? String((res.rows[0] as any).value) : fallback;
+  } catch { return fallback; }
+}
+
+async function setShopSetting(turso: any, key: string, value: string) {
+  await turso.execute({
+    sql: `INSERT INTO ShopSetting (key, value, updatedAt) VALUES (?, ?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value, updatedAt = excluded.updatedAt`,
+    args: [key, value, new Date().toISOString()],
+  });
+}
+
+function SettingsTab({ project, turso }: { project: Project; turso: any }) {
   const [section, setSection] = useState<"general" | "database" | "notifications">("general");
+  const [pricesIncludeTax, setPricesIncludeTax] = useState(true);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!turso) { setSettingsLoading(false); return; }
+    (async () => {
+      await ensureShopSettingsTable(turso);
+      const val = await getShopSetting(turso, "prices_include_tax", "true");
+      setPricesIncludeTax(val === "true");
+      setSettingsLoading(false);
+    })();
+  }, [turso]);
+
+  const togglePricesIncludeTax = async (checked: boolean) => {
+    setPricesIncludeTax(checked);
+    if (!turso) return;
+    try {
+      await ensureShopSettingsTable(turso);
+      await setShopSetting(turso, "prices_include_tax", String(checked));
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
+      toast.success(checked ? "Prices now include tax (incl. BTW)" : "Prices now exclude tax (excl. BTW)");
+    } catch { toast.error("Failed to save setting"); }
+  };
 
   const menuItems = [
     { id: "general" as const, label: "General" },
@@ -3016,6 +3064,46 @@ function SettingsTab({ project }: { project: Project }) {
         <div className="min-w-0">
           {section === "general" && (
             <div className="space-y-4">
+              {/* Pricing */}
+              <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
+                <div>
+                  <h4 className="font-medium">Pricing</h4>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    How prices are displayed in your shop.
+                  </p>
+                </div>
+                {settingsLoading ? (
+                  <div className="flex justify-center py-4"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+                ) : (
+                  <div className="flex items-center justify-between rounded-xl border bg-muted/20 p-4">
+                    <div>
+                      <div className="font-medium text-sm">Prices include tax (incl. BTW)</div>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {pricesIncludeTax
+                          ? "Product prices are shown including tax — this is the default for B2C shops."
+                          : "Product prices are shown excluding tax — tax is added at checkout."}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={pricesIncludeTax}
+                      onClick={() => togglePricesIncludeTax(!pricesIncludeTax)}
+                      className={cn(
+                        "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors",
+                        pricesIncludeTax ? "bg-primary" : "bg-muted-foreground/30",
+                      )}
+                    >
+                      <span className={cn(
+                        "pointer-events-none inline-block size-5 rounded-full bg-white shadow-lg ring-0 transition-transform",
+                        pricesIncludeTax ? "translate-x-5" : "translate-x-0",
+                      )} />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Project metadata */}
               <div className="rounded-2xl border bg-card p-6 shadow-sm space-y-4">
                 <div>
                   <h4 className="font-medium">Project</h4>

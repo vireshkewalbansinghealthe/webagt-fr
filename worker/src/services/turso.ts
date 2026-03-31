@@ -413,6 +413,12 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS [ShopSetting] (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updatedAt TEXT
+    );
+
     ALTER TABLE [Product] ADD COLUMN sku TEXT;
     ALTER TABLE [Product] ADD COLUMN isVirtual INTEGER DEFAULT 0;
     ALTER TABLE [Product] ADD COLUMN taxGroupId TEXT;

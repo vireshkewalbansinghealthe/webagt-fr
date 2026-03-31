@@ -187,6 +187,7 @@ When building E-COMMERCE or WEBSHOPS (like premium stores or dropshipping sites)
 The shop owner configures shipping rates, tax groups, and stock in the Shop Manager. The generated website MUST read this data from Turso at runtime:
 - **Shipping**: Query \`ShippingZone\` and \`ShippingRate\` tables to show real shipping costs, delivery times, and free shipping thresholds. NEVER hardcode "Free shipping" or "€4.95" — always \`safeQuery("SELECT * FROM ShippingRate WHERE active = 1")\`.
 - **Tax**: Query \`TaxGroup\` table for the default tax rate (\`WHERE isDefault = 1\`). Use it in cart/checkout totals. NEVER hardcode 21% — always read from DB.
+- **Price display**: Query \`ShopSetting\` table for key \`prices_include_tax\` (default "true"). When "true" (default, most common for B2C), product prices are displayed as entered (incl. BTW) and the tax breakdown is shown in the cart. When "false" (B2B), prices are shown ex. BTW and tax is added at checkout.
 - **Stock**: Read \`trackStock\` and \`stock\` from the Product table. If \`trackStock = 1\` and \`stock <= 0\`, show "Uitverkocht" / "Out of stock" and disable purchase. If \`trackStock = 1\` and \`stock < 10\`, show "Nog {stock} op voorraad" urgency. If \`trackStock = 0\`, stock is unlimited — show nothing.
 - **Product detail page**: Show shipping info, stock status, and tax-inclusive pricing — all from DB.
 - Create a \`src/lib/shopSettings.ts\` that exports async functions \`getShippingRates()\`, \`getDefaultTaxRate()\`, and \`getShippingInfo()\` which query the DB and are used by components. This avoids duplicating queries everywhere.
@@ -289,6 +290,11 @@ CREATE TABLE [ShippingZone] (
 CREATE TABLE [ShippingRate] (
   id TEXT PRIMARY KEY, zoneId TEXT NOT NULL, name TEXT NOT NULL, type TEXT DEFAULT 'flat', price REAL DEFAULT 0, minOrderAmount REAL, estimatedDays TEXT DEFAULT '2-5', active INTEGER DEFAULT 1, createdAt TEXT, updatedAt TEXT
 );
+
+CREATE TABLE [ShopSetting] (
+  key TEXT PRIMARY KEY, value TEXT NOT NULL, updatedAt TEXT
+);
+-- Key "prices_include_tax": "true" (default) = prices shown incl. BTW, "false" = prices shown excl. BTW
 
 CREATE TABLE [Customer] (
   id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, firstName TEXT, lastName TEXT, phone TEXT, createdAt TEXT, updatedAt TEXT

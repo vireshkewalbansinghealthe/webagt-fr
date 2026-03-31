@@ -556,8 +556,8 @@ const inspectorUrl = "data:application/javascript;charset=utf-8," + encodeURICom
 const FILE_OPEN_RE = /<file\s+path="([^"]+)">/g;
 const FILE_DONE_RE = /<file\s+path="([^"]+)">[\s\S]*?<\/file>/g;
 
-/** Typical number of files for a full webshop build — used for progress estimation */
-const EXPECTED_FILES = 18;
+/** Soft cap for progress bar — files beyond this still advance but more slowly */
+const PROGRESS_SOFT_CAP = 20;
 
 const FACTS_AND_QUOTES = [
   "The first website ever built was by Tim Berners-Lee in 1991 — it was just text.",
@@ -647,13 +647,14 @@ function GenerationOverlay({ streamingContent }: { streamingContent: string }) {
     return { doneCount, totalCount, phase };
   }, [streamingContent]);
 
-  // Smooth progress: during thinking ramp to 15%, during writing show actual file progress
-  // capped at EXPECTED_FILES so bar doesn't jump weirdly
+  // Smooth progress: thinking=8%, each file done advances the bar
+  // Uses a soft cap so it never claims to be "done" before streaming ends
   const progressPct = useMemo(() => {
     if (phase === "thinking") return 8;
-    const expected = Math.max(totalCount, EXPECTED_FILES);
-    return 15 + Math.min((doneCount / expected) * 82, 82);
-  }, [phase, doneCount, totalCount]);
+    // Each completed file moves the bar, but it asymptotically approaches ~90%
+    const fraction = doneCount / (doneCount + PROGRESS_SOFT_CAP);
+    return 15 + fraction * 75;
+  }, [phase, doneCount]);
 
   const fact = FACTS_AND_QUOTES[factIndex];
   const isQuote = fact.startsWith('"');
@@ -696,10 +697,13 @@ function GenerationOverlay({ streamingContent }: { streamingContent: string }) {
             <>
               <h3 className="text-base font-semibold tracking-tight">
                 Building your project
+                <span className="inline-flex w-6 ml-0.5">
+                  <span className="animate-[dotPulse_1.4s_infinite]">.</span>
+                  <span className="animate-[dotPulse_1.4s_0.2s_infinite]">.</span>
+                  <span className="animate-[dotPulse_1.4s_0.4s_infinite]">.</span>
+                </span>
               </h3>
-              <p className="text-xs text-muted-foreground">
-                {doneCount} of ~{Math.max(totalCount, EXPECTED_FILES)} files written
-              </p>
+              <p className="text-xs text-muted-foreground">Writing files, just a moment</p>
             </>
           )}
         </div>
@@ -715,7 +719,7 @@ function GenerationOverlay({ streamingContent }: { streamingContent: string }) {
             />
           </div>
           <div className="flex justify-between text-[10px] text-muted-foreground">
-            <span>{phase === "thinking" ? "Analyzing request" : `${doneCount} files done`}</span>
+            <span>{phase === "thinking" ? "Analyzing your request" : "Generating"}</span>
             <span>{Math.round(progressPct)}%</span>
           </div>
         </div>

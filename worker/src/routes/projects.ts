@@ -531,6 +531,44 @@ projectRoutes.get("/:id", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/projects/:id/logs — Fetch _AppLog entries from the project's Turso DB
+// ---------------------------------------------------------------------------
+projectRoutes.get("/:id/logs", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+  const level = c.req.query("level"); // optional: info, warn, error
+  const limit = Math.min(Number(c.req.query("limit") || 200), 500);
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found" }, 404);
+  if (project.userId !== userId && !project.collaborators?.some((col) => col.userId === userId)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+  if (!project.databaseUrl || !project.databaseToken) {
+    return c.json({ error: "No database provisioned for this project" }, 400);
+  }
+
+  try {
+    const { createClient } = await import("@libsql/client/web");
+    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+
+    await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+
+    const where = level ? `WHERE level = '${level.replace(/'/g, "")}'` : "";
+    const result = await db.execute(`SELECT * FROM _AppLog ${where} ORDER BY id DESC LIMIT ${limit}`);
+    const logs = result.rows.map((row) => {
+      const obj: Record<string, unknown> = {};
+      result.columns.forEach((col, i) => { obj[col] = (row as any)[i]; });
+      return obj;
+    });
+
+    return c.json({ logs, total: logs.length });
+  } catch (e: any) {
+    return c.json({ error: "Failed to read logs", detail: e.message }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/projects/:id/email-settings — Read order email settings
 // ---------------------------------------------------------------------------
 projectRoutes.get("/:id/email-settings", async (c) => {

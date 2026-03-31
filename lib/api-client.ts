@@ -294,6 +294,17 @@ export function createApiClient(getToken: GetTokenFunction) {
           { method: "GET" },
         ),
 
+      getLogs: (id: string, opts?: { level?: string; limit?: number }) => {
+        const params = new URLSearchParams();
+        if (opts?.level) params.set("level", opts.level);
+        if (opts?.limit) params.set("limit", String(opts.limit));
+        const qs = params.toString() ? `?${params}` : "";
+        return authenticatedFetch<{ logs: any[]; total: number }>(
+          getToken,
+          `/api/projects/${id}/logs${qs}`,
+        );
+      },
+
       getEmailSettings: (id: string) =>
         authenticatedFetch<ProjectEmailSettings>(
           getToken,
@@ -619,6 +630,23 @@ export function createApiClient(getToken: GetTokenFunction) {
           getToken,
           `/api/admin/users/${userId}/projects/${projectId}`,
           { method: "DELETE" }
+        ),
+
+      getProjectLogs: (projectId: string, opts?: { level?: string; limit?: number }) => {
+        const params = new URLSearchParams();
+        if (opts?.level) params.set("level", opts.level);
+        if (opts?.limit) params.set("limit", String(opts.limit));
+        const qs = params.toString() ? `?${params}` : "";
+        return authenticatedFetch<{ logs: any[]; total: number; projectId: string }>(
+          getToken,
+          `/api/admin/projects/${projectId}/logs${qs}`,
+        );
+      },
+
+      getUserProjects: (userId: string) =>
+        authenticatedFetch<{ projects: { id: string; name: string; type?: string; hasTurso: boolean }[] }>(
+          getToken,
+          `/api/admin/users/${userId}/projects`,
         ),
     },
   };

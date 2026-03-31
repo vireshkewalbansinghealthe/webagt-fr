@@ -225,7 +225,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
               {activeTab === "settings" && (
                 <SettingsTab project={projectState} />
               )}
-              {activeTab === "logs" && <LogsTab />}
+              {activeTab === "logs" && <LogsTab turso={turso} />}
             </div>
           )}
         </div>
@@ -388,6 +388,10 @@ function slugifyProductName(name: string, fallbackId?: string) {
 }
 
 async function ensureProductSchemaColumns(turso: any) {
+  try {
+    await turso.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+  } catch { /* ignore */ }
+
   const statements = [
     "ALTER TABLE Product ADD COLUMN slug TEXT",
     "ALTER TABLE Product ADD COLUMN compareAtPrice REAL",
@@ -2243,19 +2247,126 @@ function PaymentsTab({
   );
 }
 
-function LogsTab() {
-  return (
-    <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground py-12">
-      <Activity className="size-12 text-muted-foreground/30 mb-4" />
-      <h3 className="text-lg font-medium text-foreground mb-2">Activity Logs</h3>
-      <p className="max-w-sm">
-        API request logs, database queries, and webhook events will appear here.
-      </p>
-      <div className="mt-8 text-xs font-mono bg-muted p-4 rounded-lg text-left w-full max-w-md">
-        <div className="text-green-500">[SYSTEM] Worker initialized</div>
-        <div className="text-blue-500">[TURSO] Connected to edge database</div>
-        <div className="text-muted-foreground">[READY] Waiting for events...</div>
+const LOG_LEVEL_STYLES: Record<string, string> = {
+  info: "text-blue-400",
+  warn: "text-amber-400",
+  error: "text-red-400",
+};
+
+function LogsTab({ turso }: { turso: any }) {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<"all" | "info" | "warn" | "error">("all");
+  const { bump, label } = useLastUpdated();
+
+  const loadLogs = useCallback(async (manual = false) => {
+    if (!turso) { setLoading(false); return; }
+    if (manual) setRefreshing(true);
+    try {
+      // Ensure table exists before querying
+      await turso.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+      const res = await turso.execute("SELECT * FROM _AppLog ORDER BY id DESC LIMIT 200");
+      setLogs(res.rows);
+      bump();
+    } catch (err) {
+      console.error("Failed to load logs", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [turso, bump]);
+
+  useEffect(() => {
+    loadLogs();
+    const timer = setInterval(() => loadLogs(), 8000);
+    return () => clearInterval(timer);
+  }, [loadLogs]);
+
+  const clearLogs = async () => {
+    if (!turso) return;
+    try {
+      await turso.execute("DELETE FROM _AppLog");
+      setLogs([]);
+      toast.success("Logs cleared");
+    } catch { /* ignore */ }
+  };
+
+  const filtered = filter === "all" ? logs : logs.filter((l) => String(l.level) === filter);
+
+  if (loading) return <div className="flex justify-center p-8"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+
+  if (!turso) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground py-12">
+        <Activity className="size-12 text-muted-foreground/30 mb-4" />
+        <h3 className="text-lg font-medium text-foreground mb-2">No Database</h3>
+        <p className="max-w-sm">Provision a database to start collecting logs.</p>
       </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-medium">Activity Logs</h3>
+        <div className="flex items-center gap-2">
+          {label && <span className="text-xs text-muted-foreground">{label}</span>}
+          <div className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5 gap-0.5">
+            {(["all", "info", "warn", "error"] as const).map((l) => (
+              <button
+                key={l}
+                onClick={() => setFilter(l)}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all capitalize",
+                  filter === l ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadLogs(true)} disabled={refreshing}>
+            <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
+          </Button>
+          {logs.length > 0 && (
+            <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2 text-destructive hover:text-destructive" onClick={clearLogs}>
+              <Trash2 className="size-3.5" /> Clear
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div className="border rounded-lg bg-card p-8 text-center text-muted-foreground text-sm">
+          <Activity className="size-8 text-muted-foreground/30 mx-auto mb-3" />
+          {logs.length === 0
+            ? "No logs yet. Database operations, seed events, and errors will appear here automatically."
+            : `No ${filter} logs found.`}
+        </div>
+      ) : (
+        <div className="border rounded-lg bg-card overflow-hidden">
+          <div className="max-h-[500px] overflow-y-auto font-mono text-xs divide-y divide-border">
+            {filtered.map((log: any, i: number) => (
+              <div key={log.id || i} className="px-3 py-2 hover:bg-muted/20 flex items-start gap-2">
+                <span className={cn("uppercase font-bold w-12 shrink-0", LOG_LEVEL_STYLES[log.level] || "text-muted-foreground")}>
+                  {String(log.level || "info").toUpperCase()}
+                </span>
+                <span className="text-muted-foreground/60 w-16 shrink-0 text-[10px]">
+                  {log.createdAt ? new Date(log.createdAt).toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
+                </span>
+                {log.source && (
+                  <span className="text-purple-400 shrink-0">[{log.source}]</span>
+                )}
+                <span className="text-foreground break-all">{log.message}</span>
+                {log.detail && (
+                  <span className="text-muted-foreground/60 break-all ml-auto">{String(log.detail).slice(0, 200)}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -102,10 +102,12 @@ TURSO DATABASE & SCHEMA (WEBSHOPS ONLY)
 ═══════════════════════════════════════
 
 For webshop projects, you MUST use the following schema and best practices:
-- Tables: \`Product\`, \`Customer\`, \`Order\`, \`OrderItem\`.
+- Tables: \`Category\`, \`Product\`, \`Customer\`, \`Order\`, \`OrderItem\`, \`_AppLog\`.
 - Use \`generateId()\` from \`src/lib/db.ts\` for all IDs.
+- Use \`generateSlug(name)\` from \`src/lib/db.ts\` for all slug values.
+- Use \`appLog(level, source, message, detail?)\` from \`src/lib/db.ts\` to log events — these appear in Shop Manager > Logs.
 - Use \`db.batch()\` when inserting an Order and its OrderItems to ensure atomicity.
-- IMPORTANT: Use \`ensureSchema()\` from \`src/lib/db.ts\` at the start of your checkout or app initialization to ensure tables exist.
+- IMPORTANT: Do NOT call \`ensureSchema()\`. The tables are pre-provisioned by the platform. Only INSERT/SELECT data.
 - IMPORTANT: Always create or update the \`Customer\` record BEFORE inserting an \`Order\` that references its ID to avoid "FOREIGN KEY constraint failed".
 
 Recommended Order Flow:
@@ -220,7 +222,8 @@ Example file structure for an ecommerce app:
 - src/components/About.tsx (brand story, team)
 - src/components/Contact.tsx (contact form, details)
 - src/components/Footer.tsx (fat footer: links, newsletter, payment icons)
-- src/data/index.ts (mock products, categories, reviews)
+- src/lib/seed.ts (auto-seeding logic — categories + products — ALWAYS required for webshops)
+- src/data/index.ts (mock products, categories, reviews — for non-DB projects only)
 
 IMPORT RULES:
 - ALWAYS use explicit file extensions or /index paths for relative imports to prevent Sandpack bundler errors. 
@@ -287,29 +290,83 @@ CREATE TABLE [OrderItem] (
 
 1.  How to use the DB:
     \`\`\`tsx
-    import { db } from "../lib/db";
+    import { db, appLog } from "../lib/db";
     
     // In a useEffect:
     const result = await db.execute("SELECT * FROM Product WHERE categoryId = 'xyz'");
-    // Map LibSQL rows (which come as arrays) to objects based on columns
+    // IMPORTANT: LibSQL rows are arrays, NOT objects. You MUST map them:
     const products = result.rows.map(row => {
-      let obj = {};
-      result.columns.forEach((col, i) => obj[col] = row[i]);
+      const obj: any = {};
+      result.columns.forEach((col, i) => obj[col] = (row as any)[i]);
       return obj;
     });
     \`\`\`
 
-2.  Auto-Seeding the Database:
-    If the user asks for a new shop (e.g. "Create a shoe store"), you MUST generate code that automatically inserts 6-8 highly realistic mock products into the database if it is empty. Do this in a \`useEffect\` on the Home page, or a dedicated Seed component. 
-    Use real Unsplash image URLs (e.g., \`https://images.unsplash.com/photo-xxx\`) for the product images. Store images as stringified JSON arrays in the DB (e.g., \`'["https://..."]'\`).
+2.  MANDATORY LOGGING — \`appLog()\`:
+    \`src/lib/db.ts\` exports an \`appLog(level, source, message, detail?)\` function that writes to the \`_AppLog\` table.
+    This table is visible in the Shop Manager > Logs tab.
+    - ALWAYS call \`appLog('info', 'seed', 'Starting seed...')\` before seeding.
+    - ALWAYS call \`appLog('info', 'seed', 'Inserted N products')\` after success.
+    - ALWAYS call \`appLog('error', 'seed', error.message, error.stack)\` in every catch block.
+    - Use it for any major DB operation: loading products, checkout, etc.
+    - NEVER silently catch errors. Every catch MUST at minimum call \`appLog('error', ...)\`.
+
+3.  Auto-Seeding the Database:
+    If the user asks for a new shop (e.g. "Create a shoe store"), you MUST generate code that automatically inserts 6-8 highly realistic mock products into the database if it is empty.
+
+    CRITICAL SEED ARCHITECTURE:
+    - Create a DEDICATED \`src/lib/seed.ts\` file for all seeding logic. Do NOT inline seed SQL in page components.
+    - The seed function MUST be called from \`src/App.tsx\` on mount (in a top-level \`useEffect\`), NOT from individual page components.
+    - This ensures seeding runs regardless of which route the user lands on.
+
+    Example seed file structure:
+    \`\`\`tsx
+    // src/lib/seed.ts
+    import { db, generateId, generateSlug, appLog } from "./db";
+
+    let seeded = false;
+
+    export async function seedIfEmpty() {
+      if (seeded) return;
+      seeded = true;
+      try {
+        await appLog('info', 'seed', 'Checking if seed needed...');
+        const result = await db.execute("SELECT COUNT(*) as c FROM [Product]");
+        // MUST map LibSQL row (may be array)
+        const row = result.columns
+          ? Object.fromEntries(result.columns.map((col, i) => [col, (result.rows[0] as any)?.[i]]))
+          : (result.rows[0] as any) || {};
+        const count = Number(row.c || row.count || 0);
+        if (count > 0) {
+          await appLog('info', 'seed', \`Skipped — \${count} products already exist\`);
+          return;
+        }
+        await appLog('info', 'seed', 'Seeding categories...');
+        // Insert categories...
+        await appLog('info', 'seed', 'Seeding products...');
+        // Insert products...
+        await appLog('info', 'seed', 'Seed completed successfully');
+      } catch (e: any) {
+        console.error('[seed]', e);
+        await appLog('error', 'seed', e.message || String(e), e.stack);
+      }
+    }
+    \`\`\`
+
+    Then in App.tsx: \`useEffect(() => { seedIfEmpty(); }, []);\`
+
     Seed safety rules:
     - ALWAYS insert \`Category\` rows first, then insert \`Product\` rows using valid \`categoryId\` values.
-    - NEVER assume \`Product\` has a \`category\` text column. The schema uses \`categoryId\`.
-    - When checking whether seed data exists, prefer \`SELECT COUNT(*) as count FROM [Product]\` and map LibSQL rows using \`result.columns\` before reading values.
-    - LibSQL rows may be arrays, not plain objects. Always map rows to objects before accessing fields like \`count\`, \`id\`, or \`name\`.
-    - \`INSERT OR IGNORE\` is not enough by itself for categories. After inserting or attempting to insert categories, query the \`Category\` table and build a reliable slug-to-id map before inserting any \`Product\` rows.
+    - NEVER assume \`Product\` has a \`category\` text column. The schema uses \`categoryId\` (FK to Category).
+    - Product \`slug\` is UNIQUE NOT NULL. Always generate unique slugs using \`generateSlug(name)\` from db.ts.
+    - Product \`price\` is REAL NOT NULL. Always provide a numeric price value.
+    - Product \`name\` is NOT NULL. Always provide a name.
+    - Use \`generateId()\` from db.ts for all IDs.
+    - When checking row count, ALWAYS map LibSQL rows using \`result.columns\` — rows may be arrays, NOT objects.
+    - \`INSERT OR IGNORE\` is not enough by itself for categories. After inserting categories, query the \`Category\` table and build a reliable slug-to-id map before inserting products.
     - NEVER insert \`Product\` rows until you have confirmed the final category IDs you will reference.
-    - If a foreign key failure happens during seeding, assume the category-to-product mapping is wrong and fix the ID lookup/order of operations, not the schema.
+    - If a foreign key failure happens during seeding, the category-to-product mapping is wrong. Fix the ID lookup, not the schema.
+    - Use real Unsplash image URLs (e.g., \`https://images.unsplash.com/photo-xxx\`). Keep URLs SHORT — no query params. Store as stringified JSON arrays: \`'["https://images.unsplash.com/photo-xxx"]'\`.
 
 Requirements for non-database projects:
 - Lists and grids must have at least 8-12 items (products, users, posts, etc.)

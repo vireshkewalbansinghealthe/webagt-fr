@@ -23,6 +23,7 @@ import {
   BarChart3,
   ArrowLeft,
   Settings2,
+  ScrollText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -31,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 const NAV_ITEMS = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Users", href: "/admin/users", icon: Users },
+  { label: "Project Logs", href: "/admin/logs", icon: ScrollText },
 ];
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

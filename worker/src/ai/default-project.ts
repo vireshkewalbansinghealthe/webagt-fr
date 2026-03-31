@@ -936,16 +936,43 @@ export function generateSlug(name: string): string {
 }
 
 /**
+ * Log an event to the _AppLog table for debugging in the Shop Manager.
+ * Never throws — silently ignores logging failures.
+ */
+export async function appLog(
+  level: 'info' | 'warn' | 'error',
+  source: string,
+  message: string,
+  detail?: string
+) {
+  try {
+    await db.execute({
+      sql: "INSERT INTO _AppLog (level, source, message, detail, createdAt) VALUES (?, ?, ?, ?, datetime('now'))",
+      args: [level, source, message, detail || null],
+    });
+  } catch {
+    // Can't log if table doesn't exist yet — ignore
+  }
+}
+
+/**
  * Ensures the database schema exists.
- * The AI uses this to bootstrap the shop tables.
+ * Tables are already pre-provisioned by the platform — this is a safety net.
  */
 export async function ensureSchema() {
-  await db.batch([
-    "CREATE TABLE IF NOT EXISTS Customer (id TEXT PRIMARY KEY, email TEXT UNIQUE, firstName TEXT, lastName TEXT, address TEXT, city TEXT, country TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)",
-    "CREATE TABLE IF NOT EXISTS [Order] (id TEXT PRIMARY KEY, customerId TEXT, totalAmount REAL, status TEXT, orderNumber TEXT, shippingAddress TEXT, billingAddress TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY(customerId) REFERENCES Customer(id))",
-    "CREATE TABLE IF NOT EXISTS OrderItem (id TEXT PRIMARY KEY, orderId TEXT, productId TEXT, quantity INTEGER, price REAL, FOREIGN KEY(orderId) REFERENCES [Order](id), FOREIGN KEY(productId) REFERENCES Product(id))",
-    "CREATE TABLE IF NOT EXISTS Product (id TEXT PRIMARY KEY, name TEXT, description TEXT, price REAL, stock INTEGER, category TEXT, sku TEXT, isVirtual INTEGER DEFAULT 0, images TEXT, createdAt DATETIME DEFAULT CURRENT_TIMESTAMP)"
-  ], "write");
+  try {
+    await db.batch([
+      "CREATE TABLE IF NOT EXISTS [Category] (id TEXT PRIMARY KEY, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL, description TEXT, image TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP)",
+      "CREATE TABLE IF NOT EXISTS [Product] (id TEXT PRIMARY KEY, categoryId TEXT, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL, description TEXT, price REAL NOT NULL, originalPrice REAL, compareAtPrice REAL, images TEXT, featured INTEGER DEFAULT 0, inventory INTEGER DEFAULT 0, stock INTEGER DEFAULT 0, status TEXT DEFAULT 'ACTIVE', rating REAL DEFAULT 0, reviews INTEGER DEFAULT 0, createdAt TEXT DEFAULT CURRENT_TIMESTAMP, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (categoryId) REFERENCES [Category](id))",
+      "CREATE TABLE IF NOT EXISTS [Customer] (id TEXT PRIMARY KEY, email TEXT UNIQUE NOT NULL, firstName TEXT, lastName TEXT, phone TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP)",
+      "CREATE TABLE IF NOT EXISTS [Order] (id TEXT PRIMARY KEY, orderNumber TEXT UNIQUE NOT NULL, customerId TEXT, status TEXT DEFAULT 'PENDING', totalAmount REAL NOT NULL, shippingAddress TEXT, billingAddress TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (customerId) REFERENCES [Customer](id))",
+      "CREATE TABLE IF NOT EXISTS [OrderItem] (id TEXT PRIMARY KEY, orderId TEXT NOT NULL, productId TEXT, quantity INTEGER NOT NULL, unitPrice REAL NOT NULL, createdAt TEXT DEFAULT CURRENT_TIMESTAMP, updatedAt TEXT DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (orderId) REFERENCES [Order](id), FOREIGN KEY (productId) REFERENCES [Product](id))",
+      "CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)",
+    ], "write");
+    await appLog('info', 'schema', 'ensureSchema completed');
+  } catch (e: any) {
+    console.error('[ensureSchema]', e);
+  }
 }
 `
     },

@@ -395,6 +395,15 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       FOREIGN KEY (productId) REFERENCES [Product](id)
     );
 
+    CREATE TABLE IF NOT EXISTS [_AppLog] (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      level TEXT NOT NULL DEFAULT 'info',
+      source TEXT,
+      message TEXT NOT NULL,
+      detail TEXT,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     ALTER TABLE [Product] ADD COLUMN sku TEXT;
     ALTER TABLE [Product] ADD COLUMN isVirtual INTEGER DEFAULT 0;
     ALTER TABLE [Order] ADD COLUMN shippingAddress TEXT;

@@ -258,6 +258,13 @@ If \`src/lib/db.ts\` exists, your response message to the user MUST explicitly m
 
 You MUST use the db connection in \`src/lib/db.ts\` to fetch and store real data. DO NOT USE HARDCODED ARRAYS IF THE DATABASE EXISTS.
 
+⚠️ CRITICAL — NEVER READ FROM STATIC DATA WHEN DB EXISTS:
+- NEVER import or read from \`src/data/index.ts\`, \`src/data/products.ts\`, or any static data file for displaying products, categories, or inventory.
+- NEVER use a hardcoded array of products as the primary data source when \`src/lib/db.ts\` is present.
+- ALL product/category data MUST come from \`db.execute("SELECT * FROM Product")\` and \`db.execute("SELECT * FROM Category")\`.
+- Static data files (\`src/data/index.ts\`) may ONLY be used as a fallback type definition or for non-DB projects. NEVER as a product list.
+- If a page component imports products from a static file while \`src/lib/db.ts\` exists, this is a bug. Fix it.
+
 If you generated a webshop, ALWAYS check if products exist. If not, write an initialization script or \`useEffect\` that inserts initial products using SQL into the \`Product\` table (and categories in the \`Category\` table).
 - IMPORTANT: If a webshop project already contains \`src/lib/db.ts\`, do NOT claim that Turso is unavailable or not provisioned.
 
@@ -290,16 +297,20 @@ CREATE TABLE [OrderItem] (
 
 1.  How to use the DB:
     \`\`\`tsx
-    import { db, appLog } from "../lib/db";
-    
-    // In a useEffect:
-    const result = await db.execute("SELECT * FROM Product WHERE categoryId = 'xyz'");
-    // IMPORTANT: LibSQL rows are arrays, NOT objects. You MUST map them:
-    const products = result.rows.map(row => {
-      const obj: any = {};
-      result.columns.forEach((col, i) => obj[col] = (row as any)[i]);
-      return obj;
-    });
+    import { db, safeQuery, appLog } from "../lib/db";
+
+    // PREFERRED — use safeQuery for ALL SELECT queries.
+    // It automatically maps LibSQL rows (which are arrays, NOT objects) to plain objects.
+    // It never throws — returns [] on error and logs to _AppLog.
+    const products = await safeQuery("SELECT * FROM Product ORDER BY createdAt DESC");
+    const byCategory = await safeQuery("SELECT * FROM Product WHERE categoryId = ?", [catId]);
+
+    // For writes (INSERT / UPDATE / DELETE) use db.execute directly:
+    await db.execute({ sql: "INSERT INTO Product (...) VALUES (?,...)", args: [...] });
+
+    // ❌ NEVER read rows like this — raw LibSQL rows may be arrays, not objects:
+    // const result = await db.execute("SELECT * FROM Product");
+    // result.rows[0].name  ← WRONG, will be undefined
     \`\`\`
 
 2.  MANDATORY LOGGING — \`appLog()\`:

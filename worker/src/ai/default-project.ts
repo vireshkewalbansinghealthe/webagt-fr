@@ -919,13 +919,36 @@ export default function App() {
 
 /**
  * Turso Database Client
- * This client connects directly to your provisioned Turso edge database.
- * Use this to fetch and mutate real data instead of hardcoding state.
+ * Connects directly to your provisioned Turso edge database.
+ * Use this to fetch and mutate real data — never use hardcoded arrays.
  */
 export const db = createClient({
   url: "${dbUrl}",
   authToken: "${dbToken}",
 })
+
+/**
+ * Safe DB query helper — always returns rows as plain objects.
+ * Logs errors to _AppLog so they show up in Shop Manager > Logs.
+ * Returns empty array on failure instead of throwing.
+ */
+export async function safeQuery<T = Record<string, unknown>>(
+  sql: string,
+  args: any[] = []
+): Promise<T[]> {
+  try {
+    const result = await db.execute({ sql, args })
+    return result.rows.map(row => {
+      const obj: any = {}
+      result.columns.forEach((col, i) => { obj[col] = (row as any)[i] })
+      return obj as T
+    })
+  } catch (e: any) {
+    console.error('[db.safeQuery]', sql, e)
+    await appLog('error', 'db', \`Query failed: \${sql.slice(0, 80)}\`, e?.message).catch(() => {})
+    return []
+  }
+}
 
 export function generateId(): string {
   return crypto.randomUUID()

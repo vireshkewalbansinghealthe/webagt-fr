@@ -889,7 +889,7 @@ projectRoutes.post("/", async (c) => {
   if (body.type === "webshop") {
     try {
       // Use nanoid prefix so db name starts with a letter, avoids invalid db name errors
-      const dbName = `shop-${projectId.substring(0, 8).toLowerCase()}`;
+      const dbName = `shop-${projectId.substring(0, 8).toLowerCase().replace(/[^a-z0-9-]/g, "")}`;
       console.log(`Attempting to provision Turso database: ${dbName}`);
       const tursoDb = await createTursoDatabase(c.env, dbName);
       
@@ -2317,7 +2317,7 @@ projectRoutes.post("/:id/provision-database", async (c) => {
   }
 
   try {
-    const dbName = `shop-${projectId.substring(0, 8).toLowerCase()}`;
+    const dbName = `shop-${projectId.substring(0, 8).toLowerCase().replace(/[^a-z0-9-]/g, "")}`;
     const tursoDb = await createTursoDatabase(c.env, dbName);
 
     const databaseUrl = tursoDb.url || undefined;

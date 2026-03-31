@@ -269,7 +269,7 @@ chatRoutes.post("/:projectId", async (c) => {
   if (project.type === "webshop" && (!project.databaseUrl || !project.databaseToken)) {
     console.log(`[chat] Project ${projectId} is a webshop without a DB — auto-provisioning...`);
     try {
-      const dbName = `shop-${projectId.substring(0, 8).toLowerCase()}`;
+      const dbName = `shop-${projectId.substring(0, 8).toLowerCase().replace(/[^a-z0-9-]/g, "")}`;
       const tursoDb = await createTursoDatabase(c.env, dbName);
       const databaseUrl = tursoDb.url || undefined;
       const databaseToken = tursoDb.token || undefined;
@@ -500,11 +500,6 @@ chatRoutes.post("/:projectId", async (c) => {
         maxOutputTokens: modelConfig.maxOutputTokens,
       });
 
-      // ── FREE MEMORY: prompt data handed off to AI SDK, no longer needed ──
-      sdkMessages.length = 0;
-      images.length = 0;
-      (enrichedImages as any[]).length = 0;
-
       let chunkCount = 0;
       let lastChunkTime = Date.now();
       for await (const chunk of result.textStream) {
@@ -517,6 +512,11 @@ chatRoutes.post("/:projectId", async (c) => {
           id: String(eventId++),
         });
       }
+
+      // ── FREE MEMORY: AI stream consumed, prompt data no longer needed ──
+      sdkMessages.length = 0;
+      images.length = 0;
+      (enrichedImages as any[]).length = 0;
 
       const streamDuration = Date.now() - streamStart;
       const responseTokensApprox = Math.round(fullResponse.length / 4);

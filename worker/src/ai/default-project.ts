@@ -261,7 +261,7 @@ function rowToObject(row: any, columns?: string[]): Record<string, any> {
 async function fetchProductsFromDb(): Promise<Product[]> {
   try {
     const result = await db.execute(
-      "SELECT id, name, price, description, category, categoryId, images, rating, reviews, featured, inventory, stock, originalPrice, compareAtPrice, isVirtual FROM Product ORDER BY createdAt DESC LIMIT 60"
+      "SELECT id, name, price, description, category, categoryId, images, rating, reviews, featured, inventory, stock, trackStock, originalPrice, compareAtPrice, isVirtual FROM Product ORDER BY createdAt DESC LIMIT 60"
     );
     const rows = (result.rows || []).map((row: any) => rowToObject(row, result.columns));
     if (!rows.length) {
@@ -272,8 +272,9 @@ async function fetchProductsFromDb(): Promise<Product[]> {
       const images = parseImages(row.images);
       const image = images[0] || 'https://images.unsplash.com/photo-1541643600914-78b084683702?w=800&q=80';
       const category = mapCategory(row.category ?? row.categoryId);
+      const trackStock = Boolean(Number(row.trackStock ?? 0));
       const stock = Number(row.stock ?? row.inventory ?? 0);
-      const soldOut = Number.isFinite(stock) ? stock <= 0 : false;
+      const soldOut = trackStock && Number.isFinite(stock) ? stock <= 0 : false;
       const rating = Number(row.rating ?? 4.8);
       const reviewCount = Number(row.reviews ?? 0);
 

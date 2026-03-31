@@ -33,6 +33,7 @@ import {
   SlidersHorizontal,
   Columns3,
   Tag,
+  Percent,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types/project";
@@ -66,7 +67,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ProductSheet, type ProductFormData } from "./product-sheet";
 
-type Tab = "dashboard" | "products" | "inventory" | "shipping" | "orders" | "payments" | "publish" | "notifications" | "settings" | "logs";
+type Tab = "dashboard" | "products" | "inventory" | "shipping" | "taxes" | "orders" | "payments" | "publish" | "notifications" | "settings" | "logs";
 type StripeMode = "test" | "live";
 
 const TABS = [
@@ -74,6 +75,7 @@ const TABS = [
   { id: "products" as const, label: "Products", icon: Package },
   { id: "inventory" as const, label: "Inventory", icon: BarChart3 },
   { id: "shipping" as const, label: "Shipping", icon: Truck },
+  { id: "taxes" as const, label: "Taxes", icon: Percent },
   { id: "orders" as const, label: "Orders", icon: ShoppingBag },
   { id: "payments" as const, label: "Payments", icon: Wallet },
   { id: "publish" as const, label: "Publish", icon: ExternalLink },
@@ -211,6 +213,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
               {activeTab === "products" && <ProductsTab turso={turso} project={projectState} />}
               {activeTab === "inventory" && <InventoryTab turso={turso} />}
               {activeTab === "shipping" && <ShippingTab turso={turso} />}
+              {activeTab === "taxes" && <TaxesTab turso={turso} />}
               {activeTab === "orders" && <OrdersTab turso={turso} project={projectState} />}
               {activeTab === "payments" && (
                 <PaymentsTab
@@ -349,6 +352,7 @@ function rowToFormData(row: any): ProductFormData {
     isVirtual: Boolean(row.isVirtual),
     status: row.status === "draft" ? "draft" : "active",
     categoryId: String(row.categoryId ?? ""),
+    taxGroupId: String(row.taxGroupId ?? ""),
     images: parseImages(row.images),
   };
 }
@@ -408,6 +412,7 @@ async function ensureProductSchemaColumns(turso: any) {
     "ALTER TABLE Product ADD COLUMN inventory INTEGER DEFAULT 0",
     "ALTER TABLE Product ADD COLUMN stock INTEGER DEFAULT 0",
     "ALTER TABLE Product ADD COLUMN trackStock INTEGER DEFAULT 0",
+    "ALTER TABLE Product ADD COLUMN taxGroupId TEXT",
   ];
 
   for (const sql of statements) {
@@ -459,6 +464,7 @@ const DEFAULT_COLS: Record<ColKey, boolean> = {
 function ProductsTab({ turso, project }: { turso: any; project: Project }) {
   const [products, setProducts] = useState<any[]>([]);
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([]);
+  const [taxGroups, setTaxGroups] = useState<Array<{ id: string; name: string; rate: number; isDefault: boolean }>>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -475,9 +481,12 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
     setLoading(true);
     try {
       await ensureProductSchemaColumns(turso);
-      let [prodRes, catRes] = await Promise.all([
+      await ensureTaxSchema(turso);
+      await ensureDefaultTaxGroup(turso);
+      let [prodRes, catRes, taxRes] = await Promise.all([
         turso.execute("SELECT * FROM Product ORDER BY createdAt DESC"),
         turso.execute("SELECT id, name FROM Category ORDER BY name ASC").catch(() => ({ rows: [] })),
+        turso.execute("SELECT * FROM TaxGroup ORDER BY isDefault DESC, name ASC").catch(() => ({ rows: [] })),
       ]);
 
       if ((prodRes.rows?.length || 0) === 0) {
@@ -491,6 +500,11 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
       setProducts(prodRes.rows);
       setCategories(
         (catRes.rows as any[]).map((r) => ({ id: String(r.id), name: String(r.name) })),
+      );
+      setTaxGroups(
+        (taxRes.rows as any[]).map((r) => ({
+          id: String(r.id), name: String(r.name), rate: Number(r.rate), isDefault: Boolean(Number(r.isDefault)),
+        })),
       );
     } catch (err) {
       toast.error("Failed to load products");
@@ -543,14 +557,14 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
         await turso.execute({
           sql: `UPDATE Product SET
             name = ?, description = ?, price = ?, compareAtPrice = ?,
-            trackStock = ?, stock = ?, inventory = ?, sku = ?, slug = ?, isVirtual = ?, status = ?, categoryId = ?, images = ?,
+            trackStock = ?, stock = ?, inventory = ?, sku = ?, slug = ?, isVirtual = ?, status = ?, categoryId = ?, taxGroupId = ?, images = ?,
             updatedAt = ?
             WHERE id = ?`,
           args: [
             data.name, data.description, data.price, data.compareAtPrice,
             data.trackStock ? 1 : 0, data.stock, data.stock, data.sku,
             slugifyProductName(data.name, data.id), data.isVirtual ? 1 : 0,
-            data.status.toUpperCase(), data.categoryId || null,
+            data.status.toUpperCase(), data.categoryId || null, data.taxGroupId || null,
             imagesJson, now, data.id,
           ],
         });
@@ -559,12 +573,12 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
         const id = `prod_${Math.random().toString(36).slice(2, 10)}`;
         await turso.execute({
           sql: `INSERT INTO Product
-            (id, name, slug, description, price, compareAtPrice, trackStock, stock, inventory, sku, isVirtual, status, categoryId, images, createdAt, updatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            (id, name, slug, description, price, compareAtPrice, trackStock, stock, inventory, sku, isVirtual, status, categoryId, taxGroupId, images, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           args: [
             id, data.name, slugifyProductName(data.name, id), data.description, data.price, data.compareAtPrice,
             data.trackStock ? 1 : 0, data.stock, data.stock, data.sku,
-            data.isVirtual ? 1 : 0, data.status.toUpperCase(), data.categoryId || null,
+            data.isVirtual ? 1 : 0, data.status.toUpperCase(), data.categoryId || null, data.taxGroupId || null,
             imagesJson, now, now,
           ],
         });
@@ -859,6 +873,7 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
         onOpenChange={setSheetOpen}
         initialData={editingProduct}
         categories={categories}
+        taxGroups={taxGroups}
         onSave={handleSave}
       />
     </>
@@ -1330,6 +1345,235 @@ function ShippingTab({ turso }: { turso: any }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Taxes Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function ensureTaxSchema(turso: any) {
+  try {
+    await turso.execute(`CREATE TABLE IF NOT EXISTS TaxGroup (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      rate REAL NOT NULL DEFAULT 21,
+      isDefault INTEGER DEFAULT 0,
+      createdAt TEXT,
+      updatedAt TEXT
+    )`);
+  } catch { /* already exists */ }
+}
+
+async function ensureDefaultTaxGroup(turso: any) {
+  const res = await turso.execute("SELECT id FROM TaxGroup LIMIT 1");
+  if (!res.rows || res.rows.length === 0) {
+    await turso.execute({
+      sql: "INSERT INTO TaxGroup (id, name, rate, isDefault, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)",
+      args: ["tax_default", "Standard (BTW)", 21, new Date().toISOString(), new Date().toISOString()],
+    });
+  }
+}
+
+interface TaxGroupRow {
+  id: string;
+  name: string;
+  rate: number;
+  isDefault: number;
+}
+
+function TaxesTab({ turso }: { turso: any }) {
+  const [groups, setGroups] = useState<TaxGroupRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [formName, setFormName] = useState("");
+  const [formRate, setFormRate] = useState("21");
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      await ensureTaxSchema(turso);
+      await ensureDefaultTaxGroup(turso);
+      const res = await turso.execute("SELECT * FROM TaxGroup ORDER BY isDefault DESC, name ASC");
+      setGroups(
+        (res.rows as any[]).map((r) => ({
+          id: String(r.id),
+          name: String(r.name),
+          rate: Number(r.rate),
+          isDefault: Number(r.isDefault),
+        })),
+      );
+    } catch {
+      toast.error("Failed to load tax groups");
+    } finally {
+      setLoading(false);
+    }
+  }, [turso]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const resetForm = () => {
+    setFormName("");
+    setFormRate("21");
+    setEditingId(null);
+    setShowForm(false);
+  };
+
+  const startEdit = (g: TaxGroupRow) => {
+    setEditingId(g.id);
+    setFormName(g.name);
+    setFormRate(String(g.rate));
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!formName.trim()) return;
+    setSaving(true);
+    try {
+      const now = new Date().toISOString();
+      const rate = parseFloat(formRate) || 0;
+      if (editingId) {
+        await turso.execute({
+          sql: "UPDATE TaxGroup SET name = ?, rate = ?, updatedAt = ? WHERE id = ?",
+          args: [formName.trim(), rate, now, editingId],
+        });
+        toast.success("Tax group updated");
+      } else {
+        const id = `tax_${Math.random().toString(36).slice(2, 9)}`;
+        await turso.execute({
+          sql: "INSERT INTO TaxGroup (id, name, rate, isDefault, createdAt, updatedAt) VALUES (?, ?, ?, 0, ?, ?)",
+          args: [id, formName.trim(), rate, now, now],
+        });
+        toast.success("Tax group created");
+      }
+      resetForm();
+      load();
+    } catch {
+      toast.error("Failed to save tax group");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setDefault = async (id: string) => {
+    try {
+      await turso.execute("UPDATE TaxGroup SET isDefault = 0");
+      await turso.execute({ sql: "UPDATE TaxGroup SET isDefault = 1, updatedAt = ? WHERE id = ?", args: [new Date().toISOString(), id] });
+      toast.success("Default tax group updated");
+      load();
+    } catch {
+      toast.error("Failed to update default");
+    }
+  };
+
+  const deleteGroup = async (id: string) => {
+    const g = groups.find((g) => g.id === id);
+    if (g?.isDefault) {
+      toast.error("Cannot delete the default tax group");
+      return;
+    }
+    if (!confirm("Delete this tax group?")) return;
+    try {
+      await turso.execute({ sql: "UPDATE Product SET taxGroupId = NULL WHERE taxGroupId = ?", args: [id] });
+      await turso.execute({ sql: "DELETE FROM TaxGroup WHERE id = ?", args: [id] });
+      toast.success("Tax group deleted");
+      load();
+    } catch {
+      toast.error("Failed to delete");
+    }
+  };
+
+  if (loading) return <div className="flex justify-center p-12"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-medium">Taxes</h3>
+          <p className="text-sm text-muted-foreground mt-0.5">Manage tax rates. The default group applies to all products unless overridden.</p>
+        </div>
+        <Button size="sm" className="gap-1.5" onClick={() => { resetForm(); setShowForm(true); }}>
+          <Plus className="size-4" /> Add tax group
+        </Button>
+      </div>
+
+      {showForm && (
+        <div className="rounded-xl border bg-card p-4 shadow-sm space-y-3">
+          <h4 className="font-medium text-sm flex items-center gap-2">
+            <Percent className="size-4" /> {editingId ? "Edit tax group" : "New tax group"}
+          </h4>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Name</label>
+              <Input placeholder="e.g. Reduced rate" value={formName} onChange={(e) => setFormName(e.target.value)} className="h-8 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Rate (%)</label>
+              <Input type="number" min="0" max="100" step="0.01" placeholder="21" value={formRate} onChange={(e) => setFormRate(e.target.value)} className="h-8 text-sm" />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleSave} disabled={saving || !formName.trim()} className="gap-1.5">
+              {saving && <Loader2 className="size-3 animate-spin" />} {editingId ? "Save" : "Add"}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={resetForm}>Cancel</Button>
+          </div>
+        </div>
+      )}
+
+      {groups.length === 0 && !showForm && (
+        <div className="rounded-xl border border-dashed p-12 text-center text-muted-foreground">
+          <Percent className="size-8 mx-auto mb-3 opacity-30" />
+          <p className="font-medium text-foreground mb-1">No tax groups yet</p>
+          <p className="text-sm mb-4">A default group (21% BTW) will be created automatically.</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {groups.map((g) => (
+          <div
+            key={g.id}
+            className={cn(
+              "flex items-center justify-between rounded-xl border bg-card px-4 py-3 shadow-sm transition-colors",
+              g.isDefault && "ring-1 ring-primary/30 border-primary/20",
+            )}
+          >
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "flex items-center justify-center size-9 rounded-lg text-sm font-bold",
+                g.isDefault ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+              )}>
+                {g.rate}%
+              </div>
+              <div>
+                <div className="font-medium text-sm flex items-center gap-2">
+                  {g.name}
+                  {g.isDefault === 1 && <Badge variant="outline" className="text-[10px] px-1.5 py-0">Default</Badge>}
+                </div>
+                <p className="text-xs text-muted-foreground">Tax rate: {g.rate}%</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {!g.isDefault && (
+                <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setDefault(g.id)}>
+                  Set default
+                </Button>
+              )}
+              <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-foreground" onClick={() => startEdit(g)}>
+                <Edit className="size-3.5" />
+              </Button>
+              {!g.isDefault && (
+                <Button size="icon" variant="ghost" className="size-7 text-muted-foreground hover:text-red-500" onClick={() => deleteGroup(g.id)}>
+                  <Trash2 className="size-3.5" />
+                </Button>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

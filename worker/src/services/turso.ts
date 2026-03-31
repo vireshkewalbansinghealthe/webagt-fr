@@ -404,10 +404,24 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS [TaxGroup] (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      rate REAL NOT NULL DEFAULT 21,
+      isDefault INTEGER DEFAULT 0,
+      createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+      updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
     ALTER TABLE [Product] ADD COLUMN sku TEXT;
     ALTER TABLE [Product] ADD COLUMN isVirtual INTEGER DEFAULT 0;
+    ALTER TABLE [Product] ADD COLUMN taxGroupId TEXT;
+    ALTER TABLE [Product] ADD COLUMN trackStock INTEGER DEFAULT 0;
     ALTER TABLE [Order] ADD COLUMN shippingAddress TEXT;
     ALTER TABLE [Order] ADD COLUMN billingAddress TEXT;
+    ALTER TABLE [Order] ADD COLUMN taxAmount REAL DEFAULT 0;
+    ALTER TABLE [Order] ADD COLUMN shippingAmount REAL DEFAULT 0;
+    ALTER TABLE [Order] ADD COLUMN invoiceNumber TEXT;
   `;
 
   await executeTursoSQL(dbUrl, authToken, schema);

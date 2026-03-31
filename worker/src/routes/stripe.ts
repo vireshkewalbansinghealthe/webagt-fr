@@ -658,6 +658,18 @@ async function upsertOrderFromSession(
         item.unitAmount / 100,
       ],
     });
+
+    if (markPaid) {
+      try {
+        await db.execute({
+          sql: `UPDATE Product SET stock = MAX(0, stock - ?), inventory = MAX(0, inventory - ?), updatedAt = datetime('now')
+                WHERE id = ? AND trackStock = 1`,
+          args: [item.quantity, item.quantity, item.productId],
+        });
+      } catch {
+        console.warn(`[webhook] Stock decrement failed for product ${item.productId}`);
+      }
+    }
   }
 }
 
@@ -739,6 +751,12 @@ stripeRoutes.post("/webhook", async (c) => {
           const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
 
           if (project) {
+            const stored = await c.env.METADATA.get<StoredCheckoutPayload>(
+              `checkout:${projectId}:${session.id}`,
+              "json",
+            );
+            const checkoutItems = stored?.items ?? [];
+
             try {
               await upsertOrderFromSession(
                 project,
@@ -748,6 +766,20 @@ stripeRoutes.post("/webhook", async (c) => {
               );
             } catch (dbErr) {
               console.warn("Webhook DB insert failed (non-fatal):", dbErr);
+            }
+
+            let defaultTaxRate = 21;
+            if (project.databaseUrl && project.databaseToken) {
+              try {
+                const { createClient } = await import("@libsql/client/web");
+                const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+                const tgRes = await db.execute("SELECT rate FROM TaxGroup WHERE isDefault = 1 LIMIT 1");
+                if (tgRes.rows[0]) {
+                  defaultTaxRate = Number((tgRes.rows[0] as any).rate) || 21;
+                }
+              } catch {
+                /* use fallback 21% */
+              }
             }
 
             if (event.type === "checkout.session.completed") {
@@ -760,7 +792,7 @@ stripeRoutes.post("/webhook", async (c) => {
 
             if (isPaid || event.type === "checkout.session.async_payment_succeeded") {
               try {
-                await sendCustomerPaidEmailForSession(c.env, project, session);
+                await sendCustomerPaidEmailForSession(c.env, project, session, checkoutItems, defaultTaxRate);
               } catch (emailErr) {
                 console.warn("Webhook customer email send failed (non-fatal):", emailErr);
               }

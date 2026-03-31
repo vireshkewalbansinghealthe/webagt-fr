@@ -1,8 +1,14 @@
 import type Stripe from "stripe";
 import type { Env } from "../types";
 import type { Project } from "../types/project";
+import { buildInvoiceHtml, buildInvoiceNumber, type InvoiceLineItem } from "./invoice-pdf";
 
 type RecipientType = "owner" | "customer";
+
+interface EmailAttachment {
+  filename: string;
+  content: string;
+}
 
 interface SendEmailInput {
   to: string;
@@ -11,6 +17,7 @@ interface SendEmailInput {
   recipientType: RecipientType;
   idempotencyKey: string;
   replyTo?: string;
+  attachments?: EmailAttachment[];
 }
 
 interface OrderDetails {
@@ -306,6 +313,14 @@ async function sendViaResend(
       subject: input.subject,
       html: input.html,
       reply_to: input.replyTo,
+      ...(input.attachments?.length
+        ? {
+            attachments: input.attachments.map((a) => ({
+              filename: a.filename,
+              content: btoa(a.content),
+            })),
+          }
+        : {}),
     }),
   });
 
@@ -392,10 +407,19 @@ export async function sendOwnerOrderEmailForSession(
   }
 }
 
+export interface CheckoutItemForEmail {
+  productId?: string;
+  name: string;
+  unitAmount: number;
+  quantity: number;
+}
+
 export async function sendCustomerPaidEmailForSession(
   env: Env,
   project: Project,
   session: Stripe.Checkout.Session,
+  checkoutItems?: CheckoutItemForEmail[],
+  taxRate?: number,
 ): Promise<void> {
   const { from, replyTo } = resolveSender(project, env);
   if (!from || !env.RESEND_API_KEY) {
@@ -410,6 +434,52 @@ export async function sendCustomerPaidEmailForSession(
 
   if (!shouldSendCustomer || !isValidEmail(details.customerEmail)) {
     return;
+  }
+
+  let attachments: EmailAttachment[] | undefined;
+  try {
+    const effectiveTaxRate = taxRate ?? 21;
+    const invoiceItems: InvoiceLineItem[] = (checkoutItems ?? []).map((i) => ({
+      name: i.name,
+      quantity: i.quantity,
+      unitPrice: i.unitAmount / 100,
+      taxRate: effectiveTaxRate,
+    }));
+
+    const subtotal = invoiceItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0);
+    const totalFromSession = (session.amount_total || 0) / 100;
+    const taxAmount = subtotal * (effectiveTaxRate / 100);
+
+    const shippingDetails = (session as any).shipping_details;
+    const shippingAddr = shippingDetails?.address
+      ? JSON.stringify({ ...shippingDetails.address, name: shippingDetails.name })
+      : undefined;
+    const billingAddr = session.customer_details?.address
+      ? JSON.stringify({ ...session.customer_details.address, name: session.customer_details.name })
+      : undefined;
+
+    const invoiceNumber = buildInvoiceNumber(details.orderNumber);
+    const invoiceHtml = buildInvoiceHtml({
+      invoiceNumber,
+      orderNumber: details.orderNumber,
+      shopName: project.name,
+      date: new Date().toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" }),
+      customerName: details.customerName,
+      customerEmail: details.customerEmail,
+      billingAddress: billingAddr,
+      shippingAddress: shippingAddr,
+      items: invoiceItems.length > 0 ? invoiceItems : [{ name: project.name, quantity: 1, unitPrice: totalFromSession, taxRate: effectiveTaxRate }],
+      subtotal: invoiceItems.length > 0 ? subtotal : totalFromSession,
+      taxAmount,
+      taxRate: effectiveTaxRate,
+      shippingAmount: 0,
+      total: totalFromSession,
+      currency: details.currency,
+    });
+
+    attachments = [{ filename: `${invoiceNumber}.html`, content: invoiceHtml }];
+  } catch (err) {
+    console.warn("[order-email] Invoice generation failed (non-fatal):", err);
   }
 
   try {
@@ -429,6 +499,7 @@ export async function sendCustomerPaidEmailForSession(
       recipientType: "customer",
       idempotencyKey: `order-email:${project.id}:${details.orderId}:customer`,
       replyTo,
+      attachments,
     });
     if (!result.sent) {
       console.log(`[order-email] skipped: ${result.skippedReason}`);

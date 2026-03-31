@@ -173,7 +173,7 @@ When building E-COMMERCE or WEBSHOPS (like premium stores or dropshipping sites)
    - Reviews summary right below the title (e.g., "⭐⭐⭐⭐⭐ (128 reviews)").
    - Prominent, high-contrast "Add to Cart" CTA.
    - Accordion/tabs for Description, Specifications, and Shipping/Returns info.
-4. Cart/Checkout Drawer or Page: Order summary, quantity toggles, subtotal, simulated taxes, and secure checkout badges below the checkout button.
+4. Cart/Checkout Drawer or Page: Order summary, quantity toggles, subtotal, tax calculation from TaxGroup table (query the default tax rate), shipping cost from ShippingRate table, and secure checkout badges below the checkout button. Display stock availability from the Product table (if trackStock = 1 and stock <= 0, show "Out of stock" and disable Add to Cart).
 5. Order Success Page (REQUIRED): A dedicated \`/order-success\` route shown after a successful payment. Must include a ✓ icon or animation, "Thank you for your order!" message, order confirmation number, estimated delivery, "Check your email" note, and a "Continue Shopping" CTA. Always pass this page as the \`successUrl\` in \`beginCheckout()\`.
 6. About Us Page: A compelling story about the brand, mission, and team.
 7. Contact Page: A working form (simulated submit), email, phone, and a map placeholder.
@@ -261,10 +261,23 @@ CREATE TABLE [Category] (
 );
 
 CREATE TABLE [Product] (
-  id TEXT PRIMARY KEY, categoryId TEXT, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL, description TEXT, 
+  id TEXT PRIMARY KEY, categoryId TEXT, taxGroupId TEXT, name TEXT NOT NULL, slug TEXT UNIQUE NOT NULL, description TEXT, 
   price REAL NOT NULL, originalPrice REAL, compareAtPrice REAL, images TEXT, featured INTEGER DEFAULT 0, 
-  inventory INTEGER DEFAULT 0, stock INTEGER DEFAULT 0, status TEXT DEFAULT 'ACTIVE', rating REAL DEFAULT 0, 
+  inventory INTEGER DEFAULT 0, stock INTEGER DEFAULT 0, trackStock INTEGER DEFAULT 0, isVirtual INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'ACTIVE', rating REAL DEFAULT 0, 
   reviews INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT, FOREIGN KEY (categoryId) REFERENCES [Category](id)
+);
+
+CREATE TABLE [TaxGroup] (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, rate REAL NOT NULL DEFAULT 21, isDefault INTEGER DEFAULT 0, createdAt TEXT, updatedAt TEXT
+);
+
+CREATE TABLE [ShippingZone] (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, countries TEXT DEFAULT '[]', createdAt TEXT, updatedAt TEXT
+);
+
+CREATE TABLE [ShippingRate] (
+  id TEXT PRIMARY KEY, zoneId TEXT NOT NULL, name TEXT NOT NULL, type TEXT DEFAULT 'flat', price REAL DEFAULT 0, minOrderAmount REAL, estimatedDays TEXT DEFAULT '2-5', active INTEGER DEFAULT 1, createdAt TEXT, updatedAt TEXT
 );
 
 CREATE TABLE [Customer] (
@@ -272,7 +285,7 @@ CREATE TABLE [Customer] (
 );
 
 CREATE TABLE [Order] (
-  id TEXT PRIMARY KEY, orderNumber TEXT UNIQUE NOT NULL, customerId TEXT, status TEXT DEFAULT 'PENDING', totalAmount REAL NOT NULL, shippingAddress TEXT, billingAddress TEXT, createdAt TEXT, updatedAt TEXT, FOREIGN KEY (customerId) REFERENCES [Customer](id)
+  id TEXT PRIMARY KEY, orderNumber TEXT UNIQUE NOT NULL, customerId TEXT, status TEXT DEFAULT 'PENDING', totalAmount REAL NOT NULL, taxAmount REAL DEFAULT 0, shippingAmount REAL DEFAULT 0, invoiceNumber TEXT, shippingAddress TEXT, billingAddress TEXT, createdAt TEXT, updatedAt TEXT, FOREIGN KEY (customerId) REFERENCES [Customer](id)
 );
 
 CREATE TABLE [OrderItem] (

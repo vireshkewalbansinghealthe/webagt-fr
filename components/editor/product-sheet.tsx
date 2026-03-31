@@ -40,6 +40,7 @@ export interface ProductFormData {
   isVirtual: boolean;
   status: "active" | "draft";
   categoryId: string;
+  taxGroupId: string;
   images: string[];
 }
 
@@ -48,6 +49,7 @@ interface ProductSheetProps {
   onOpenChange: (open: boolean) => void;
   initialData?: Partial<ProductFormData> | null;
   categories: Array<{ id: string; name: string }>;
+  taxGroups?: Array<{ id: string; name: string; rate: number; isDefault: boolean }>;
   onSave: (data: ProductFormData) => Promise<void>;
 }
 
@@ -62,6 +64,7 @@ const EMPTY_FORM: ProductFormData = {
   isVirtual: false,
   status: "active",
   categoryId: "",
+  taxGroupId: "",
   images: [],
 };
 
@@ -293,6 +296,7 @@ export function ProductSheet({
   onOpenChange,
   initialData,
   categories,
+  taxGroups,
   onSave,
 }: ProductSheetProps) {
   const [form, setForm] = useState<ProductFormData>(EMPTY_FORM);
@@ -610,6 +614,27 @@ export function ProductSheet({
                   </Select>
                 </div>
               </div>
+
+              {taxGroups && taxGroups.length > 0 && (
+                <div className="space-y-2">
+                  <Label>Tax group</Label>
+                  <Select
+                    value={form.taxGroupId || (taxGroups.find((t) => t.isDefault)?.id ?? "")}
+                    onValueChange={(v) => set("taxGroupId", v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select tax group" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {taxGroups.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name} ({t.rate}%){t.isDefault ? " — default" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </section>
           </div>
         </form>

@@ -1396,13 +1396,9 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
     setActionLoading(true);
     try {
       if (pendingAction.action === "cancel") {
-        // Direct Turso update — no worker needed
-        await turso.execute({
-          sql: `UPDATE [Order] SET status = 'CANCELLED', updatedAt = datetime('now') WHERE id = ?`,
-          args: [pendingAction.id],
-        });
-        toast.success(`Order ${pendingAction.orderNumber} cancelled.`);
-        // Keep selected order in sync
+        // Route through worker so the cancellation email is sent to the customer
+        await client.orders.cancel(project.id, pendingAction.id);
+        toast.success(`Order ${pendingAction.orderNumber} cancelled — customer notified.`);
         if (selectedOrder?.id === pendingAction.id) {
           setSelectedOrder((o: any) => ({ ...o, status: "CANCELLED" }));
         }

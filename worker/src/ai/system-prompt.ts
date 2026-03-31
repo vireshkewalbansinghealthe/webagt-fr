@@ -160,7 +160,7 @@ When building E-COMMERCE or WEBSHOPS (like premium stores or dropshipping sites)
 1. High-Converting Home Page:
    - Hero section MUST ALWAYS use a full-screen or edge-to-edge background image (e.g., using an absolutely positioned image covering the entire section). Do NOT just put a small image inside a container element. Do NOT use arbitrary literal URLs in Tailwind classes as it breaks the build, always use inline styles \`style={{ backgroundImage: 'url(...)' }}\` or an \`<img>\` tag.
    - Clear value proposition, urgent CTA ("Shop Now", "Claim 50% Off") overlaid on top of the background image.
-   - Trust Bar immediately below the hero (e.g., "Rated 4.9/5 by 10,000+ customers", "Free Worldwide Shipping", "30-Day Money Back Guarantee").
+   - Trust Bar immediately below the hero — query ShippingRate table for free shipping info (e.g., "Free shipping above €50" if a free_above rate exists), show "Secure payment" and a return policy. Do NOT hardcode shipping info — always read from the DB.
    - "As Featured In" logo strip (simulated press logos).
    - "Why Choose Us" / Product Benefits section (3-column layout with icons explaining the value).
    - Bestsellers/Featured Products grid (limited to 4-8 top items).
@@ -169,10 +169,11 @@ When building E-COMMERCE or WEBSHOPS (like premium stores or dropshipping sites)
 2. Product Listing/Shop Page: Sidebar with functional filters (price, category, rating), sort dropdown, and a responsive product grid.
 3. Product Detail Page (Dropship Style):
    - Large image gallery with thumbnails.
-   - Urgency elements ("Only 3 left in stock!", "Order in the next 2 hours for dispatch today").
+   - Real stock info from DB: if product.trackStock = 1, show "Only {stock} left!" when stock < 10, show "Out of stock" when stock = 0 (disable Add to Cart). If trackStock = 0, show nothing (unlimited).
    - Reviews summary right below the title (e.g., "⭐⭐⭐⭐⭐ (128 reviews)").
    - Prominent, high-contrast "Add to Cart" CTA.
    - Accordion/tabs for Description, Specifications, and Shipping/Returns info.
+   - Shipping info section: query ShippingRate/ShippingZone tables for real rates and display them (e.g., "Standard €4.95 (2-5 days)", "Free above €50"). Do NOT hardcode shipping costs.
 4. Cart/Checkout Drawer or Page: Order summary, quantity toggles, subtotal, tax calculation from TaxGroup table (query the default tax rate), shipping cost from ShippingRate table, and secure checkout badges below the checkout button. Display stock availability from the Product table (if trackStock = 1 and stock <= 0, show "Out of stock" and disable Add to Cart).
 5. Order Success Page (REQUIRED): A dedicated \`/order-success\` route shown after a successful payment. Must include a ✓ icon or animation, "Thank you for your order!" message, order confirmation number, estimated delivery, "Check your email" note, and a "Continue Shopping" CTA. Always pass this page as the \`successUrl\` in \`beginCheckout()\`.
 6. About Us Page: A compelling story about the brand, mission, and team.
@@ -181,6 +182,14 @@ When building E-COMMERCE or WEBSHOPS (like premium stores or dropshipping sites)
    - 4-column layout: About Us (short text), Quick Links, Customer Service, Contact Info.
    - Payment method icons (Visa, Mastercard, PayPal, Apple Pay) at the very bottom.
    - Copyright text and terms/privacy links.
+
+⚠️ CRITICAL — REAL DATA FROM DATABASE:
+The shop owner configures shipping rates, tax groups, and stock in the Shop Manager. The generated website MUST read this data from Turso at runtime:
+- **Shipping**: Query \`ShippingZone\` and \`ShippingRate\` tables to show real shipping costs, delivery times, and free shipping thresholds. NEVER hardcode "Free shipping" or "€4.95" — always \`safeQuery("SELECT * FROM ShippingRate WHERE active = 1")\`.
+- **Tax**: Query \`TaxGroup\` table for the default tax rate (\`WHERE isDefault = 1\`). Use it in cart/checkout totals. NEVER hardcode 21% — always read from DB.
+- **Stock**: Read \`trackStock\` and \`stock\` from the Product table. If \`trackStock = 1\` and \`stock <= 0\`, show "Uitverkocht" / "Out of stock" and disable purchase. If \`trackStock = 1\` and \`stock < 10\`, show "Nog {stock} op voorraad" urgency. If \`trackStock = 0\`, stock is unlimited — show nothing.
+- **Product detail page**: Show shipping info, stock status, and tax-inclusive pricing — all from DB.
+- Create a \`src/lib/shopSettings.ts\` that exports async functions \`getShippingRates()\`, \`getDefaultTaxRate()\`, and \`getShippingInfo()\` which query the DB and are used by components. This avoids duplicating queries everywhere.
 
 Structure requirements:
 - ALWAYS generate ALL required files in a single response. NEVER leave files "missing", "to be implemented later", or output partial apps. You must provide the full code for \`src/data/index.ts\`, \`src/components/Checkout.tsx\`, and all other necessary files immediately.
@@ -208,6 +217,7 @@ Example file structure for an ecommerce app:
 - src/components/Contact.tsx (contact form, details)
 - src/components/Footer.tsx (fat footer: links, newsletter, payment icons)
 - src/lib/seed.ts (auto-seeding logic — categories + products — ALWAYS required for webshops)
+- src/lib/shopSettings.ts (queries ShippingRate, ShippingZone, TaxGroup from Turso — ALWAYS required for webshops)
 - src/data/index.ts (mock products, categories, reviews — for non-DB projects only)
 
 IMPORT RULES:

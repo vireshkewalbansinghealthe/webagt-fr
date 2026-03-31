@@ -234,7 +234,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
               {activeTab === "settings" && (
                 <SettingsTab project={projectState} turso={turso} />
               )}
-              {activeTab === "logs" && <LogsTab turso={turso} />}
+              {activeTab === "logs" && <LogsTab turso={turso} projectId={projectState.id} getToken={getToken} />}
             </div>
           )}
         </div>
@@ -2903,21 +2903,29 @@ const LOG_LEVEL_STYLES: Record<string, string> = {
   error: "text-red-400",
 };
 
-function LogsTab({ turso }: { turso: any }) {
+function LogsTab({ turso, projectId, getToken }: { turso: any; projectId: string; getToken: () => Promise<string | null> }) {
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<"all" | "info" | "warn" | "error">("all");
+  const [logSource, setLogSource] = useState<string>("");
   const { bump, label } = useLastUpdated();
 
   const loadLogs = useCallback(async (manual = false) => {
-    if (!turso) { setLoading(false); return; }
     if (manual) setRefreshing(true);
     try {
-      // Ensure table exists before querying
-      await turso.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
-      const res = await turso.execute("SELECT * FROM _AppLog ORDER BY id DESC LIMIT 200");
-      setLogs(res.rows);
+      if (turso) {
+        await turso.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+        const res = await turso.execute("SELECT * FROM _AppLog ORDER BY id DESC LIMIT 200");
+        setLogs(res.rows);
+        setLogSource("turso");
+      } else {
+        // Fallback: fetch from KV via API
+        const client = createApiClient(getToken);
+        const res = await client.projects.getLogs(projectId) as any;
+        setLogs(res.logs || []);
+        setLogSource(res.source || "kv-fallback");
+      }
       bump();
     } catch (err) {
       console.error("Failed to load logs", err);
@@ -2925,7 +2933,7 @@ function LogsTab({ turso }: { turso: any }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [turso, bump]);
+  }, [turso, projectId, getToken, bump]);
 
   useEffect(() => {
     loadLogs();
@@ -2945,16 +2953,6 @@ function LogsTab({ turso }: { turso: any }) {
   const filtered = filter === "all" ? logs : logs.filter((l) => String(l.level) === filter);
 
   if (loading) return <div className="flex justify-center p-8"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
-
-  if (!turso) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-center text-muted-foreground py-12">
-        <Activity className="size-12 text-muted-foreground/30 mb-4" />
-        <h3 className="text-lg font-medium text-foreground mb-2">No Database</h3>
-        <p className="max-w-sm">Provision a database to start collecting logs.</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">

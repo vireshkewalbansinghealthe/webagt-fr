@@ -299,7 +299,7 @@ export function createApiClient(getToken: GetTokenFunction) {
         if (opts?.level) params.set("level", opts.level);
         if (opts?.limit) params.set("limit", String(opts.limit));
         const qs = params.toString() ? `?${params}` : "";
-        return authenticatedFetch<{ logs: any[]; total: number }>(
+        return authenticatedFetch<{ logs: any[]; total: number; source?: string; noDatabase?: boolean }>(
           getToken,
           `/api/projects/${id}/logs${qs}`,
         );

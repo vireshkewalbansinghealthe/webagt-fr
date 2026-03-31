@@ -536,7 +536,7 @@ projectRoutes.get("/:id", async (c) => {
 projectRoutes.get("/:id/logs", async (c) => {
   const userId = c.var.userId;
   const projectId = c.req.param("id");
-  const level = c.req.query("level"); // optional: info, warn, error
+  const level = c.req.query("level");
   const limit = Math.min(Number(c.req.query("limit") || 200), 500);
 
   const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
@@ -544,25 +544,35 @@ projectRoutes.get("/:id/logs", async (c) => {
   if (project.userId !== userId && !project.collaborators?.some((col) => col.userId === userId)) {
     return c.json({ error: "Access denied" }, 403);
   }
-  if (!project.databaseUrl || !project.databaseToken) {
-    return c.json({ error: "No database provisioned for this project" }, 400);
+
+  // Try Turso DB first
+  if (project.databaseUrl && project.databaseToken) {
+    try {
+      const { createClient } = await import("@libsql/client/web");
+      const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+
+      await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+
+      const where = level ? `WHERE level = '${level.replace(/'/g, "")}'` : "";
+      const result = await db.execute(`SELECT * FROM _AppLog ${where} ORDER BY id DESC LIMIT ${limit}`);
+      const logs = result.rows.map((row) => {
+        const obj: Record<string, unknown> = {};
+        result.columns.forEach((col, i) => { obj[col] = (row as any)[i]; });
+        return obj;
+      });
+
+      return c.json({ logs, total: logs.length, source: "turso" });
+    } catch (e: any) {
+      // Fall through to KV fallback
+    }
   }
 
+  // Fallback: read from KV
   try {
-    const { createClient } = await import("@libsql/client/web");
-    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
-
-    await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
-
-    const where = level ? `WHERE level = '${level.replace(/'/g, "")}'` : "";
-    const result = await db.execute(`SELECT * FROM _AppLog ${where} ORDER BY id DESC LIMIT ${limit}`);
-    const logs = result.rows.map((row) => {
-      const obj: Record<string, unknown> = {};
-      result.columns.forEach((col, i) => { obj[col] = (row as any)[i]; });
-      return obj;
-    });
-
-    return c.json({ logs, total: logs.length });
+    const kvLogs = await c.env.METADATA.get<Array<{ level: string; source: string; message: string; detail?: string; createdAt: string }>>(`logs:${projectId}`, "json") || [];
+    const filtered = level ? kvLogs.filter((l) => l.level === level) : kvLogs;
+    const limited = filtered.slice(-limit).reverse();
+    return c.json({ logs: limited, total: limited.length, source: "kv-fallback", noDatabase: !project.databaseUrl });
   } catch (e: any) {
     return c.json({ error: "Failed to read logs", detail: e.message }, 500);
   }
@@ -580,32 +590,46 @@ projectRoutes.post("/:id/logs", async (c) => {
   if (project.userId !== userId && !project.collaborators?.some((col) => col.userId === userId)) {
     return c.json({ error: "Access denied" }, 403);
   }
-  if (!project.databaseUrl || !project.databaseToken) {
-    return c.json({ ok: true });
-  }
-
   try {
     const body = await c.req.json<{
       entries?: Array<{ level: string; source: string; message: string; detail?: string }>;
       level?: string; source?: string; message?: string; detail?: string;
     }>();
 
-    const { createClient } = await import("@libsql/client/web");
-    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
-    await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
-
     const entries = body.entries || [{ level: body.level || "info", source: body.source || "frontend", message: body.message || "", detail: body.detail }];
     const now = new Date().toISOString();
 
-    for (const entry of entries.slice(0, 50)) {
-      if (!entry.message) continue;
-      await db.execute({
-        sql: "INSERT INTO [_AppLog] (level, source, message, detail, createdAt) VALUES (?, ?, ?, ?, ?)",
-        args: [entry.level || "info", entry.source || "frontend", entry.message.slice(0, 1000), (entry.detail || "").slice(0, 4000) || null, now],
-      });
+    // Try Turso DB first
+    if (project.databaseUrl && project.databaseToken) {
+      try {
+        const { createClient } = await import("@libsql/client/web");
+        const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+        await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+
+        for (const entry of entries.slice(0, 50)) {
+          if (!entry.message) continue;
+          await db.execute({
+            sql: "INSERT INTO [_AppLog] (level, source, message, detail, createdAt) VALUES (?, ?, ?, ?, ?)",
+            args: [entry.level || "info", entry.source || "frontend", entry.message.slice(0, 1000), (entry.detail || "").slice(0, 4000) || null, now],
+          });
+        }
+        return c.json({ ok: true, written: entries.length });
+      } catch {
+        // Fall through to KV
+      }
     }
 
-    return c.json({ ok: true, written: entries.length });
+    // Fallback: write to KV
+    const kvKey = `logs:${projectId}`;
+    const existing = await c.env.METADATA.get<Array<any>>(kvKey, "json") || [];
+    const newEntries = entries.slice(0, 50).filter((e) => e.message).map((e) => ({
+      level: e.level || "info", source: e.source || "frontend",
+      message: (e.message || "").slice(0, 1000), detail: (e.detail || "").slice(0, 4000) || undefined,
+      createdAt: now,
+    }));
+    const merged = [...existing, ...newEntries].slice(-200);
+    await c.env.METADATA.put(kvKey, JSON.stringify(merged));
+    return c.json({ ok: true, written: newEntries.length, storage: "kv" });
   } catch (e: any) {
     return c.json({ error: "Failed to write log", detail: e.message }, 500);
   }

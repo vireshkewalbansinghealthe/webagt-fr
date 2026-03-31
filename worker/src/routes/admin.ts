@@ -566,24 +566,34 @@ adminRoutes.get("/api/admin/projects/:projectId/logs", async (c) => {
     "json"
   );
   if (!project) return c.json({ error: "Project not found" }, 404);
-  if (!project.databaseUrl || !project.databaseToken) {
-    return c.json({ error: "No database provisioned" }, 400);
+
+  // Try Turso DB first
+  if (project.databaseUrl && project.databaseToken) {
+    try {
+      const { createClient } = await import("@libsql/client/web");
+      const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+      await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+
+      const where = level ? `WHERE level = '${level.replace(/'/g, "")}'` : "";
+      const result = await db.execute(`SELECT * FROM _AppLog ${where} ORDER BY id DESC LIMIT ${limit}`);
+      const logs = result.rows.map((row) => {
+        const obj: Record<string, unknown> = {};
+        result.columns.forEach((col, i) => { obj[col] = (row as any)[i]; });
+        return obj;
+      });
+
+      return c.json({ logs, total: logs.length, projectId, source: "turso" });
+    } catch (e: any) {
+      // Fall through to KV fallback
+    }
   }
 
+  // Fallback: read from KV
   try {
-    const { createClient } = await import("@libsql/client/web");
-    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
-    await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
-
-    const where = level ? `WHERE level = '${level.replace(/'/g, "")}'` : "";
-    const result = await db.execute(`SELECT * FROM _AppLog ${where} ORDER BY id DESC LIMIT ${limit}`);
-    const logs = result.rows.map((row) => {
-      const obj: Record<string, unknown> = {};
-      result.columns.forEach((col, i) => { obj[col] = (row as any)[i]; });
-      return obj;
-    });
-
-    return c.json({ logs, total: logs.length, projectId });
+    const kvLogs = await c.env.METADATA.get<Array<{ level: string; source: string; message: string; detail?: string; createdAt: string }>>(`logs:${projectId}`, "json") || [];
+    const filtered = level ? kvLogs.filter((l) => l.level === level) : kvLogs;
+    const limited = filtered.slice(-limit).reverse();
+    return c.json({ logs: limited, total: limited.length, projectId, source: "kv-fallback", noDatabase: !project.databaseUrl });
   } catch (e: any) {
     return c.json({ error: "Failed to read logs", detail: e.message }, 500);
   }

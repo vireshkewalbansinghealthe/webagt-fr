@@ -183,6 +183,7 @@ import type { ImageAttachment } from "../types/chat";
 import { checkCredits, deductCredits } from "../services/credits";
 import { sanitizeChatMessage } from "../services/sanitize";
 import { ProjectLogger } from "../services/project-logger";
+import { createTursoDatabase, createWebshopSchema } from "../services/turso";
 
 /**
  * Create a Hono router for chat endpoints.
@@ -264,8 +265,30 @@ chatRoutes.post("/:projectId", async (c) => {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
+  // Auto-provision Turso DB if this is a webshop project without one
+  if (project.type === "webshop" && (!project.databaseUrl || !project.databaseToken)) {
+    console.log(`[chat] Project ${projectId} is a webshop without a DB — auto-provisioning...`);
+    try {
+      const dbName = `shop-${projectId.substring(0, 8).toLowerCase()}`;
+      const tursoDb = await createTursoDatabase(c.env, dbName);
+      const databaseUrl = tursoDb.url || undefined;
+      const databaseToken = tursoDb.token || undefined;
+
+      if (databaseUrl && databaseToken) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        await createWebshopSchema(databaseUrl, databaseToken);
+        project.databaseUrl = databaseUrl;
+        project.databaseToken = databaseToken;
+        await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+        console.log(`[chat] Auto-provisioned Turso DB for ${projectId}: ${databaseUrl}`);
+      }
+    } catch (e: any) {
+      console.error(`[chat] Auto-provision failed for ${projectId}:`, e.message);
+    }
+  }
+
   const plog = new ProjectLogger(c.env, projectId);
-  plog.info("chat", `Generation started — model=${modelId}, prompt=${userMessage.slice(0, 120)}…`, JSON.stringify({ model: modelId, promptLength: userMessage.length, imageCount: images.length, existingVersion: project.currentVersion }));
+  plog.info("chat", `Generation started — model=${modelId}, prompt=${userMessage.slice(0, 120)}…`, JSON.stringify({ model: modelId, promptLength: userMessage.length, imageCount: images.length, existingVersion: project.currentVersion, hasDb: !!(project.databaseUrl && project.databaseToken) }));
 
   // --- 3. Check credits and plan-based model gating ---
   const creditCheck = await checkCredits(userId, modelConfig.creditCost, c.env);

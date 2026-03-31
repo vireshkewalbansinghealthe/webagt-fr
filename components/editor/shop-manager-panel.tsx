@@ -1396,9 +1396,17 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
     setActionLoading(true);
     try {
       if (pendingAction.action === "cancel") {
-        // Route through worker so the cancellation email is sent to the customer
-        await client.orders.cancel(project.id, pendingAction.id);
-        toast.success(`Order ${pendingAction.orderNumber} cancelled — customer notified.`);
+        try {
+          await client.orders.cancel(project.id, pendingAction.id);
+          toast.success(`Order ${pendingAction.orderNumber} cancelled — customer notified.`);
+        } catch (cancelErr: any) {
+          // If already cancelled (idempotent), still treat as success
+          if (cancelErr?.message?.includes("already cancelled")) {
+            toast.info(`Order ${pendingAction.orderNumber} was already cancelled.`);
+          } else {
+            throw cancelErr;
+          }
+        }
         if (selectedOrder?.id === pendingAction.id) {
           setSelectedOrder((o: any) => ({ ...o, status: "CANCELLED" }));
         }

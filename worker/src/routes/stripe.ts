@@ -851,22 +851,26 @@ stripeRoutes.post("/orders/cancel", async (c) => {
 
     const order = await getOrderFromDb(db, orderId);
     if (!order) return c.json({ error: "Order not found" }, 404);
-    if (order.status === "CANCELLED") return c.json({ error: "Order is already cancelled" }, 400);
     if (order.status === "REFUNDED") return c.json({ error: "Order has already been refunded" }, 400);
 
+    // Update status (allow re-cancel to retry email)
     await db.execute({
       sql: `UPDATE [Order] SET status = 'CANCELLED', updatedAt = datetime('now') WHERE id = ?`,
       args: [orderId],
     });
 
     // Send cancellation email to customer
-    await sendOrderCancelledEmail(c.env, project, {
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      totalAmount: order.totalAmount,
-      customerEmail: order.customerEmail ?? undefined,
-      customerName: order.customerName ?? undefined,
-    });
+    try {
+      await sendOrderCancelledEmail(c.env, project, {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        totalAmount: order.totalAmount,
+        customerEmail: order.customerEmail ?? undefined,
+        customerName: order.customerName ?? undefined,
+      });
+    } catch (emailErr) {
+      console.error("[order-cancel] email send failed:", emailErr);
+    }
 
     return c.json({ success: true, status: "CANCELLED" });
   } catch (error: any) {

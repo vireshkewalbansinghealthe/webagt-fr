@@ -939,9 +939,12 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
 
 function InventoryTab({ turso }: { turso: any }) {
   const [products, setProducts] = useState<any[]>([]);
+  const [variants, setVariants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [editingStock, setEditingStock] = useState<Record<string, string>>({});
+  const [editingVariantStock, setEditingVariantStock] = useState<Record<string, string>>({});
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
 
   const loadProducts = useCallback(async () => {
     setLoading(true);
@@ -949,6 +952,10 @@ function InventoryTab({ turso }: { turso: any }) {
       await ensureProductSchemaColumns(turso);
       const res = await turso.execute("SELECT id, name, trackStock, stock, inventory, status FROM Product ORDER BY name ASC");
       setProducts(res.rows);
+      try {
+        const vRes = await turso.execute("SELECT * FROM ProductVariant ORDER BY productId, sortOrder ASC");
+        setVariants(vRes.rows);
+      } catch { setVariants([]); }
     } catch {
       toast.error("Failed to load inventory");
     } finally {
@@ -957,6 +964,9 @@ function InventoryTab({ turso }: { turso: any }) {
   }, [turso]);
 
   useEffect(() => { loadProducts(); }, [loadProducts]);
+
+  const getProductVariants = (productId: string) => variants.filter((v) => String(v.productId) === productId);
+  const hasVariantStock = (productId: string) => getProductVariants(productId).some((v) => Number(v.trackStock) === 1);
 
   const saveStock = async (id: string) => {
     const raw = editingStock[id];
@@ -979,14 +989,57 @@ function InventoryTab({ turso }: { turso: any }) {
     }
   };
 
-  const setUnlimited = async (id: string) => {
-    setSaving(id);
+  const saveVariantStock = async (variantId: string) => {
+    const raw = editingVariantStock[variantId];
+    if (raw === undefined) return;
+    const qty = parseInt(raw) || 0;
+    setSaving(variantId);
     try {
       await turso.execute({
-        sql: "UPDATE Product SET trackStock = 0, updatedAt = ? WHERE id = ?",
-        args: [new Date().toISOString(), id],
+        sql: "UPDATE ProductVariant SET stock = ?, trackStock = 1, updatedAt = ? WHERE id = ?",
+        args: [qty, new Date().toISOString(), variantId],
       });
-      toast.success("Set to unlimited");
+      toast.success("Variant stock updated");
+      setEditingVariantStock((prev) => { const n = { ...prev }; delete n[variantId]; return n; });
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
+      loadProducts();
+    } catch {
+      toast.error("Failed to update variant stock");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const enableVariantTracking = async (productId: string) => {
+    setSaving(productId);
+    try {
+      await turso.execute({
+        sql: "UPDATE ProductVariant SET trackStock = 1, stock = CASE WHEN stock > 0 THEN stock ELSE 10 END, updatedAt = ? WHERE productId = ?",
+        args: [new Date().toISOString(), productId],
+      });
+      await turso.execute({
+        sql: "UPDATE Product SET trackStock = 0, updatedAt = ? WHERE id = ?",
+        args: [new Date().toISOString(), productId],
+      });
+      toast.success("Per-variant stock tracking enabled");
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
+      loadProducts();
+    } catch {
+      toast.error("Failed to enable variant tracking");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const disableVariantTracking = async (productId: string) => {
+    setSaving(productId);
+    try {
+      await turso.execute({
+        sql: "UPDATE ProductVariant SET trackStock = 0, updatedAt = ? WHERE productId = ?",
+        args: [new Date().toISOString(), productId],
+      });
+      toast.success("Variant stock tracking disabled — using product-level stock");
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
       loadProducts();
     } catch {
       toast.error("Failed to update");
@@ -995,10 +1048,37 @@ function InventoryTab({ turso }: { turso: any }) {
     }
   };
 
+  const setUnlimited = async (id: string) => {
+    setSaving(id);
+    try {
+      await turso.execute({
+        sql: "UPDATE Product SET trackStock = 0, updatedAt = ? WHERE id = ?",
+        args: [new Date().toISOString(), id],
+      });
+      toast.success("Set to unlimited");
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
+      loadProducts();
+    } catch {
+      toast.error("Failed to update");
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedProducts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
   if (loading) return <div className="flex justify-center p-12"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
 
   const tracked = products.filter((p) => Boolean(Number(p.trackStock)));
-  const unlimited = products.filter((p) => !Boolean(Number(p.trackStock)));
+  const withVariantStock = products.filter((p) => hasVariantStock(String(p.id)));
+  const unlimited = products.filter((p) => !Boolean(Number(p.trackStock)) && !hasVariantStock(String(p.id)));
+  const allTrackedProducts = [...tracked, ...withVariantStock];
   const outOfStock = tracked.filter((p) => Number(p.stock ?? p.inventory ?? 0) === 0);
   const lowStock = tracked.filter((p) => { const s = Number(p.stock ?? p.inventory ?? 0); return s > 0 && s <= 5; });
 
@@ -1039,79 +1119,190 @@ function InventoryTab({ turso }: { turso: any }) {
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Product</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tracking</th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">Stock</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground w-44">Actions</th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground w-48">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y">
             {products.length === 0 ? (
               <tr><td colSpan={4} className="px-4 py-12 text-center text-muted-foreground">No products yet.</td></tr>
             ) : products.map((p) => {
+              const pid = String(p.id);
               const tracksStock = Boolean(Number(p.trackStock));
               const stock = Number(p.stock ?? p.inventory ?? 0);
-              const isEditing = editingStock[String(p.id)] !== undefined;
+              const isEditing = editingStock[pid] !== undefined;
+              const pVariants = getProductVariants(pid);
+              const hasVariants = pVariants.length > 0;
+              const variantTracked = hasVariantStock(pid);
+              const isExpanded = expandedProducts.has(pid);
               return (
-                <tr key={String(p.id)} className="hover:bg-muted/20 transition-colors">
-                  <td className="px-4 py-3 font-medium">{String(p.name)}</td>
-                  <td className="px-4 py-3">
-                    {tracksStock ? (
-                      <Badge variant="outline" className="text-xs border-blue-500/30 bg-blue-500/10 text-blue-700">Tracked</Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-xs gap-1">
-                        <InfinityIcon className="size-3" /> Unlimited
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {tracksStock ? (
-                      <span className={cn(
-                        "text-sm font-medium tabular-nums",
-                        stock === 0 && "text-red-500",
-                        stock > 0 && stock <= 5 && "text-amber-600",
-                      )}>
-                        {stock}
-                        {stock === 0 && <span className="ml-1 text-xs font-normal text-red-400">out of stock</span>}
-                        {stock > 0 && stock <= 5 && <span className="ml-1 text-xs font-normal text-amber-500">low</span>}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground text-sm">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {tracksStock ? (
-                        <>
-                          {isEditing ? (
-                            <>
-                              <Input
-                                type="number"
-                                min="0"
-                                className="h-7 w-20 text-xs"
-                                value={editingStock[String(p.id)]}
-                                onChange={(e) => setEditingStock((prev) => ({ ...prev, [String(p.id)]: e.target.value }))}
-                                onKeyDown={(e) => { if (e.key === "Enter") saveStock(String(p.id)); if (e.key === "Escape") setEditingStock((prev) => { const n = { ...prev }; delete n[String(p.id)]; return n; }); }}
-                                autoFocus
-                              />
-                              <Button size="sm" className="h-7 px-2 text-xs" onClick={() => saveStock(String(p.id))} disabled={saving === String(p.id)}>
-                                {saving === String(p.id) ? <Loader2 className="size-3 animate-spin" /> : "Save"}
-                              </Button>
-                            </>
-                          ) : (
-                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setEditingStock((prev) => ({ ...prev, [String(p.id)]: String(stock) }))}>
-                              <Edit className="size-3" /> Edit stock
-                            </Button>
-                          )}
-                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => setUnlimited(String(p.id))} disabled={saving === String(p.id)}>
-                            Set unlimited
-                          </Button>
-                        </>
+                <React.Fragment key={pid}>
+                  <tr className="hover:bg-muted/20 transition-colors">
+                    <td className="px-4 py-3 font-medium">
+                      <div className="flex items-center gap-2">
+                        {hasVariants && (
+                          <button type="button" onClick={() => toggleExpand(pid)} className="text-muted-foreground hover:text-foreground transition-colors">
+                            <ChevronDown className={cn("size-4 transition-transform", isExpanded && "rotate-180")} />
+                          </button>
+                        )}
+                        <span>{String(p.name)}</span>
+                        {hasVariants && (
+                          <Badge variant="outline" className="text-[10px] font-normal">{pVariants.length} variants</Badge>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {variantTracked ? (
+                        <Badge variant="outline" className="text-xs border-purple-500/30 bg-purple-500/10 text-purple-700">Per variant</Badge>
+                      ) : tracksStock ? (
+                        <Badge variant="outline" className="text-xs border-blue-500/30 bg-blue-500/10 text-blue-700">Tracked</Badge>
                       ) : (
-                        <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setEditingStock((prev) => ({ ...prev, [String(p.id)]: "0" }))}>
-                          <BarChart3 className="size-3" /> Track stock
-                        </Button>
+                        <Badge variant="outline" className="text-xs gap-1">
+                          <InfinityIcon className="size-3" /> Unlimited
+                        </Badge>
                       )}
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-4 py-3">
+                      {variantTracked ? (
+                        <span className="text-xs text-muted-foreground">See variants below</span>
+                      ) : tracksStock ? (
+                        <span className={cn(
+                          "text-sm font-medium tabular-nums",
+                          stock === 0 && "text-red-500",
+                          stock > 0 && stock <= 5 && "text-amber-600",
+                        )}>
+                          {stock}
+                          {stock === 0 && <span className="ml-1 text-xs font-normal text-red-400">out of stock</span>}
+                          {stock > 0 && stock <= 5 && <span className="ml-1 text-xs font-normal text-amber-500">low</span>}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        {variantTracked ? (
+                          <>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => toggleExpand(pid)}>
+                              {isExpanded ? "Collapse" : "Edit variants"}
+                            </Button>
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => disableVariantTracking(pid)} disabled={saving === pid}>
+                              Use product stock
+                            </Button>
+                          </>
+                        ) : tracksStock ? (
+                          <>
+                            {isEditing ? (
+                              <>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  className="h-7 w-20 text-xs"
+                                  value={editingStock[pid]}
+                                  onChange={(e) => setEditingStock((prev) => ({ ...prev, [pid]: e.target.value }))}
+                                  onKeyDown={(e) => { if (e.key === "Enter") saveStock(pid); if (e.key === "Escape") setEditingStock((prev) => { const n = { ...prev }; delete n[pid]; return n; }); }}
+                                  autoFocus
+                                />
+                                <Button size="sm" className="h-7 px-2 text-xs" onClick={() => saveStock(pid)} disabled={saving === pid}>
+                                  {saving === pid ? <Loader2 className="size-3 animate-spin" /> : "Save"}
+                                </Button>
+                              </>
+                            ) : (
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setEditingStock((prev) => ({ ...prev, [pid]: String(stock) }))}>
+                                <Edit className="size-3" /> Edit stock
+                              </Button>
+                            )}
+                            {hasVariants && (
+                              <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-purple-600" onClick={() => enableVariantTracking(pid)} disabled={saving === pid}>
+                                Per variant
+                              </Button>
+                            )}
+                            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs text-muted-foreground" onClick={() => setUnlimited(pid)} disabled={saving === pid}>
+                              Unlimited
+                            </Button>
+                          </>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setEditingStock((prev) => ({ ...prev, [pid]: "0" }))}>
+                              <BarChart3 className="size-3" /> Track stock
+                            </Button>
+                            {hasVariants && (
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-purple-600 border-purple-500/30" onClick={() => enableVariantTracking(pid)} disabled={saving === pid}>
+                                Per variant
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                  {/* Variant stock rows */}
+                  {isExpanded && hasVariants && pVariants.map((v) => {
+                    const vid = String(v.id);
+                    const vStock = Number(v.stock ?? 0);
+                    const vTracked = Boolean(Number(v.trackStock));
+                    const isEditingV = editingVariantStock[vid] !== undefined;
+                    return (
+                      <tr key={vid} className="bg-muted/5 hover:bg-muted/15 transition-colors">
+                        <td className="px-4 py-2 pl-12 text-muted-foreground text-xs">
+                          <span className="text-foreground font-medium">{String(v.value)}</span>
+                          <span className="ml-1.5 text-muted-foreground">({String(v.name)})</span>
+                          {Number(v.priceAdjustment) !== 0 && (
+                            <span className="ml-1.5 text-muted-foreground">
+                              {Number(v.priceAdjustment) > 0 ? "+" : ""}€{Number(v.priceAdjustment).toFixed(2)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2">
+                          {vTracked ? (
+                            <Badge variant="outline" className="text-[10px] border-blue-500/30 bg-blue-500/10 text-blue-700">Tracked</Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[10px] gap-0.5">
+                              <InfinityIcon className="size-2.5" /> ∞
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="px-4 py-2">
+                          {vTracked ? (
+                            <span className={cn(
+                              "text-xs font-medium tabular-nums",
+                              vStock === 0 && "text-red-500",
+                              vStock > 0 && vStock <= 5 && "text-amber-600",
+                            )}>
+                              {vStock}
+                              {vStock === 0 && <span className="ml-1 text-[10px] font-normal text-red-400">out</span>}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isEditingV ? (
+                              <>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  className="h-6 w-16 text-xs"
+                                  value={editingVariantStock[vid]}
+                                  onChange={(e) => setEditingVariantStock((prev) => ({ ...prev, [vid]: e.target.value }))}
+                                  onKeyDown={(e) => { if (e.key === "Enter") saveVariantStock(vid); if (e.key === "Escape") setEditingVariantStock((prev) => { const n = { ...prev }; delete n[vid]; return n; }); }}
+                                  autoFocus
+                                />
+                                <Button size="sm" className="h-6 px-2 text-[10px]" onClick={() => saveVariantStock(vid)} disabled={saving === vid}>
+                                  {saving === vid ? <Loader2 className="size-3 animate-spin" /> : "Save"}
+                                </Button>
+                              </>
+                            ) : (
+                              <Button size="sm" variant="outline" className="h-6 px-2 text-[10px] gap-0.5" onClick={() => setEditingVariantStock((prev) => ({ ...prev, [vid]: String(vStock) }))}>
+                                <Edit className="size-2.5" /> Edit
+                              </Button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </React.Fragment>
               );
             })}
           </tbody>
@@ -1163,6 +1354,7 @@ function ShippingTab({ turso }: { turso: any }) {
   const [loading, setLoading] = useState(true);
   const [showZoneForm, setShowZoneForm] = useState(false);
   const [showRateForm, setShowRateForm] = useState<string | null>(null); // zoneId
+  const [editingRate, setEditingRate] = useState<string | null>(null); // rateId being edited
   const [zoneName, setZoneName] = useState("");
   const [zoneCountries, setZoneCountries] = useState("Netherlands");
   const [rateName, setRateName] = useState("");
@@ -1203,6 +1395,7 @@ function ShippingTab({ turso }: { turso: any }) {
       });
       toast.success("Shipping zone added");
       setZoneName(""); setZoneCountries("Netherlands"); setShowZoneForm(false);
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
       load();
     } catch { toast.error("Failed to add zone"); }
     finally { setSaving(false); }
@@ -1221,14 +1414,44 @@ function ShippingTab({ turso }: { turso: any }) {
       });
       toast.success("Shipping rate added");
       setRateName(""); setRateType("flat"); setRatePrice("0"); setRateMinOrder(""); setRateDays("2-5"); setShowRateForm(null);
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
       load();
     } catch { toast.error("Failed to add rate"); }
+    finally { setSaving(false); }
+  };
+
+  const startEditRate = (rate: any) => {
+    setEditingRate(String(rate.id));
+    setRateName(String(rate.name));
+    setRateType(String(rate.type) as "flat" | "free" | "free_above");
+    setRatePrice(String(rate.price ?? 0));
+    setRateMinOrder(rate.minOrderAmount != null ? String(rate.minOrderAmount) : "");
+    setRateDays(String(rate.estimatedDays ?? "2-5"));
+  };
+
+  const updateRate = async (rateId: string) => {
+    if (!rateName.trim()) return;
+    setSaving(true);
+    try {
+      const price = rateType === "free" ? 0 : parseFloat(ratePrice) || 0;
+      const minOrder = rateType === "free_above" ? parseFloat(rateMinOrder) || 0 : null;
+      await turso.execute({
+        sql: "UPDATE ShippingRate SET name = ?, type = ?, price = ?, minOrderAmount = ?, estimatedDays = ?, updatedAt = ? WHERE id = ?",
+        args: [rateName.trim(), rateType, price, minOrder, rateDays.trim() || "2-5", new Date().toISOString(), rateId],
+      });
+      toast.success("Shipping rate updated");
+      setEditingRate(null);
+      setRateName(""); setRateType("flat"); setRatePrice("0"); setRateMinOrder(""); setRateDays("2-5");
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
+      load();
+    } catch { toast.error("Failed to update rate"); }
     finally { setSaving(false); }
   };
 
   const deleteRate = async (id: string) => {
     try {
       await turso.execute({ sql: "UPDATE ShippingRate SET active = 0 WHERE id = ?", args: [id] });
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
       load();
     } catch { toast.error("Failed to delete rate"); }
   };
@@ -1238,6 +1461,7 @@ function ShippingTab({ turso }: { turso: any }) {
     try {
       await turso.execute({ sql: "DELETE FROM ShippingRate WHERE zoneId = ?", args: [id] });
       await turso.execute({ sql: "DELETE FROM ShippingZone WHERE id = ?", args: [id] });
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
       load();
     } catch { toast.error("Failed to delete zone"); }
   };
@@ -1371,31 +1595,98 @@ function ShippingTab({ turso }: { turso: any }) {
                 No rates yet. Click "Add rate" to add a shipping option.
               </div>
             ) : (
-              <table className="w-full text-sm">
-                <tbody className="divide-y">
-                  {zoneRates.map((rate) => (
-                    <tr key={String(rate.id)} className="hover:bg-muted/10 group">
-                      <td className="px-4 py-2.5 font-medium">{String(rate.name)}</td>
-                      <td className="px-4 py-2.5 text-muted-foreground text-xs">
-                        {rate.type === "flat" && `€${Number(rate.price).toFixed(2)}`}
-                        {rate.type === "free" && "Free"}
-                        {rate.type === "free_above" && `Free above €${Number(rate.minOrderAmount).toFixed(2)}`}
-                      </td>
-                      <td className="px-4 py-2.5 text-muted-foreground text-xs">{rate.estimatedDays ? `${rate.estimatedDays} days` : ""}</td>
-                      <td className="px-4 py-2.5 text-right">
+              <div className="divide-y">
+                {zoneRates.map((rate) => {
+                  const isEditing = editingRate === String(rate.id);
+                  if (isEditing) {
+                    return (
+                      <div key={String(rate.id)} className="px-4 py-3 bg-muted/10 space-y-3">
+                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Rate name</label>
+                            <Input placeholder="e.g. Standard shipping" value={rateName} onChange={(e) => setRateName(e.target.value)} className="h-7 text-xs" />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Type</label>
+                            <select
+                              className="w-full h-7 rounded-md border border-input bg-background px-2 text-xs"
+                              value={rateType}
+                              onChange={(e) => setRateType(e.target.value as typeof rateType)}
+                            >
+                              <option value="flat">Flat rate</option>
+                              <option value="free">Always free</option>
+                              <option value="free_above">Free above amount</option>
+                            </select>
+                          </div>
+                          {rateType === "flat" && (
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-muted-foreground">Price (€)</label>
+                              <Input type="number" min="0" step="0.01" placeholder="4.99" value={ratePrice} onChange={(e) => setRatePrice(e.target.value)} className="h-7 text-xs" />
+                            </div>
+                          )}
+                          {rateType === "free_above" && (
+                            <>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground">Rate price (€)</label>
+                                <Input type="number" min="0" step="0.01" placeholder="4.99" value={ratePrice} onChange={(e) => setRatePrice(e.target.value)} className="h-7 text-xs" />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-xs font-medium text-muted-foreground">Free above (€)</label>
+                                <Input type="number" min="0" step="0.01" placeholder="50.00" value={rateMinOrder} onChange={(e) => setRateMinOrder(e.target.value)} className="h-7 text-xs" />
+                              </div>
+                            </>
+                          )}
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">Est. days</label>
+                            <Input placeholder="2-5" value={rateDays} onChange={(e) => setRateDays(e.target.value)} className="h-7 text-xs" />
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button size="sm" className="h-7 px-3 text-xs gap-1" onClick={() => updateRate(String(rate.id))} disabled={saving || !rateName.trim()}>
+                            {saving && <Loader2 className="size-3 animate-spin" />} Save
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => { setEditingRate(null); setRateName(""); setRateType("flat"); setRatePrice("0"); setRateMinOrder(""); setRateDays("2-5"); }}>Cancel</Button>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div
+                      key={String(rate.id)}
+                      className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/10 group cursor-pointer transition-colors"
+                      onClick={() => startEditRate(rate)}
+                    >
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        <span className="font-medium text-sm truncate">{String(rate.name)}</span>
+                        <span className="text-muted-foreground text-xs shrink-0">
+                          {rate.type === "flat" && `€${Number(rate.price).toFixed(2)}`}
+                          {rate.type === "free" && "Free"}
+                          {rate.type === "free_above" && `€${Number(rate.price).toFixed(2)} — free above €${Number(rate.minOrderAmount).toFixed(2)}`}
+                        </span>
+                        <span className="text-muted-foreground text-xs shrink-0">{rate.estimatedDays ? `${rate.estimatedDays} days` : ""}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="size-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={(e) => { e.stopPropagation(); startEditRate(rate); }}
+                        >
+                          <Edit className="size-3.5" />
+                        </Button>
                         <Button
                           size="icon"
                           variant="ghost"
                           className="size-7 text-muted-foreground hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => deleteRate(String(rate.id))}
+                          onClick={(e) => { e.stopPropagation(); deleteRate(String(rate.id)); }}
                         >
                           <Trash2 className="size-3.5" />
                         </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         );

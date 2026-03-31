@@ -472,82 +472,153 @@ export function ProductSheet({
                 Inventory
               </h3>
 
-              {/* Stock tracking toggle */}
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => set("trackStock", false)}
-                  className={cn(
-                    "rounded-lg border px-3 py-2.5 text-left transition-colors",
-                    !form.trackStock
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <div className="flex items-center gap-1.5 font-medium text-sm">
-                    <InfinityIcon className="size-3.5" />
-                    Unlimited stock
-                  </div>
-                  <div className="text-xs mt-0.5 text-muted-foreground">
-                    Never runs out
-                  </div>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => set("trackStock", true)}
-                  className={cn(
-                    "rounded-lg border px-3 py-2.5 text-left transition-colors",
-                    form.trackStock
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-border text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <div className="font-medium text-sm">Track quantity</div>
-                  <div className="text-xs mt-0.5 text-muted-foreground">
-                    Set a stock level
-                  </div>
-                </button>
-              </div>
+              {(() => {
+                const hasVariants = (form.variantGroups ?? []).some((g) => g.values.length > 0);
+                const anyVariantTracked = (form.variantGroups ?? []).some((g) => g.values.some((v) => v.trackStock));
+                const stockMode: "unlimited" | "product" | "variant" = anyVariantTracked ? "variant" : form.trackStock ? "product" : "unlimited";
+                return (
+                  <>
+                    {/* Stock tracking toggle */}
+                    <div className={cn("grid gap-2", hasVariants ? "grid-cols-3" : "grid-cols-2")}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          set("trackStock", false);
+                          if (anyVariantTracked) {
+                            const gs = (form.variantGroups ?? []).map((g) => ({
+                              ...g,
+                              values: g.values.map((v) => ({ ...v, trackStock: false })),
+                            }));
+                            set("variantGroups", gs);
+                          }
+                        }}
+                        className={cn(
+                          "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                          stockMode === "unlimited"
+                            ? "border-primary bg-primary/5 text-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 font-medium text-sm">
+                          <InfinityIcon className="size-3.5" />
+                          Unlimited
+                        </div>
+                        <div className="text-xs mt-0.5 text-muted-foreground">
+                          Never runs out
+                        </div>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          set("trackStock", true);
+                          if (anyVariantTracked) {
+                            const gs = (form.variantGroups ?? []).map((g) => ({
+                              ...g,
+                              values: g.values.map((v) => ({ ...v, trackStock: false })),
+                            }));
+                            set("variantGroups", gs);
+                          }
+                        }}
+                        className={cn(
+                          "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                          stockMode === "product"
+                            ? "border-primary bg-primary/5 text-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground",
+                        )}
+                      >
+                        <div className="font-medium text-sm">Track quantity</div>
+                        <div className="text-xs mt-0.5 text-muted-foreground">
+                          Product-level stock
+                        </div>
+                      </button>
+                      {hasVariants && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            set("trackStock", false);
+                            const gs = (form.variantGroups ?? []).map((g) => ({
+                              ...g,
+                              values: g.values.map((v) => ({
+                                ...v,
+                                trackStock: true,
+                                stock: v.stock || 10,
+                              })),
+                            }));
+                            set("variantGroups", gs);
+                          }}
+                          className={cn(
+                            "rounded-lg border px-3 py-2.5 text-left transition-colors",
+                            stockMode === "variant"
+                              ? "border-purple-500 bg-purple-500/5 text-foreground"
+                              : "border-border text-muted-foreground hover:text-foreground",
+                          )}
+                        >
+                          <div className="font-medium text-sm">Per variant</div>
+                          <div className="text-xs mt-0.5 text-muted-foreground">
+                            Stock per size/color
+                          </div>
+                        </button>
+                      )}
+                    </div>
 
-              {/* Stock quantity — only when tracking */}
-              {form.trackStock && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="p-stock">Stock quantity</Label>
-                    <Input
-                      id="p-stock"
-                      type="number"
-                      min="0"
-                      step="1"
-                      placeholder="0"
-                      value={form.stock === 0 ? "" : form.stock}
-                      onChange={(e) => set("stock", parseInt(e.target.value) || 0)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="p-sku">SKU</Label>
-                    <Input
-                      id="p-sku"
-                      placeholder="e.g. PERF-001"
-                      value={form.sku}
-                      onChange={(e) => set("sku", e.target.value)}
-                    />
-                  </div>
-                </div>
-              )}
+                    {/* Product-level stock quantity */}
+                    {stockMode === "product" && (
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="p-stock">Stock quantity</Label>
+                          <Input
+                            id="p-stock"
+                            type="number"
+                            min="0"
+                            step="1"
+                            placeholder="0"
+                            value={form.stock === 0 ? "" : form.stock}
+                            onChange={(e) => set("stock", parseInt(e.target.value) || 0)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="p-sku">SKU</Label>
+                          <Input
+                            id="p-sku"
+                            placeholder="e.g. PERF-001"
+                            value={form.sku}
+                            onChange={(e) => set("sku", e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    )}
 
-              {/* SKU when unlimited */}
-              {!form.trackStock && (
-                <div className="space-y-2">
-                  <Label htmlFor="p-sku">SKU <span className="text-muted-foreground font-normal">(optional)</span></Label>
-                  <Input
-                    id="p-sku"
-                    placeholder="e.g. PERF-001"
-                    value={form.sku}
-                    onChange={(e) => set("sku", e.target.value)}
-                  />
-                </div>
-              )}
+                    {/* Per-variant stock summary */}
+                    {stockMode === "variant" && (
+                      <div className="rounded-lg border bg-muted/10 p-3 space-y-2">
+                        <p className="text-xs text-muted-foreground">Stock is managed per variant below. Edit individual stock levels in the Variants section.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {(form.variantGroups ?? []).flatMap((g) =>
+                            g.values.filter((v) => v.trackStock).map((v) => (
+                              <Badge key={v.id} variant="outline" className={cn("text-xs tabular-nums", v.stock === 0 && "border-red-500/30 text-red-600", v.stock > 0 && v.stock <= 5 && "border-amber-500/30 text-amber-600")}>
+                                {v.value}: {v.stock}
+                              </Badge>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SKU when unlimited */}
+                    {stockMode === "unlimited" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="p-sku">SKU <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                        <Input
+                          id="p-sku"
+                          placeholder="e.g. PERF-001"
+                          value={form.sku}
+                          onChange={(e) => set("sku", e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
 
               {/* Fulfillment */}
               <div className="space-y-2">
@@ -741,19 +812,22 @@ export function ProductSheet({
                         }}
                         className="h-7 text-xs w-20"
                       />
-                      <Input
-                        type="number"
-                        placeholder="Stock"
-                        value={val.stock || ""}
-                        onChange={(e) => {
-                          const gs = [...(form.variantGroups ?? [])];
-                          const vs = [...gs[gi].values];
-                          vs[vi] = { ...vs[vi], stock: parseInt(e.target.value) || 0 };
-                          gs[gi] = { ...gs[gi], values: vs };
-                          set("variantGroups", gs);
-                        }}
-                        className="h-7 text-xs w-16"
-                      />
+                      {val.trackStock && (
+                        <Input
+                          type="number"
+                          placeholder="Stock"
+                          min="0"
+                          value={val.stock || ""}
+                          onChange={(e) => {
+                            const gs = [...(form.variantGroups ?? [])];
+                            const vs = [...gs[gi].values];
+                            vs[vi] = { ...vs[vi], stock: parseInt(e.target.value) || 0 };
+                            gs[gi] = { ...gs[gi], values: vs };
+                            set("variantGroups", gs);
+                          }}
+                          className={cn("h-7 text-xs w-16", val.stock === 0 && "border-red-500/50")}
+                        />
+                      )}
                       <Button
                         type="button"
                         variant="ghost"

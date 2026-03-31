@@ -305,6 +305,13 @@ export function createApiClient(getToken: GetTokenFunction) {
         );
       },
 
+      writeLogs: (id: string, entries: Array<{ level: string; source: string; message: string; detail?: string }>) =>
+        authenticatedFetch<{ ok: boolean }>(
+          getToken,
+          `/api/projects/${id}/logs`,
+          { method: "POST", body: JSON.stringify({ entries }) },
+        ),
+
       getEmailSettings: (id: string) =>
         authenticatedFetch<ProjectEmailSettings>(
           getToken,

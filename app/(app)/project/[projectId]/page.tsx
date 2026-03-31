@@ -174,6 +174,23 @@ export default function EditorPage({
   /** Maximum number of auto-heal retry attempts before giving up */
   const MAX_AUTO_HEAL_ATTEMPTS = 3;
 
+  /** Fire-and-forget project log writer */
+  const logQueue = useRef<Array<{ level: string; source: string; message: string; detail?: string }>>([]);
+  const logFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const plog = useCallback((level: string, source: string, message: string, detail?: string) => {
+    logQueue.current.push({ level, source, message, detail });
+    if (logFlushTimer.current) return;
+    logFlushTimer.current = setTimeout(async () => {
+      logFlushTimer.current = null;
+      const entries = logQueue.current.splice(0);
+      if (entries.length === 0) return;
+      try {
+        const client = createApiClient(getToken);
+        await client.projects.writeLogs(projectId, entries);
+      } catch { /* best effort */ }
+    }, 2000);
+  }, [getToken, projectId]);
+
   /**
    * Stores a pending prompt from sessionStorage (set during project creation).
    * Consumed once after the editor finishes loading to auto-send the first message.
@@ -661,6 +678,7 @@ export default function EditorPage({
               // Handle files event — update Sandpack + Monaco
               if (event.files) {
                 const newFiles = filesToRecord(event.files);
+                plog("info", "sse", `Received 'files' event — ${Object.keys(newFiles).length} files`);
                 setFiles(newFiles);
                 currentFilesRef.current = newFiles;
                 lastSavedFilesRef.current = newFiles;
@@ -705,6 +723,7 @@ export default function EditorPage({
 
               // Handle error events from the stream
               if (event.code && event.message) {
+                plog("error", "sse", `SSE error: ${event.code} — ${event.message}`);
                 // Trigger global rate limit banner for SSE rate limit errors (fallback 60s)
                 if (event.code === "RATE_LIMITED") {
                   setRateLimitedUntil(Date.now() + 60000);
@@ -731,12 +750,11 @@ export default function EditorPage({
           }
         }
       } catch (error) {
-        // Handle network or auth errors
         const errorMessage =
           error instanceof Error ? error.message : "Something went wrong";
 
-        // Fallback: detect rate limit from error message when the 429 response
-        // couldn't be parsed (e.g. CORS error, body parse failure)
+        plog("error", "sse-connection", `SSE connection error: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
+
         const lowerError = errorMessage.toLowerCase();
         if (
           lowerError.includes("too many requests") ||
@@ -776,27 +794,27 @@ export default function EditorPage({
    */
   const handleSandpackError = useCallback(
     (error: { message: string }) => {
-      // Only auto-heal errors that occurred right after AI generation
+      plog("error", "sandpack", `Sandpack error: ${error.message.slice(0, 300)}`, error.message);
+
       if (!justGeneratedRef.current) return;
-      // Don't trigger while streaming — use ref to avoid stale closure
       if (isStreamingRef.current) return;
 
-      // Check if we've hit the max attempts
       if (autoHealAttemptRef.current >= MAX_AUTO_HEAL_ATTEMPTS) {
         justGeneratedRef.current = false;
+        plog("warn", "sandpack", `Auto-heal gave up after ${MAX_AUTO_HEAL_ATTEMPTS} attempts`);
         toast.error("Auto-fix failed after 3 attempts. Please fix the error manually.");
         return;
       }
 
-      // Increment attempt counter and send heal request
       autoHealAttemptRef.current += 1;
       const attempt = autoHealAttemptRef.current;
+      plog("info", "sandpack", `Auto-heal attempt ${attempt}/${MAX_AUTO_HEAL_ATTEMPTS}`, error.message.slice(0, 500));
 
       const healPrompt = `The app has a build/runtime error that needs to be fixed (attempt ${attempt}/${MAX_AUTO_HEAL_ATTEMPTS}):\n\n${error.message}\n\nPlease fix this error. Only modify the files necessary to resolve the issue.`;
 
       handleSendMessage(healPrompt, undefined, true);
     },
-    [handleSendMessage]
+    [handleSendMessage, plog]
   );
 
   /**

@@ -569,6 +569,49 @@ projectRoutes.get("/:id/logs", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/projects/:id/logs — Write a log entry from the frontend
+// ---------------------------------------------------------------------------
+projectRoutes.post("/:id/logs", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found" }, 404);
+  if (project.userId !== userId && !project.collaborators?.some((col) => col.userId === userId)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+  if (!project.databaseUrl || !project.databaseToken) {
+    return c.json({ ok: true });
+  }
+
+  try {
+    const body = await c.req.json<{
+      entries?: Array<{ level: string; source: string; message: string; detail?: string }>;
+      level?: string; source?: string; message?: string; detail?: string;
+    }>();
+
+    const { createClient } = await import("@libsql/client/web");
+    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+    await db.execute("CREATE TABLE IF NOT EXISTS [_AppLog] (id INTEGER PRIMARY KEY AUTOINCREMENT, level TEXT NOT NULL DEFAULT 'info', source TEXT, message TEXT NOT NULL, detail TEXT, createdAt TEXT DEFAULT CURRENT_TIMESTAMP)");
+
+    const entries = body.entries || [{ level: body.level || "info", source: body.source || "frontend", message: body.message || "", detail: body.detail }];
+    const now = new Date().toISOString();
+
+    for (const entry of entries.slice(0, 50)) {
+      if (!entry.message) continue;
+      await db.execute({
+        sql: "INSERT INTO [_AppLog] (level, source, message, detail, createdAt) VALUES (?, ?, ?, ?, ?)",
+        args: [entry.level || "info", entry.source || "frontend", entry.message.slice(0, 1000), (entry.detail || "").slice(0, 4000) || null, now],
+      });
+    }
+
+    return c.json({ ok: true, written: entries.length });
+  } catch (e: any) {
+    return c.json({ error: "Failed to write log", detail: e.message }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/projects/:id/email-settings — Read order email settings
 // ---------------------------------------------------------------------------
 projectRoutes.get("/:id/email-settings", async (c) => {

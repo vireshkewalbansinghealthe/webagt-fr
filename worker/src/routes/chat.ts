@@ -182,6 +182,7 @@ import type { ModelMessage } from "ai";
 import type { ImageAttachment } from "../types/chat";
 import { checkCredits, deductCredits } from "../services/credits";
 import { sanitizeChatMessage } from "../services/sanitize";
+import { ProjectLogger } from "../services/project-logger";
 
 /**
  * Create a Hono router for chat endpoints.
@@ -263,6 +264,9 @@ chatRoutes.post("/:projectId", async (c) => {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
+  const plog = new ProjectLogger(c.env, projectId);
+  plog.info("chat", `Generation started — model=${modelId}, prompt=${userMessage.slice(0, 120)}…`, JSON.stringify({ model: modelId, promptLength: userMessage.length, imageCount: images.length, existingVersion: project.currentVersion }));
+
   // --- 3. Check credits and plan-based model gating ---
   const creditCheck = await checkCredits(userId, modelConfig.creditCost, c.env);
 
@@ -299,6 +303,9 @@ chatRoutes.post("/:projectId", async (c) => {
   if (versionObject) {
     const versionData = (await versionObject.json()) as Version;
     existingFiles = versionData.files || [];
+    plog.debug("chat", `Loaded v${project.currentVersion} from R2 — ${existingFiles.length} existing files`);
+  } else {
+    plog.warn("chat", `No version found in R2 at ${versionKey} — starting from scratch`);
   }
 
   // --- 5. Load chat history from KV ---
@@ -322,6 +329,7 @@ chatRoutes.post("/:projectId", async (c) => {
   }
 
   const systemPrompt = buildSystemPrompt(project, existingFiles, backendUrl);
+  plog.debug("chat", `System prompt built — ${systemPrompt.length} chars, backendUrl=${backendUrl}`);
 
   // --- 6a. Upload attached images to Supabase Storage and get persistent HTTPS public URLs ---
   // Supabase Storage always returns an HTTPS URL, which works in the Sandpack preview
@@ -455,12 +463,13 @@ chatRoutes.post("/:projectId", async (c) => {
   return streamSSE(c, async (stream) => {
     let fullResponse = "";
     let eventId = 0;
+    const streamStart = Date.now();
 
     try {
-      // Get the AI SDK model instance for the selected model
       const model = getModel(modelId, c.env);
 
-      // streamText returns immediately — streaming happens when we iterate textStream
+      plog.info("chat", `Calling ${modelConfig.displayName} API — maxOutputTokens=${modelConfig.maxOutputTokens}`);
+
       const result = streamText({
         model,
         system: systemPrompt,
@@ -468,10 +477,12 @@ chatRoutes.post("/:projectId", async (c) => {
         maxOutputTokens: modelConfig.maxOutputTokens,
       });
 
-      // Iterate the text stream — each chunk is forwarded as our custom SSE event
-      // This replaces the onChunk callback pattern from our custom providers
+      let chunkCount = 0;
+      let lastChunkTime = Date.now();
       for await (const chunk of result.textStream) {
         fullResponse += chunk;
+        chunkCount++;
+        lastChunkTime = Date.now();
         await stream.writeSSE({
           event: "chunk",
           data: JSON.stringify({ text: chunk }),
@@ -479,11 +490,29 @@ chatRoutes.post("/:projectId", async (c) => {
         });
       }
 
+      const streamDuration = Date.now() - streamStart;
+      const responseTokensApprox = Math.round(fullResponse.length / 4);
+      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ~${responseTokensApprox} tokens, ${(streamDuration / 1000).toFixed(1)}s`, JSON.stringify({ chunkCount, responseLengthChars: fullResponse.length, approxTokens: responseTokensApprox, durationMs: streamDuration }));
+
+      // Check for possible truncation
+      const lastFileTagOpen = fullResponse.lastIndexOf("<file ");
+      const lastFileTagClose = fullResponse.lastIndexOf("</file>");
+      if (lastFileTagOpen > lastFileTagClose) {
+        plog.warn("chat", `⚠️ POSSIBLE TRUNCATION — last <file> tag at char ${lastFileTagOpen} was never closed (response ends at char ${fullResponse.length})`, fullResponse.slice(Math.max(0, fullResponse.length - 200)));
+      }
+
       // --- 8. Parse files from the complete response ---
       const parsedFiles = parseFilesFromResponse(fullResponse);
       const { acceptedFiles, rejectedFiles } =
         filterUnsafeGeneratedFiles(parsedFiles);
       const changedFilePaths = acceptedFiles.map((f) => f.path);
+
+      plog.info("chat", `Parsed ${parsedFiles.length} files (${acceptedFiles.length} accepted, ${rejectedFiles.length} rejected)`, JSON.stringify({ files: changedFilePaths, rejected: rejectedFiles.map((f) => `${f.path}: ${f.reason}`) }));
+
+      if (parsedFiles.length === 0) {
+        plog.error("chat", "❌ ZERO FILES PARSED from AI response — user will see default template", `Response starts with: ${fullResponse.slice(0, 500)}...\nResponse ends with: ...${fullResponse.slice(-500)}`);
+      }
+
       console.log(
         `[chat] Parsed ${parsedFiles.length} files from AI response (${acceptedFiles.length} accepted, ${rejectedFiles.length} rejected)`,
       );
@@ -527,20 +556,18 @@ chatRoutes.post("/:projectId", async (c) => {
           fileCount: mergedFiles.length,
         };
 
+        const r2Key = `${projectId}/v${newVersionNumber}/files.json`;
+        const r2Payload = JSON.stringify(newVersion);
+        plog.info("chat", `Saving version v${newVersionNumber} to R2 — ${mergedFiles.length} files, ${(r2Payload.length / 1024).toFixed(1)} KB`, r2Key);
+
         try {
-          await c.env.FILES.put(
-            `${projectId}/v${newVersionNumber}/files.json`,
-            JSON.stringify(newVersion),
-          );
-          console.log(
-            `[chat] R2 put SUCCESS: ${projectId}/v${newVersionNumber}/files.json`,
-          );
-        } catch (r2Error) {
-          console.error(`[chat] R2 put FAILED:`, r2Error);
+          await c.env.FILES.put(r2Key, r2Payload);
+          plog.info("chat", `✅ R2 put SUCCESS: ${r2Key}`);
+        } catch (r2Error: any) {
+          plog.error("chat", `❌ R2 put FAILED: ${r2Key}`, r2Error?.message || String(r2Error));
           throw r2Error;
         }
 
-        // Update project metadata
         project.currentVersion = newVersionNumber;
         project.updatedAt = new Date().toISOString();
 
@@ -549,11 +576,9 @@ chatRoutes.post("/:projectId", async (c) => {
             `project:${projectId}`,
             JSON.stringify(project),
           );
-          console.log(
-            `[chat] KV put SUCCESS: project:${projectId} (v${newVersionNumber})`,
-          );
-        } catch (kvError) {
-          console.error(`[chat] KV put FAILED (project metadata):`, kvError);
+          plog.info("chat", `✅ KV put SUCCESS: project:${projectId} (v${newVersionNumber})`);
+        } catch (kvError: any) {
+          plog.error("chat", `❌ KV put FAILED: project:${projectId}`, kvError?.message || String(kvError));
           throw kvError;
         }
       }
@@ -628,16 +653,18 @@ chatRoutes.post("/:projectId", async (c) => {
       }
 
       // --- 12. Send final events ---
-      // Send parsed files so the client can update Sandpack + Monaco
       if (acceptedFiles.length > 0) {
+        const filesPayloadSize = JSON.stringify({ files: mergedFiles }).length;
+        plog.info("chat", `Sending SSE 'files' event — ${mergedFiles.length} files, ${(filesPayloadSize / 1024).toFixed(1)} KB`);
         await stream.writeSSE({
           event: "files",
           data: JSON.stringify({ files: mergedFiles }),
           id: String(eventId++),
         });
+      } else {
+        plog.warn("chat", "⚠️ No files event sent — acceptedFiles is empty, client keeps default template");
       }
 
-      // Send done event with metadata
       await stream.writeSSE({
         event: "done",
         data: JSON.stringify({
@@ -648,14 +675,27 @@ chatRoutes.post("/:projectId", async (c) => {
         }),
         id: String(eventId++),
       });
+
+      const totalDuration = Date.now() - streamStart;
+      plog.info("chat", `✅ Generation complete — v${newVersionNumber}, ${changedFilePaths.length} files changed, ${(totalDuration / 1000).toFixed(1)}s total`);
+      await plog.flush();
     } catch (error) {
-      // --- Error handling with categorized messages ---
       const rawError =
         error instanceof Error ? error.message : "Unknown error occurred";
+      const stack = error instanceof Error ? error.stack : undefined;
+
+      plog.error("chat", `❌ GENERATION FAILED: ${rawError}`, JSON.stringify({
+        error: rawError,
+        stack: stack?.slice(0, 2000),
+        responseLength: fullResponse.length,
+        chunksReceived: eventId,
+        durationMs: Date.now() - streamStart,
+        lastResponseChars: fullResponse.slice(-300),
+      }));
+      await plog.flush();
 
       console.error("Chat generation error:", rawError);
 
-      // Categorize the error for a user-friendly message
       let userMessage: string;
       let errorCode: string;
 
@@ -673,7 +713,7 @@ chatRoutes.post("/:projectId", async (c) => {
         userMessage =
           "The AI service is temporarily unavailable. Please try again.";
         errorCode = "SERVICE_UNAVAILABLE";
-      } else if (rawError.includes("timeout") || rawError.includes("TIMEOUT")) {
+      } else if (rawError.includes("timeout") || rawError.includes("TIMEOUT") || rawError.includes("network")) {
         userMessage = "Generation timed out. Please try a simpler request.";
         errorCode = "TIMEOUT";
       } else {

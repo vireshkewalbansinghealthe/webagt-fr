@@ -813,6 +813,8 @@ function StreamEndRefresher({
     wasStreamingRef.current = false;
 
     const timers: ReturnType<typeof setTimeout>[] = [];
+    let settled = false;
+    let wave3Fired = false;
 
     const doRefresh = () => {
       try { dispatch({ type: "refresh" }); } catch {}
@@ -822,33 +824,38 @@ function StreamEndRefresher({
       } catch {}
     };
 
-    // Wave 1: immediate Sandpack dispatch (files are already set via props)
-    try { dispatch({ type: "refresh" }); } catch {}
-
-    // Wave 2: after 800ms — Sandpack has had time to process the new file props
-    timers.push(setTimeout(doRefresh, 800));
-
-    // Wave 3: after 2.5s — seed() has likely finished inserting products
-    timers.push(setTimeout(doRefresh, 2500));
-
-    // Listen for Sandpack "done" event after wave 3
-    let settled = false;
     const settle = () => {
       if (settled) return;
       settled = true;
       onReady();
     };
 
+    // Wave 1: immediate Sandpack dispatch (files are already set via props)
+    try { dispatch({ type: "refresh" }); } catch {}
+
+    // Wave 2: after 1s — Sandpack has processed the new file props
+    timers.push(setTimeout(doRefresh, 1000));
+
+    // Wave 3: after 4s — seed() has likely finished inserting products into Turso
+    timers.push(setTimeout(() => {
+      wave3Fired = true;
+      doRefresh();
+    }, 4000));
+
+    // Wave 4: after 7s — final refresh for slow seed operations
+    timers.push(setTimeout(doRefresh, 7000));
+
+    // Only accept Sandpack "done" events AFTER wave 3 has fired,
+    // so we don't dismiss the overlay while the default template is still showing
     const unsub = listen((msg) => {
       const type = (msg as any).type;
-      if (type === "done" || type === "success") {
-        // Only settle after wave 3 has fired to ensure seed() completed
-        timers.push(setTimeout(settle, 500));
+      if ((type === "done" || type === "success") && wave3Fired) {
+        timers.push(setTimeout(settle, 600));
       }
     });
 
-    // Safety net: dismiss overlay after 5 seconds no matter what
-    timers.push(setTimeout(settle, 5000));
+    // Safety net: dismiss overlay after 10s no matter what
+    timers.push(setTimeout(settle, 10000));
 
     return () => {
       unsub();

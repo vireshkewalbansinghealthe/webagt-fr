@@ -30,9 +30,20 @@ import {
   SandpackLayout,
   useSandpack,
 } from "@codesandbox/sandpack-react";
-import { Loader2, Sparkles } from "lucide-react";
+import { Loader2, Sparkles, ImagePlus, Link2, X, Crop } from "lucide-react";
+import ReactCrop, { type Crop as CropType, centerCrop, makeAspectCrop } from "react-image-crop";
+import "react-image-crop/dist/ReactCrop.css";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 /**
  * Props for the PreviewPanel component.
@@ -447,10 +458,7 @@ const INSPECTOR_SCRIPT = `
     // ── IMAGE ──────────────────────────────────────────────────────────────
     if (target.tagName === 'IMG') {
       var srcAttr = target.getAttribute('src') || '';
-      var newSrc = prompt('Enter new image URL:', srcAttr);
-      if (newSrc !== null && newSrc.trim() && newSrc.trim() !== srcAttr) {
-        window.parent.postMessage({ type: 'DIRECT_SAVE_IMAGE', oldSrc: srcAttr, oldSrcResolved: target.src, newSrc: newSrc.trim() }, '*');
-      }
+      window.parent.postMessage({ type: 'VISUAL_EDIT_IMAGE', oldSrc: srcAttr, oldSrcResolved: target.src }, '*');
       return;
     }
 
@@ -565,6 +573,204 @@ const inspectorUrl = "data:application/javascript;charset=utf-8," + encodeURICom
  *
  * @param files - Current project files to render in the preview
  */
+// ─────────────────────────────────────────────────────────────────────────────
+// Image Edit Dialog — shown when clicking an image in visual edit mode
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getCroppedCanvas(image: HTMLImageElement, crop: CropType): HTMLCanvasElement | null {
+  const canvas = document.createElement("canvas");
+  const scaleX = image.naturalWidth / image.width;
+  const scaleY = image.naturalHeight / image.height;
+  const px = { x: (crop.x / 100) * image.width * scaleX, y: (crop.y / 100) * image.height * scaleY, width: (crop.width / 100) * image.width * scaleX, height: (crop.height / 100) * image.height * scaleY };
+  canvas.width = px.width;
+  canvas.height = px.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(image, px.x, px.y, px.width, px.height, 0, 0, px.width, px.height);
+  return canvas;
+}
+
+interface ImageEditDialogProps {
+  open: boolean;
+  currentSrc: string;
+  onConfirm: (newSrc: string) => void;
+  onCancel: () => void;
+}
+
+function ImageEditDialog({ open, currentSrc, onConfirm, onCancel }: ImageEditDialogProps) {
+  const [tab, setTab] = useState<"upload" | "url">("upload");
+  const [urlValue, setUrlValue] = useState("");
+  const [cropSrc, setCropSrc] = useState<string | null>(null);
+  const [crop, setCrop] = useState<CropType>();
+  const imgRef = useRef<HTMLImageElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (open) {
+      setUrlValue("");
+      setCropSrc(null);
+      setCrop(undefined);
+      setTab("upload");
+    }
+  }, [open]);
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const reader = new FileReader();
+    reader.onload = (e) => setCropSrc(e.target?.result as string);
+    reader.readAsDataURL(files[0]);
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    handleFiles(e.dataTransfer.files);
+  };
+
+  const handleUrlSubmit = () => {
+    const trimmed = urlValue.trim();
+    if (!trimmed) return;
+    setCropSrc(trimmed);
+  };
+
+  const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { width, height } = e.currentTarget;
+    setCrop(centerCrop(makeAspectCrop({ unit: "%", width: 90 }, 1, width, height), width, height));
+  }, []);
+
+  const handleApplyCrop = () => {
+    if (!imgRef.current || !crop) return;
+    const canvas = getCroppedCanvas(imgRef.current, crop);
+    if (!canvas) return;
+    onConfirm(canvas.toDataURL("image/jpeg", 0.92));
+  };
+
+  const handleUseOriginal = () => {
+    if (cropSrc) {
+      onConfirm(cropSrc);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="max-w-lg gap-0">
+        <DialogHeader className="pb-4">
+          <DialogTitle>Change image</DialogTitle>
+        </DialogHeader>
+
+        {!cropSrc ? (
+          <>
+            {/* Tab switcher */}
+            <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-0.5 mb-4">
+              <button
+                type="button"
+                onClick={() => setTab("upload")}
+                className={cn(
+                  "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all flex items-center justify-center gap-1.5",
+                  tab === "upload" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <ImagePlus className="size-3.5" /> Upload
+              </button>
+              <button
+                type="button"
+                onClick={() => setTab("url")}
+                className={cn(
+                  "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition-all flex items-center justify-center gap-1.5",
+                  tab === "url" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Link2 className="size-3.5" /> URL
+              </button>
+            </div>
+
+            {tab === "upload" ? (
+              <>
+                <div
+                  className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-muted-foreground/25 p-10 text-center cursor-pointer hover:border-primary/50 hover:bg-primary/5 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={handleDrop}
+                >
+                  <ImagePlus className="size-10 text-muted-foreground/40" />
+                  <div>
+                    <p className="text-sm font-medium">Drop image here or click to browse</p>
+                    <p className="text-xs text-muted-foreground mt-1">PNG, JPG, WebP up to 10 MB</p>
+                  </div>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => handleFiles(e.target.files)}
+                />
+              </>
+            ) : (
+              <div className="space-y-3">
+                <Input
+                  placeholder="https://example.com/image.jpg"
+                  value={urlValue}
+                  onChange={(e) => setUrlValue(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleUrlSubmit()}
+                  autoFocus
+                />
+                <Button onClick={handleUrlSubmit} disabled={!urlValue.trim()} className="w-full">
+                  Load image
+                </Button>
+              </div>
+            )}
+
+            {/* Current image preview */}
+            {currentSrc && (
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs text-muted-foreground mb-2">Current image</p>
+                <div className="h-20 w-20 rounded-lg overflow-hidden border bg-muted">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={currentSrc} alt="Current" className="h-full w-full object-cover" />
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="pt-4">
+              <Button variant="outline" onClick={onCancel}>Cancel</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            {/* Crop view */}
+            <div className="flex justify-center max-h-[55vh] overflow-auto rounded-lg bg-muted/30">
+              <ReactCrop crop={crop} onChange={(_, pct) => setCrop(pct)} aspect={undefined} circularCrop={false}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  ref={imgRef}
+                  src={cropSrc}
+                  alt="Crop preview"
+                  onLoad={onImageLoad}
+                  className="max-h-[50vh] w-auto"
+                  crossOrigin="anonymous"
+                />
+              </ReactCrop>
+            </div>
+            <DialogFooter className="pt-4 flex-row justify-between gap-2">
+              <Button variant="outline" onClick={() => setCropSrc(null)}>
+                <X className="size-3.5 mr-1.5" /> Back
+              </Button>
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={handleUseOriginal}>
+                  Use original
+                </Button>
+                <Button onClick={handleApplyCrop}>
+                  <Crop className="size-3.5 mr-1.5" /> Apply crop
+                </Button>
+              </div>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Generation Overlay — shown while AI is streaming code
 // ─────────────────────────────────────────────────────────────────────────────
@@ -885,6 +1091,7 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange, strea
   }, []);
 
   const [isVisualEditMode, setIsVisualEditMode] = useState(false);
+  const [pendingImageEdit, setPendingImageEdit] = useState<{ oldSrc: string; oldSrcResolved: string } | null>(null);
 
   useEffect(() => {
     const handleToggle = () => setIsVisualEditMode((prev) => !prev);
@@ -915,6 +1122,10 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange, strea
 
       if (e.data && e.data.type === 'STRIPE_REDIRECT') {
         toast.info("Payments are not available in the live preview. Publish your shop to test checkout.");
+      }
+
+      if (e.data && e.data.type === 'VISUAL_EDIT_IMAGE') {
+        setPendingImageEdit({ oldSrc: e.data.oldSrc, oldSrcResolved: e.data.oldSrcResolved });
       }
       
       if (e.data && (e.data.type === 'DIRECT_SAVE_TEXT' || e.data.type === 'DIRECT_SAVE_IMAGE')) {
@@ -1089,8 +1300,55 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange, strea
     return () => window.removeEventListener('message', handleMessage);
   }, [files, onFilesChange]);
 
+  const handleImageEditConfirm = useCallback((newSrc: string) => {
+    if (!pendingImageEdit || !onFilesChange) {
+      setPendingImageEdit(null);
+      return;
+    }
+    const { oldSrc, oldSrcResolved } = pendingImageEdit;
+    setPendingImageEdit(null);
+
+    const newFiles = { ...files };
+    let found = false;
+    const sortedPaths = Object.keys(newFiles).filter(p => !/package\.json$/i.test(p));
+
+    for (const path of sortedPaths) {
+      const content = newFiles[path];
+      if (oldSrc && content.includes(oldSrc)) {
+        newFiles[path] = content.split(oldSrc).join(newSrc);
+        found = true;
+        break;
+      }
+      if (oldSrcResolved) {
+        try {
+          const url = new URL(oldSrcResolved);
+          const pathname = url.pathname + url.search;
+          if (pathname.length > 1 && content.includes(pathname)) {
+            newFiles[path] = content.split(pathname).join(newSrc);
+            found = true;
+            break;
+          }
+        } catch {}
+      }
+    }
+
+    if (found) {
+      onFilesChange(newFiles);
+      toast.success("Image updated!");
+    } else {
+      toast.error("Image source not found in code — use the AI chat to update it instead.");
+    }
+  }, [pendingImageEdit, files, onFilesChange]);
+
   return (
     <div className="sandpack-stretch h-full w-full relative">
+      {/* Image edit dialog — upload, URL, or crop */}
+      <ImageEditDialog
+        open={!!pendingImageEdit}
+        currentSrc={pendingImageEdit?.oldSrcResolved ?? ""}
+        onConfirm={handleImageEditConfirm}
+        onCancel={() => setPendingImageEdit(null)}
+      />
       {/* Rich generation overlay — stays visible until Sandpack finishes rebuilding */}
       {showOverlay && (
         <div className={cn("transition-opacity duration-500", overlayFading ? "opacity-0" : "opacity-100")}>

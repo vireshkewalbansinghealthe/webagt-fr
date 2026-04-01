@@ -174,6 +174,9 @@ export default function EditorPage({
   /** Maximum number of auto-heal retry attempts before giving up */
   const MAX_AUTO_HEAL_ATTEMPTS = 3;
 
+  /** AbortController for stopping AI generation */
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   /** Fire-and-forget project log writer */
   const logQueue = useRef<Array<{ level: string; source: string; message: string; detail?: string }>>([]);
   const logFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -536,6 +539,16 @@ export default function EditorPage({
     setDiffState(null);
   }, []);
 
+  const handleStopGeneration = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsStreaming(false);
+      isStreamingRef.current = false;
+      toast.info("Generation stopped");
+    }
+  }, []);
+
   /**
    * Handles sending a new chat message via SSE streaming.
    * Connects to POST /api/chat/:projectId, streams the AI response
@@ -577,6 +590,10 @@ export default function EditorPage({
       setIsStreaming(true);
       isStreamingRef.current = true;
 
+      // Initialize AbortController for this request
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
       // Create an empty AI message that will be filled by streaming chunks
       const aiMessageId = `msg-${Date.now()}-assistant`;
       const aiMessage: ChatMessage = {
@@ -609,6 +626,7 @@ export default function EditorPage({
               model: selectedModelId,
               images: images && images.length > 0 ? images : undefined,
             }),
+            signal,
           }
         );
 
@@ -761,6 +779,11 @@ export default function EditorPage({
           }
         }
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") {
+          // User intentionally stopped generation
+          return;
+        }
+
         const errorMessage =
           error instanceof Error ? error.message : "Something went wrong";
 
@@ -789,6 +812,7 @@ export default function EditorPage({
       } finally {
         setIsStreaming(false);
         isStreamingRef.current = false;
+        abortControllerRef.current = null;
       }
     },
     [project, selectedModelId, getToken, projectId, viewingVersion, handleBackToCurrent, refreshVersions]
@@ -1042,6 +1066,9 @@ export default function EditorPage({
     return <EditorLayoutSkeleton />;
   }
 
+  const userMessageCount = messages.filter(m => m.role === "user").length;
+  const canStop = userMessageCount > 1;
+
   return (
     <EditorLayout
       projectId={projectId}
@@ -1061,6 +1088,8 @@ export default function EditorPage({
       userPlan={userPlan}
       onRename={handleRename}
       onDelete={handleDelete}
+      onStopGeneration={handleStopGeneration}
+      canStop={canStop}
       viewingVersion={viewingVersion}
       onBackToCurrent={handleBackToCurrent}
       onRestoreViewing={

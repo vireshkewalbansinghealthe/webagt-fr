@@ -46,6 +46,8 @@ export interface ChatPanelProps {
   selectedModelId: string;
   onModelChange: (modelId: string) => void;
   userPlan: "free" | "pro";
+  onStopGeneration?: () => void;
+  canStop?: boolean;
 }
 
 /**
@@ -66,6 +68,8 @@ export function ChatPanel({
   selectedModelId,
   onModelChange,
   userPlan,
+  onStopGeneration,
+  canStop,
 }: ChatPanelProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [draftMessage, setDraftMessage] = useState<{ id: number; text: string } | null>(null);
@@ -198,6 +202,8 @@ export function ChatPanel({
             isCreditsExhausted={isCreditsExhausted}
             supportsVision={supportsVision}
             draftMessage={draftMessage}
+            onStop={onStopGeneration}
+            canStop={canStop}
           />
         </div>
       )}

@@ -90,6 +90,8 @@ export interface EditorLayoutProps {
   userPlan: "free" | "pro";
   onRename: (newName: string) => void;
   onDelete: () => void;
+  onStopGeneration?: () => void;
+  canStop?: boolean;
   projectType?: "website" | "webshop";
   /** Turso DB connection for webshop order badge polling */
   databaseUrl?: string;
@@ -321,7 +323,8 @@ export function EditorLayout({
             selectedModelId={selectedModelId}
             onModelChange={onModelChange}
             userPlan={userPlan}
-
+            onStopGeneration={onStopGeneration}
+            canStop={canStop}
           />
         </div>
 
@@ -435,7 +438,8 @@ export function EditorLayout({
             selectedModelId={selectedModelId}
             onModelChange={onModelChange}
             userPlan={userPlan}
-
+            onStopGeneration={onStopGeneration}
+            canStop={canStop}
           />
         </div>
 

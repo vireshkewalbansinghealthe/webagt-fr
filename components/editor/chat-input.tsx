@@ -17,7 +17,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { SendHorizontal, Clock, Paperclip, X, Wand2 } from "lucide-react";
+import { SendHorizontal, Clock, Paperclip, X, Wand2, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useRateLimit } from "@/components/rate-limit-provider";
@@ -46,6 +46,8 @@ export interface ChatInputProps {
   isCreditsExhausted?: boolean;
   supportsVision?: boolean;
   draftMessage?: { id: number; text: string } | null;
+  onStop?: () => void;
+  canStop?: boolean;
 }
 
 /**
@@ -62,6 +64,8 @@ export function ChatInput({
   isCreditsExhausted = false,
   supportsVision = false,
   draftMessage = null,
+  onStop,
+  canStop = false,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -383,20 +387,32 @@ export function ChatInput({
             )}
           />
 
-          {/* Send button — only clickable when there's content and credits */}
-          <Button
-            size="icon-xs"
-            onClick={handleSend}
-            disabled={!hasContent || isDisabled}
-            className={cn(
-              "shrink-0 rounded-lg transition-all duration-150",
-              hasContent && !isDisabled
-                ? "opacity-100 scale-100"
-                : "opacity-30 scale-95"
-            )}
-          >
-            <SendHorizontal className="size-3.5" />
-          </Button>
+          {/* Stop / Send button */}
+          {isStreaming && canStop ? (
+            <Button
+              size="icon-xs"
+              onClick={onStop}
+              variant="destructive"
+              className="shrink-0 rounded-lg"
+              title="Stop generation"
+            >
+              <Square className="size-3.5 fill-current" />
+            </Button>
+          ) : (
+            <Button
+              size="icon-xs"
+              onClick={handleSend}
+              disabled={!hasContent || isDisabled}
+              className={cn(
+                "shrink-0 rounded-lg transition-all duration-150",
+                hasContent && !isDisabled
+                  ? "opacity-100 scale-100"
+                  : "opacity-30 scale-95"
+              )}
+            >
+              <SendHorizontal className="size-3.5" />
+            </Button>
+          )}
         </div>
       </div>
 

@@ -502,20 +502,30 @@ chatRoutes.post("/:projectId", async (c) => {
 
       let chunkCount = 0;
       let lastChunkTime = Date.now();
+      let clientDisconnected = false;
+
       for await (const chunk of result.textStream) {
         fullResponse += chunk;
         chunkCount++;
         lastChunkTime = Date.now();
-        await stream.writeSSE({
-          event: "chunk",
-          data: JSON.stringify({ text: chunk }),
-          id: String(eventId++),
-        });
+
+        if (!clientDisconnected) {
+          try {
+            await stream.writeSSE({
+              event: "chunk",
+              data: JSON.stringify({ text: chunk }),
+              id: String(eventId++),
+            });
+          } catch (e) {
+            console.log(`[chat] Client disconnected during stream for ${projectId}. Continuing in background...`);
+            clientDisconnected = true;
+          }
+        }
       }
 
       const streamDuration = Date.now() - streamStart;
       const responseTokensApprox = Math.round(fullResponse.length / 4);
-      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ~${responseTokensApprox} tokens, ${(streamDuration / 1000).toFixed(1)}s`, JSON.stringify({ chunkCount, responseLengthChars: fullResponse.length, approxTokens: responseTokensApprox, durationMs: streamDuration }));
+      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ~${responseTokensApprox} tokens, ${(streamDuration / 1000).toFixed(1)}s${clientDisconnected ? " (background)" : ""}`, JSON.stringify({ chunkCount, responseLengthChars: fullResponse.length, approxTokens: responseTokensApprox, durationMs: streamDuration, background: clientDisconnected }));
 
       // Check for possible truncation
       const lastFileTagOpen = fullResponse.lastIndexOf("<file ");
@@ -676,28 +686,40 @@ chatRoutes.post("/:projectId", async (c) => {
       }
 
       // --- 12. Send final events ---
-      if (acceptedFiles.length > 0) {
-        const filesPayloadSize = JSON.stringify({ files: mergedFiles }).length;
-        plog.info("chat", `Sending SSE 'files' event — ${mergedFiles.length} files, ${(filesPayloadSize / 1024).toFixed(1)} KB`);
-        await stream.writeSSE({
-          event: "files",
-          data: JSON.stringify({ files: mergedFiles }),
-          id: String(eventId++),
-        });
-      } else {
-        plog.warn("chat", "⚠️ No files event sent — acceptedFiles is empty, client keeps default template");
+      if (!clientDisconnected) {
+        if (acceptedFiles.length > 0) {
+          const filesPayloadSize = JSON.stringify({ files: mergedFiles }).length;
+          plog.info("chat", `Sending SSE 'files' event — ${mergedFiles.length} files, ${(filesPayloadSize / 1024).toFixed(1)} KB`);
+          try {
+            await stream.writeSSE({
+              event: "files",
+              data: JSON.stringify({ files: mergedFiles }),
+              id: String(eventId++),
+            });
+          } catch (e) {
+            clientDisconnected = true;
+          }
+        } else {
+          plog.warn("chat", "⚠️ No files event sent — acceptedFiles is empty, client keeps default template");
+        }
       }
 
-      await stream.writeSSE({
-        event: "done",
-        data: JSON.stringify({
-          versionId: `v${newVersionNumber}`,
-          model: modelId,
-          changedFiles: changedFilePaths,
-          creditsRemaining: updatedCredits.remaining,
-        }),
-        id: String(eventId++),
-      });
+      if (!clientDisconnected) {
+        try {
+          await stream.writeSSE({
+            event: "done",
+            data: JSON.stringify({
+              versionId: `v${newVersionNumber}`,
+              model: modelId,
+              changedFiles: changedFilePaths,
+              creditsRemaining: updatedCredits.remaining,
+            }),
+            id: String(eventId++),
+          });
+        } catch (e) {
+          clientDisconnected = true;
+        }
+      }
 
       const totalDuration = Date.now() - streamStart;
       plog.info("chat", `✅ Generation complete — v${newVersionNumber}, ${changedFilePaths.length} files changed, ${(totalDuration / 1000).toFixed(1)}s total`);

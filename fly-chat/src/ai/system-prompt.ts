@@ -1,0 +1,1 @@
+../../../worker/src/ai/system-prompt.ts

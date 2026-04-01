@@ -122,7 +122,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
     window.addEventListener("webagt:edit-product-image", handler);
     return () => window.removeEventListener("webagt:edit-product-image", handler);
   }, []);
-
+  
   const turso = useMemo(() => {
     if (!projectState.databaseUrl || !projectState.databaseToken) return null;
     return createClient({
@@ -863,9 +863,9 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
                       {cols.status && (
                         <td className="px-4 py-2.5">
                           <Badge variant="outline" className={cn("text-xs", String(p.status).toLowerCase() !== "draft" ? "border-green-500/30 bg-green-500/10 text-green-700" : "")}>
-                            {String(p.status).toLowerCase() === "draft" ? "Draft" : "Active"}
-                          </Badge>
-                        </td>
+                          {String(p.status).toLowerCase() === "draft" ? "Draft" : "Active"}
+                        </Badge>
+                      </td>
                       )}
                       {/* Category */}
                       {cols.category && (
@@ -878,12 +878,12 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
                             <span className="flex items-center gap-1 text-muted-foreground text-xs"><InfinityIcon className="size-3" /> Unlimited</span>
                           ) : (
                             <span className={cn("text-sm", stock === 0 && "text-red-500 font-medium", stock > 0 && stock <= 5 && "text-amber-600 font-medium")}>
-                              {stock}
+                          {stock}
                               {stock === 0 && <span className="ml-1 text-xs font-normal text-red-400">out</span>}
                               {stock > 0 && stock <= 5 && <span className="ml-1 text-xs font-normal text-amber-500">low</span>}
-                            </span>
-                          )}
-                        </td>
+                        </span>
+                        )}
+                      </td>
                       )}
                       {/* SKU */}
                       {cols.sku && (
@@ -2074,20 +2074,20 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
 
   return (
     <>
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
           <h3 className="text-lg font-medium">Orders</h3>
-          <div className="flex items-center gap-2">
-            {label && <span className="text-xs text-muted-foreground">{label}</span>}
-            <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadOrders(true)} disabled={refreshing}>
-              <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
-              Refresh
-            </Button>
-          </div>
+        <div className="flex items-center gap-2">
+          {label && <span className="text-xs text-muted-foreground">{label}</span>}
+          <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadOrders(true)} disabled={refreshing}>
+            <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
+            Refresh
+          </Button>
         </div>
+      </div>
 
         <div className="border rounded-lg overflow-hidden bg-card">
-          <table className="w-full text-sm text-left">
+        <table className="w-full text-sm text-left">
             <thead className="bg-muted/50 text-muted-foreground">
               <tr>
                 <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide">Order #</th>
@@ -2096,14 +2096,14 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
                 <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide">Status</th>
                 <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-right">Total</th>
                 <th className="px-4 py-2.5 font-medium text-xs uppercase tracking-wide text-right">Actions</th>
-              </tr>
-            </thead>
+            </tr>
+          </thead>
             <tbody className="divide-y divide-border">
-              {orders.length === 0 ? (
+            {orders.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-10 text-center text-muted-foreground text-sm">
                     No orders yet. They will appear here when customers checkout.
-                  </td>
+                </td>
                 </tr>
               ) : orders.map(o => {
                 const isDone = o.status === "CANCELLED" || o.status === "REFUNDED";
@@ -2114,13 +2114,13 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
                       <td className="px-4 py-3 font-medium text-primary">{o.orderNumber}</td>
                       <td className="px-4 py-3 text-muted-foreground text-xs">
                         {new Date(o.createdAt).toLocaleDateString("nl-NL", { day: "2-digit", month: "short", year: "numeric" })}
-                      </td>
-                      <td className="px-4 py-3">
+                </td>
+                <td className="px-4 py-3">
                         <div className="flex flex-col">
                           <span>{o.firstName ? `${o.firstName} ${o.lastName ?? ""}`.trim() : "Guest"}</span>
                           {o.email && <span className="text-xs text-muted-foreground">{o.email}</span>}
                         </div>
-                      </td>
+                </td>
                       <td className="px-4 py-3"><OrderStatusBadge status={o.status} /></td>
                       <td className="px-4 py-3 text-right font-medium">€{Number(o.totalAmount).toFixed(2)}</td>
                       <td className="px-4 py-3 text-right">
@@ -2170,13 +2170,13 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
                             </button>
                           </DropdownMenuContent>
                         </DropdownMenu>
-                      </td>
-                    </tr>
+                </td>
+              </tr>
                   </React.Fragment>
                 );
               })}
-            </tbody>
-          </table>
+          </tbody>
+        </table>
         </div>
       </div>
 
@@ -2248,8 +2248,8 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
                           <div className="text-right shrink-0">
                             <p className="font-medium">€{Number(item.unitPrice).toFixed(2)}</p>
                             <p className="text-xs text-muted-foreground">×{item.quantity}</p>
-                          </div>
-                        </div>
+      </div>
+    </div>
                       );
                     })}
                   </div>
@@ -2450,7 +2450,7 @@ function PaymentsTab({
     setInitialLoading(true);
     refreshStripeState()
       .catch((error) => {
-        console.error("Failed to load Stripe state:", error);
+      console.error("Failed to load Stripe state:", error);
       })
       .finally(() => setInitialLoading(false));
   }, [project.id, project.stripeAccountId, project.stripeTestAccountId, project.stripeLiveAccountId, selectedMode]);
@@ -2634,15 +2634,15 @@ function PaymentsTab({
   const activeStep = !step1Complete ? 0 : !step2Complete ? 1 : !step3Complete ? 2 : 3;
 
   if (initialLoading) {
-    return (
+  return (
       <div className="space-y-6 max-w-2xl animate-pulse">
         <div className="flex items-center justify-between">
-          <div>
+        <div>
             <div className="h-5 w-32 rounded bg-muted" />
             <div className="h-3 w-48 rounded bg-muted mt-2" />
-          </div>
-          <div className="h-6 w-16 rounded bg-muted" />
         </div>
+          <div className="h-6 w-16 rounded bg-muted" />
+      </div>
         {[1, 2, 3].map((i) => (
           <div key={i} className="rounded-xl border border-border/50 p-5 space-y-3">
             <div className="flex items-center gap-2.5">
@@ -2661,13 +2661,13 @@ function PaymentsTab({
     <div className="space-y-6 max-w-2xl">
 
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
+              <div className="flex items-center justify-between">
+                <div>
           <h3 className="text-lg font-semibold">Payments</h3>
           <p className="text-sm text-muted-foreground mt-0.5">Accept payments in 3 steps.</p>
-        </div>
+                  </div>
         <img src="/Stripe_Logo,_revised_2016.svg.png" alt="Stripe" className="h-6 w-auto opacity-60" />
-      </div>
+                </div>
 
       {/* Steps */}
       <div className="space-y-3">
@@ -2718,7 +2718,7 @@ function PaymentsTab({
                   </button>
                 )}
               </div>
-            </div>
+              </div>
 
             {/* Title */}
             <h4 className="text-base font-semibold">
@@ -2727,9 +2727,9 @@ function PaymentsTab({
 
             {/* Description */}
             <p className="text-sm text-muted-foreground leading-relaxed">
-              {!accountId
+                {!accountId
                 ? "We use Stripe to handle payments securely. Click below to create or connect a Stripe account."
-                : isOnboarded
+                  : isOnboarded
                   ? "Your Stripe account is fully set up and ready to accept payments."
                   : "Almost there — complete the onboarding form to activate your account."}
             </p>
@@ -2740,9 +2740,9 @@ function PaymentsTab({
                 {(["test", "live"] as const).map((m) => (
                   <button
                     key={m}
-                    type="button"
+                  type="button"
                     onClick={() => setSelectedMode(m)}
-                    disabled={isLoading}
+                  disabled={isLoading}
                     className={cn(
                       "rounded-md px-4 py-1.5 text-sm font-medium transition-all",
                       selectedMode === m
@@ -2755,14 +2755,14 @@ function PaymentsTab({
                 ))}
               </div>
 
-              <Button onClick={startOnboarding} disabled={isLoading} className="gap-2">
+                <Button onClick={startOnboarding} disabled={isLoading} className="gap-2">
                 {isLoading
                   ? <Loader2 className="size-4 animate-spin" />
                   : <ArrowUpRight className="size-4" />}
                 {!accountId ? "Setup Stripe" : isOnboarded ? "Re-onboard" : "Setup Stripe"}
-              </Button>
+                </Button>
 
-              {accountId && (
+                {accountId && (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -2771,11 +2771,11 @@ function PaymentsTab({
                   className="gap-1.5 text-destructive hover:text-destructive ml-auto"
                 >
                   <Trash2 className="size-3.5" /> Disconnect
-                </Button>
+                    </Button>
               )}
             </div>
-          </div>
-        </div>
+              </div>
+            </div>
 
         {/* ── Step 2: Payment mode ── */}
         <div className={cn(
@@ -2797,21 +2797,21 @@ function PaymentsTab({
               <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                 Payment mode
               </span>
-            </div>
+                </div>
 
             <h4 className="text-base font-semibold">
               {paymentMode === "off" ? "Choose a payment mode" : paymentMode === "test" ? "Test mode active" : "Live payments active"}
-            </h4>
+                </h4>
 
-            <p className="text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
               {paymentMode === "test"
                 ? "Use test card numbers to simulate purchases without real money."
                 : paymentMode === "live"
                   ? "Real customers can pay and funds go to your Stripe account."
                   : "Choose whether to enable test or live payments."}
-            </p>
+              </p>
 
-            <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-2">
               {(["off", "test", "live"] as const).map((m) => (
                 <button
                   key={m}
@@ -2829,8 +2829,8 @@ function PaymentsTab({
                 </button>
               ))}
             </div>
-          </div>
-        </div>
+              </div>
+            </div>
 
         {/* ── Step 3: Publish ── */}
         <div className={cn(
@@ -2850,35 +2850,35 @@ function PaymentsTab({
                 {step3Complete ? "✓" : "3"}
               </span>
               <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                Publish
+                  Publish
               </span>
-            </div>
+                </div>
 
             <h4 className="text-base font-semibold">
               {isPublished ? "Shop is live" : "Publish your shop"}
-            </h4>
+                </h4>
 
-            <p className="text-sm text-muted-foreground">
-              {isPublished
+              <p className="text-sm text-muted-foreground">
+                {isPublished
                 ? "Your storefront is live and accepting payments."
                 : "Once Stripe is connected and a payment mode is set, publish to go live."}
             </p>
 
-            <Button
-              onClick={() => onNavigate("publish")}
-              variant={isPublished ? "outline" : "default"}
-              disabled={!step2Complete}
+              <Button
+                onClick={() => onNavigate("publish")}
+                variant={isPublished ? "outline" : "default"}
+                disabled={!step2Complete}
               className="gap-2"
-            >
-              <Globe className="size-4" />
+              >
+                <Globe className="size-4" />
               {isPublished ? "Go to Publish" : "Publish now"}
-            </Button>
+              </Button>
           </div>
-        </div>
-      </div>
+            </div>
+          </div>
 
       {/* Stats (shown after full setup) */}
-      {step3Complete && (
+          {step3Complete && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pt-2">
           {[
             { label: "Orders", value: String(orderCount) },
@@ -2889,11 +2889,11 @@ function PaymentsTab({
             <div key={s.label} className="rounded-xl border bg-card p-4 shadow-sm">
               <div className="text-xs text-muted-foreground mb-1">{s.label}</div>
               <div className="text-2xl font-bold">{s.value}</div>
-            </div>
+              </div>
           ))}
-        </div>
+              </div>
       )}
-    </div>
+                </div>
   );
 }
 
@@ -2973,7 +2973,7 @@ function LogsTab({ turso, projectId, getToken }: { turso: any; projectId: string
                 {l}
               </button>
             ))}
-          </div>
+              </div>
           <Button size="sm" variant="ghost" className="gap-1.5 h-7 px-2" onClick={() => loadLogs(true)} disabled={refreshing}>
             <RotateCw className={cn("size-3.5", refreshing && "animate-spin")} />
           </Button>
@@ -2982,8 +2982,8 @@ function LogsTab({ turso, projectId, getToken }: { turso: any; projectId: string
               <Trash2 className="size-3.5" /> Clear
             </Button>
           )}
-        </div>
-      </div>
+                </div>
+              </div>
 
       {filtered.length === 0 ? (
         <div className="border rounded-lg bg-card p-8 text-center text-muted-foreground text-sm">
@@ -2991,7 +2991,7 @@ function LogsTab({ turso, projectId, getToken }: { turso: any; projectId: string
           {logs.length === 0
             ? "No logs yet. Database operations, seed events, and errors will appear here automatically."
             : `No ${filter} logs found.`}
-        </div>
+            </div>
       ) : (
         <div className="border rounded-lg bg-card overflow-hidden">
           <div className="max-h-[500px] overflow-y-auto font-mono text-xs divide-y divide-border">
@@ -3010,9 +3010,9 @@ function LogsTab({ turso, projectId, getToken }: { turso: any; projectId: string
                 {log.detail && (
                   <span className="text-muted-foreground/60 break-all ml-auto">{String(log.detail).slice(0, 200)}</span>
                 )}
-              </div>
+    </div>
             ))}
-          </div>
+      </div>
         </div>
       )}
     </div>

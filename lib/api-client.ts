@@ -30,6 +30,13 @@ export const WORKER_URL =
   process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:8787";
 
 /**
+ * Base URL for the Chat/AI generation service (Fly.io).
+ * Falls back to WORKER_URL when not set (local dev).
+ */
+export const CHAT_URL =
+  process.env.NEXT_PUBLIC_CHAT_URL || WORKER_URL;
+
+/**
  * Consistent error shape returned by all API errors.
  */
 export interface ApiError {

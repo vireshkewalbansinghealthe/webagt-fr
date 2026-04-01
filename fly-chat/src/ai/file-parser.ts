@@ -1,0 +1,1 @@
+../../../worker/src/ai/file-parser.ts

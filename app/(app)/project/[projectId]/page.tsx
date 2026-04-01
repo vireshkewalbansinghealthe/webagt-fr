@@ -29,7 +29,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import type { ChatMessage, ImageAttachment } from "@/types/chat";
 import type { Project, ProjectFile, VersionMeta } from "@/types/project";
-import { createApiClient, WORKER_URL } from "@/lib/api-client";
+import { createApiClient, WORKER_URL, CHAT_URL } from "@/lib/api-client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -597,7 +597,7 @@ export default function EditorPage({
 
         // Make the streaming request to the chat endpoint
         const response = await fetch(
-          `${WORKER_URL}/api/chat/${projectId}`,
+          `${CHAT_URL}/api/chat/${projectId}`,
           {
             method: "POST",
             headers: {
@@ -719,6 +719,17 @@ export default function EditorPage({
 
                 // Refresh the version timeline
                 refreshVersions();
+              }
+
+              // Auto-continue if the AI chunked its response
+              if (event.continue) {
+                setTimeout(() => {
+                  handleSendMessageRef.current?.(
+                    "Please continue generating the remaining files.",
+                    undefined,
+                    true // Use isAutoHeal flag so it doesn't reset counters, though it's technically a continuation
+                  );
+                }, 1000);
               }
 
               // Handle error events from the stream

@@ -184,14 +184,14 @@ export function CreateProjectDialog({
           "w-[95vw] p-0 gap-0 overflow-hidden",
           shouldUseExpandedTemplateBrowser
             ? "sm:max-w-[1040px] h-[88vh] max-h-[88vh]"
-            : "sm:max-w-[620px]",
+            : "sm:max-w-[620px] max-h-[90vh]",
         )}
       >
         <form
           onSubmit={handleSubmit}
           className={cn(
             "flex flex-col h-full",
-            shouldUseExpandedTemplateBrowser ? "max-h-[88vh]" : "",
+            shouldUseExpandedTemplateBrowser ? "max-h-[88vh]" : "max-h-[90vh]",
           )}
         >
           {/* ── Header ── */}
@@ -319,8 +319,8 @@ export function CreateProjectDialog({
                     rows={shouldUseExpandedTemplateBrowser ? 8 : 5}
                     disabled={isLoading}
                     className={cn(
-                      "resize-none",
-                      shouldUseExpandedTemplateBrowser ? "min-h-[168px]" : "min-h-[132px]",
+                      "resize-none overflow-y-auto",
+                      shouldUseExpandedTemplateBrowser ? "min-h-[168px] max-h-[300px]" : "min-h-[132px] max-h-[250px]",
                     )}
                   />
                 </div>

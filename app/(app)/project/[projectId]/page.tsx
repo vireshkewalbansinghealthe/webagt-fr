@@ -177,6 +177,9 @@ export default function EditorPage({
   /** AbortController for stopping AI generation */
   const abortControllerRef = useRef<AbortController | null>(null);
 
+  /** Interval handle for polling generation status after a page refresh */
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   /** Fire-and-forget project log writer */
   const logQueue = useRef<Array<{ level: string; source: string; message: string; detail?: string }>>([]);
   const logFlushTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -279,6 +282,63 @@ export default function EditorPage({
   } | null>(null);
 
   /**
+   * Polls the Fly.io status endpoint every 4 seconds while a background
+   * generation is running (e.g. after the user refreshed the page).
+   * When the generation finishes, reloads files, messages, and versions
+   * automatically and clears the streaming indicator.
+   */
+  const startPolling = useCallback(() => {
+    if (pollingRef.current) return; // already polling
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const res = await fetch(`${CHAT_URL}/api/chat/status/${projectId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+
+        const state = await res.json() as { status: string; versionId?: string };
+
+        if (state.status === "completed" || state.status === "failed") {
+          // Stop polling
+          clearInterval(pollingRef.current!);
+          pollingRef.current = null;
+
+          // Reload everything from the backend
+          const client = createApiClient(getToken);
+          const [filesResponse, chatResponse, versionsResponse] = await Promise.all([
+            client.projects.getFiles(projectId),
+            client.chat.getHistory(projectId),
+            client.versions.list(projectId),
+          ]);
+
+          const newFiles = filesToRecord(filesResponse.files);
+          setFiles(newFiles);
+          currentFilesRef.current = newFiles;
+          lastSavedFilesRef.current = newFiles;
+
+          setMessages(chatResponse.messages);
+          setVersions(versionsResponse.versions);
+
+          if (state.status === "completed") {
+            setProject((prev) =>
+              prev ? { ...prev, currentVersion: prev.currentVersion + 1, updatedAt: new Date().toISOString() } : prev
+            );
+          }
+
+          setIsStreaming(false);
+          isStreamingRef.current = false;
+        }
+      } catch {
+        // Polling failed silently — will retry next interval
+      }
+    }, 4000);
+  }, [getToken, projectId]);
+
+  /**
    * Fetch project metadata, current version files, chat history,
    * and version list on mount.
    */
@@ -286,15 +346,22 @@ export default function EditorPage({
     async function loadProject() {
       try {
         const client = createApiClient(getToken);
+        const token = await getToken();
 
-        // Fetch project metadata, files, chat history, versions, and credits in parallel
-        const [projectResponse, filesResponse, chatResponse, versionsResponse, creditsResponse] =
+        // Fetch project metadata, files, chat history, versions, credits, and
+        // generation status all in parallel.
+        const [projectResponse, filesResponse, chatResponse, versionsResponse, creditsResponse, statusRes] =
           await Promise.all([
             client.projects.get(projectId),
             client.projects.getFiles(projectId),
             client.chat.getHistory(projectId),
             client.versions.list(projectId),
             client.credits.get(),
+            token
+              ? fetch(`${CHAT_URL}/api/chat/status/${projectId}`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                }).then((r) => r.json()).catch(() => ({ status: "idle" }))
+              : Promise.resolve({ status: "idle" }),
           ]);
 
         setProject(projectResponse.project);
@@ -321,6 +388,16 @@ export default function EditorPage({
         } else if (filePaths.length > 0) {
           setActiveFile(filePaths[0]);
         }
+
+        // If the server is still generating (background), show the spinner
+        // and poll until it finishes — no user-visible reconnect message.
+        const genState = statusRes as { status: string };
+        if (genState.status === "running") {
+          setIsStreaming(true);
+          isStreamingRef.current = true;
+          startPolling();
+        }
+
         // Check sessionStorage for a pending prompt (set during project creation).
         // Consume and delete the key so refreshes won't re-send.
         try {
@@ -343,7 +420,15 @@ export default function EditorPage({
     }
 
     loadProject();
-  }, [projectId, getToken, router]);
+
+    // Clean up polling on unmount
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [projectId, getToken, router, startPolling]);
 
   /**
    * Refreshes the version list from the API.
@@ -540,29 +625,34 @@ export default function EditorPage({
   }, []);
 
   const handleStopGeneration = useCallback(async () => {
+    // Stop polling if running (background reconnect scenario)
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    // Abort the active SSE connection if there is one
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
-      
-      // Also notify the server to stop the generation in the background
-      try {
-        const token = await getToken();
-        if (token) {
-          await fetch(`${CHAT_URL}/api/chat/stop/${projectId}`, {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-        }
-      } catch (err) {
-        console.error("Failed to notify server to stop generation:", err);
-      }
-
-      setIsStreaming(false);
-      isStreamingRef.current = false;
-      toast.info("Generation stopped");
     }
+
+    // Notify the server to stop the background generation
+    try {
+      const token = await getToken();
+      if (token) {
+        await fetch(`${CHAT_URL}/api/chat/stop/${projectId}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    } catch (err) {
+      console.error("Failed to notify server to stop generation:", err);
+    }
+
+    setIsStreaming(false);
+    isStreamingRef.current = false;
+    toast.info("Generation stopped");
   }, [getToken, projectId]);
 
   /**

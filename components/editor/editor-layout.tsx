@@ -139,6 +139,8 @@ export function EditorLayout({
   userPlan,
   onRename,
   onDelete,
+  onStopGeneration,
+  canStop,
   projectType,
   shopManagerPanel,
   databaseUrl,

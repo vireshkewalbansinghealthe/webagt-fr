@@ -107,20 +107,41 @@ async function authenticatedFetch<T>(
   const token = await getToken();
 
   if (!token) {
-    throw new Error("Not authenticated — no session token available");
+    // Clerk is still initializing — caller should guard with isLoaded before calling
+    throw Object.assign(new Error("Not authenticated — no session token available"), {
+      isAuthError: true,
+    });
   }
 
-  const response = await fetch(`${WORKER_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      ...options.headers,
-    },
-  }).catch(err => {
-    console.error(`Fetch failed for ${path}:`, err);
-    throw err;
-  });
+  // Retry up to 3 times on network errors (TypeError = connection refused / DNS failure).
+  // This handles the brief window after login/registration where the worker may not
+  // yet be reachable, or the local wrangler dev server is still starting up.
+  let response: Response | undefined;
+  let lastNetworkError: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      response = await fetch(`${WORKER_URL}${path}`, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+          ...options.headers,
+        },
+      });
+      lastNetworkError = undefined;
+      break;
+    } catch (err) {
+      lastNetworkError = err;
+      if (attempt < 2) {
+        await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+      }
+    }
+  }
+  if (!response) {
+    throw Object.assign(lastNetworkError instanceof Error ? lastNetworkError : new Error("Network error"), {
+      isNetworkError: true,
+    });
+  }
 
   if (!response.ok) {
     const errorBody = (await response.json().catch(() => ({
@@ -632,6 +653,16 @@ export function createApiClient(getToken: GetTokenFunction) {
           credits: Record<string, unknown> | null;
         }>(getToken, `/api/admin/users/${userId}`),
 
+      getUserAnalytics: (userId: string) =>
+        authenticatedFetch<AnalyticsData>(getToken, `/api/admin/users/${userId}/analytics`),
+
+      updateUser: (userId: string, data: { firstName?: string; lastName?: string; role?: string; plan?: string }) =>
+        authenticatedFetch<{ success: boolean; user: AdminUserSummary }>(
+          getToken,
+          `/api/admin/users/${userId}`,
+          { method: "PATCH", body: JSON.stringify(data) }
+        ),
+
       updateCredits: (userId: string, data: { remaining?: number; total?: number; plan?: string }) =>
         authenticatedFetch<{ success: boolean; credits: Record<string, unknown> }>(
           getToken,
@@ -662,6 +693,46 @@ export function createApiClient(getToken: GetTokenFunction) {
           getToken,
           `/api/admin/users/${userId}/projects`,
         ),
+
+      getFlyMachines: () =>
+        authenticatedFetch<{ machines: any[]; app: string }>(getToken, "/api/admin/fly/machines"),
+
+      getFlyLogs: (opts?: { region?: string; instance?: string }) => {
+        const params = new URLSearchParams();
+        if (opts?.region) params.set("region", opts.region);
+        if (opts?.instance) params.set("instance", opts.instance);
+        const qs = params.toString() ? `?${params}` : "";
+        return authenticatedFetch<{ logs: any[]; app: string }>(getToken, `/api/admin/fly/logs${qs}`);
+      },
+
+      getCreditsReport: () =>
+        authenticatedFetch<{
+          credits: { userId: string; remaining: number; total: number; plan: string; updatedAt?: string }[];
+          summary: { users: number; totalAllocated: number; totalRemaining: number; totalConsumed: number };
+        }>(getToken, "/api/admin/credits/report"),
+    },
+
+    testing: {
+      submitRun: (data: { testNumber?: string; results: any[]; userName: string; userEmail: string }) =>
+        authenticatedFetch<{ success: boolean; id: string }>(getToken, "/api/testing/submit", {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+
+      submitFeedback: (data: { type: "bug" | "improvement"; content: string; screenshot?: string; userName: string; userEmail: string }) =>
+        authenticatedFetch<{ success: boolean; id: string }>(getToken, "/api/testing/feedback", {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+
+      getAdminResults: () =>
+        authenticatedFetch<{ submissions: any[]; feedback: any[] }>(getToken, "/api/testing/admin/results"),
+
+      updateFeedbackStatus: (id: string, status: string) =>
+        authenticatedFetch<{ success: boolean; feedback: any }>(getToken, `/api/testing/admin/feedback/${id}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status }),
+        }),
     },
   };
 }

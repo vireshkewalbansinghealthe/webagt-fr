@@ -273,6 +273,7 @@ export function ChatInput({
 
   return (
     <div
+      data-tour="editor-chat-input"
       className="px-3 pb-3 pt-1.5"
       onDrop={handleDrop}
       onDragOver={(e) => e.preventDefault()}
@@ -339,6 +340,7 @@ export function ChatInput({
             type="button"
             variant="ghost"
             size="icon-xs"
+            data-tour="editor-visual-edit"
             onClick={() => window.dispatchEvent(new CustomEvent("toggle-visual-edit"))}
             disabled={isDisabled}
             className={cn(

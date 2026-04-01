@@ -78,6 +78,11 @@ export interface Env {
    * Anthropic Console under Settings → API Keys → Create Admin Key.
    */
   ANTHROPIC_ADMIN_KEY?: string;
+
+  /** Fly.io API token for machines and log monitoring */
+  FLY_API_TOKEN?: string;
+  /** Fly.io app name (defaults to "webagt-chat") */
+  FLY_APP_NAME?: string;
 }
 
 /**

@@ -25,7 +25,15 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { UserButton, useUser } from "@clerk/nextjs";
+import { useClerk, useUser } from "@clerk/nextjs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { SignOut, UserCircle } from "@phosphor-icons/react";
 import { toast } from "sonner";
 import {
   Eye,
@@ -85,6 +93,8 @@ export interface EditorHeaderProps {
   /** Turso connection — only present for webshop projects */
   databaseUrl?: string;
   databaseToken?: string;
+  /** Called before navigating away (logo, sign-out). Return false to cancel. */
+  onNavigateAway?: () => boolean;
 }
 
 /**
@@ -125,9 +135,11 @@ export function EditorHeader({
   projectType,
   databaseUrl,
   databaseToken,
+  onNavigateAway,
 }: EditorHeaderProps) {
   const [isOpeningPreview, setIsOpeningPreview] = useState(false);
   const { user } = useUser();
+  const { openUserProfile, signOut } = useClerk();
 
   const userInitials = user
     ? (user.firstName?.[0] ?? "") + (user.lastName?.[0] ?? user.emailAddresses?.[0]?.emailAddress?.[0] ?? "")
@@ -179,6 +191,9 @@ export function EditorHeader({
           href="/dashboard"
           className="flex items-center gap-2 group shrink-0 transition-opacity duration-150 hover:opacity-90"
           aria-label="Go to dashboard"
+          onClick={(e) => {
+            if (onNavigateAway && onNavigateAway() === false) e.preventDefault();
+          }}
         >
           <div className="relative size-8 overflow-hidden rounded-lg border border-border bg-black shadow-sm group-hover:border-primary/50 transition-colors">
             <img
@@ -220,7 +235,7 @@ export function EditorHeader({
       {/* === Center section: Pill-shaped tab switcher === */}
       {/* Desktop: absolute centered, shows Preview/Code */}
       <div className="hidden md:block absolute left-1/2 -translate-x-1/2">
-        <div className="flex items-center gap-0.5 rounded-full bg-secondary/60 p-1">
+        <div data-tour="editor-tabs" className="flex items-center gap-0.5 rounded-full bg-secondary/60 p-1">
           {tabs.map((tab) => {
             const isActive = activeTab === tab.value;
             const isShopTab = tab.value === "shop-manager";
@@ -229,6 +244,7 @@ export function EditorHeader({
             return (
               <button
                 key={tab.value}
+                data-tour={tab.value === "history" ? "editor-history-tab" : tab.value === "shop-manager" ? "editor-shop-tab" : undefined}
                 onClick={() => {
                   onTabChange(tab.value);
                   if (isShopTab) markAsSeen();
@@ -255,40 +271,39 @@ export function EditorHeader({
         </div>
       </div>
 
-      {/* Mobile: inline tabs with Chat + Preview (Code disabled on mobile) */}
-      <div className="mx-auto md:hidden">
-        <div className="flex items-center gap-0.5 rounded-full bg-secondary/60 p-0.5">
-          {/* Chat tab */}
-          <button
-            onClick={() => onMobilePanelChange("chat")}
-            className={cn(
-              "flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-150",
-              mobilePanel === "chat"
-                ? "bg-foreground text-background shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <MessageSquare className="size-3" />
-            Chat
-          </button>
-
-          {/* Preview tab */}
+      {/* Mobile: minimal header — just project name + user avatar */}
+      <div className="mx-2 md:hidden flex items-center gap-1.5">
+        <ProjectMenu
+          projectName={projectName}
+          projectId={projectId}
+          creditsRemaining={creditsRemaining}
+          creditsTotal={creditsTotal}
+          userPlan={userPlan}
+          onRename={onRename}
+          onDelete={onDelete}
+        />
+        {projectType === "webshop" && (
           <button
             onClick={() => {
-              onTabChange("preview");
+              onTabChange("shop-manager");
               onMobilePanelChange("content");
             }}
             className={cn(
-              "flex cursor-pointer items-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-150",
-              mobilePanel === "content"
-                ? "bg-foreground text-background shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
+              "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-150 relative",
+              activeTab === "shop-manager"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground bg-secondary/50 hover:text-foreground",
             )}
           >
-            <Eye className="size-3" />
-            Preview
+            <Store className="size-3" />
+            Shop
+            {newOrdersCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground leading-none">
+                {newOrdersCount > 9 ? "9+" : newOrdersCount}
+              </span>
+            )}
           </button>
-        </div>
+        )}
       </div>
 
       {/* === Right section: Device toggle + Export + Presence + User avatar === */}
@@ -302,7 +317,7 @@ export function EditorHeader({
 
         {/* Device toggle — only visible on desktop when Preview tab is active */}
         {activeTab === "preview" && (
-          <div className="hidden md:flex items-center gap-1.5">
+          <div data-tour="editor-device" className="hidden md:flex items-center gap-1.5">
             <DeviceToggle
               deviceMode={deviceMode}
               onDeviceModeChange={onDeviceModeChange}
@@ -316,7 +331,7 @@ export function EditorHeader({
           size="sm"
           onClick={handleOpenPreview}
           disabled={isOpeningPreview}
-          className="gap-1.5 text-xs"
+          className="hidden sm:flex gap-1.5 text-xs"
           title="Open live preview in new tab"
         >
           {isOpeningPreview ? (
@@ -326,42 +341,58 @@ export function EditorHeader({
           )}
           <span className="hidden sm:inline">Preview</span>
         </Button>
-        <ExportButton
-          projectId={projectId}
-          projectName={projectName}
-          userPlan={userPlan}
-        />
-        {/* User profile widget — avatar + name + email */}
-        <div className="hidden sm:flex items-center gap-2 rounded-full border border-border/50 bg-secondary/40 pl-1 pr-3 py-1 hover:bg-secondary/70 transition-colors cursor-pointer">
-          <UserButton
-            afterSignOutUrl="/"
-            appearance={{
-              elements: {
-                avatarBox: "size-6",
-                userButtonPopoverCard: "shadow-xl",
-              },
-            }}
-          />
-          <div className="flex flex-col leading-none min-w-0">
-            <span className="text-xs font-medium text-foreground truncate max-w-[100px]">
-              {userDisplayName}
-            </span>
-            {userEmail && (
-              <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
-                {userEmail}
-              </span>
-            )}
-          </div>
-        </div>
-        {/* Mobile — icon only */}
-        <div className="sm:hidden">
-          <UserButton
-            afterSignOutUrl="/"
-            appearance={{
-              elements: { avatarBox: "size-7" },
-            }}
+        <div data-tour="editor-export" className="hidden sm:block">
+          <ExportButton
+            projectId={projectId}
+            projectName={projectName}
+            userPlan={userPlan}
           />
         </div>
+        {/* User profile widget */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              suppressHydrationWarning
+              className="flex items-center gap-2 rounded-full border border-border/50 bg-secondary/40 pl-1 pr-3 py-1 hover:bg-secondary/70 transition-colors cursor-pointer outline-none"
+            >
+              {user?.imageUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.imageUrl} alt="" className="size-6 rounded-full shrink-0" />
+              ) : (
+                <span className="size-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[10px] font-bold shrink-0">
+                  {userDisplayName.charAt(0).toUpperCase()}
+                </span>
+              )}
+              <div className="hidden sm:flex flex-col leading-none min-w-0">
+                <span className="text-xs font-medium text-foreground truncate max-w-[100px]">
+                  {userDisplayName}
+                </span>
+                {userEmail && (
+                  <span className="text-[10px] text-muted-foreground truncate max-w-[100px]">
+                    {userEmail}
+                  </span>
+                )}
+              </div>
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuItem onClick={() => openUserProfile()}>
+              <UserCircle className="size-4 mr-2" />
+              Manage account
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              onClick={() => {
+                if (onNavigateAway && onNavigateAway() === false) return;
+                signOut({ redirectUrl: "/" });
+              }}
+            >
+              <SignOut className="size-4 mr-2" />
+              Sign out
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </header>
   );

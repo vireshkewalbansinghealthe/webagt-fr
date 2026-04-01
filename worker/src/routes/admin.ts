@@ -17,6 +17,7 @@
 import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { Env, AppVariables } from "../types";
+import { computeUserAnalytics } from "../services/analytics-engine";
 
 const adminRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -200,6 +201,69 @@ adminRoutes.get("/api/admin/users/:userId", async (c) => {
     user: clerkUserToSummary(clerkUser),
     projects: projects.filter(Boolean),
     credits,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/users/:userId/analytics
+// Compute usage analytics for a specific user as admin
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/api/admin/users/:userId/analytics", async (c) => {
+  const { userId } = c.req.param();
+  const analytics = await computeUserAnalytics(userId, c.env);
+  return c.json(analytics);
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/admin/users/:userId
+// Update user metadata in Clerk (name, role, plan)
+// ---------------------------------------------------------------------------
+
+adminRoutes.patch("/api/admin/users/:userId", async (c) => {
+  const secretKey = c.env.CLERK_SECRET_KEY;
+  if (!secretKey) return c.json({ error: "CLERK_SECRET_KEY not configured" }, 500);
+
+  const { userId } = c.req.param();
+  const body = await c.req.json<{
+    firstName?: string;
+    lastName?: string;
+    role?: string;
+    plan?: string;
+  }>();
+
+  // Update Clerk
+  const clerkPayload: any = {};
+  if (body.firstName !== undefined) clerkPayload.first_name = body.firstName;
+  if (body.lastName !== undefined) clerkPayload.last_name = body.lastName;
+  
+  const publicMetadata: any = {};
+  if (body.role !== undefined) publicMetadata.role = body.role;
+  if (body.plan !== undefined) publicMetadata.plan = body.plan;
+  
+  if (Object.keys(publicMetadata).length > 0) {
+    clerkPayload.public_metadata = publicMetadata;
+  }
+
+  const updatedClerkUser = await clerkFetch<ClerkUser>(secretKey, `/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify(clerkPayload),
+  });
+
+  // If plan was changed, also update KV credits to stay in sync
+  if (body.plan !== undefined) {
+    const existing = await c.env.METADATA.get<Record<string, unknown>>(`credits:${userId}`, "json");
+    const updatedCredits = {
+      ...(existing ?? {}),
+      plan: body.plan,
+      updatedAt: new Date().toISOString(),
+    };
+    await c.env.METADATA.put(`credits:${userId}`, JSON.stringify(updatedCredits));
+  }
+
+  return c.json({
+    success: true,
+    user: clerkUserToSummary(updatedClerkUser),
   });
 });
 
@@ -626,6 +690,138 @@ adminRoutes.get("/api/admin/users/:userId/projects", async (c) => {
   }
 
   return c.json({ projects });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/fly/machines
+// List all Fly.io machines for the chat app
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/api/admin/fly/machines", async (c) => {
+  const token = c.env.FLY_API_TOKEN;
+  const app = c.env.FLY_APP_NAME || "webagt-chat";
+
+  if (!token) {
+    return c.json({ error: "FLY_API_TOKEN not configured" }, 500);
+  }
+
+  const res = await fetch(`https://api.machines.dev/v1/apps/${app}/machines`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    return c.json({ error: `Fly.io API error ${res.status}: ${text}` }, 502);
+  }
+
+  const machines = await res.json();
+  return c.json({ machines, app });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/fly/logs
+// Fetch recent log lines from Fly.io (polling endpoint — called every 3s)
+// Returns NDJSON parsed to JSON array; optionally filter by instance/region.
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/api/admin/fly/logs", async (c) => {
+  const token = c.env.FLY_API_TOKEN;
+  const app = c.env.FLY_APP_NAME || "webagt-chat";
+
+  if (!token) {
+    return c.json({ error: "FLY_API_TOKEN not configured" }, 500);
+  }
+
+  const region = c.req.query("region") || "";
+  const instance = c.req.query("instance") || "";
+
+  const params = new URLSearchParams();
+  if (region) params.set("region", region);
+  if (instance) params.set("instance", instance);
+  const qs = params.toString();
+  const url = `https://api.machines.dev/v1/apps/${app}/logs${qs ? `?${qs}` : ""}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(12_000),
+    });
+  } catch {
+    return c.json({ error: "Request to Fly.io timed out" }, 504);
+  }
+
+  if (!res.ok) {
+    const text = await res.text();
+    return c.json({ error: `Fly.io API error ${res.status}: ${text}` }, 502);
+  }
+
+  const text = await res.text();
+  const logs = text
+    .trim()
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+
+  return c.json({ logs, app });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/credits/report
+// Aggregate all user credit balances from KV for the consumption dashboard
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/api/admin/credits/report", async (c) => {
+  const keys = await c.env.METADATA.list({ prefix: "credits:", limit: 1000 });
+
+  const entries = await Promise.all(
+    keys.keys.map(async (key) => {
+      const data = await c.env.METADATA.get<{
+        remaining?: number;
+        total?: number;
+        plan?: string;
+        updatedAt?: string;
+      }>(key.name, "json");
+      if (!data) return null;
+      return {
+        userId: key.name.replace("credits:", ""),
+        remaining: data.remaining ?? 0,
+        total: data.total ?? 0,
+        plan: data.plan ?? "free",
+        updatedAt: data.updatedAt,
+      };
+    })
+  );
+
+  const credits = entries.filter(Boolean) as {
+    userId: string;
+    remaining: number;
+    total: number;
+    plan: string;
+    updatedAt?: string;
+  }[];
+
+  // Compute aggregate stats
+  const totalAllocated = credits.reduce((s, c) => s + c.total, 0);
+  const totalRemaining = credits.reduce((s, c) => s + c.remaining, 0);
+  const totalConsumed = totalAllocated - totalRemaining;
+
+  return c.json({
+    credits,
+    summary: {
+      users: credits.length,
+      totalAllocated,
+      totalRemaining,
+      totalConsumed,
+    },
+  });
 });
 
 export { adminRoutes };

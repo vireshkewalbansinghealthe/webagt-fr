@@ -77,14 +77,14 @@ export default function AdminOverviewPage() {
       {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Overview</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Admin Overzicht</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Platform-wide stats and recent activity.
+            Platform-brede statistieken en recente activiteit.
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchStats} disabled={loading}>
           <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          Vernieuwen
         </Button>
       </div>
 
@@ -92,13 +92,13 @@ export default function AdminOverviewPage() {
       <div className="grid grid-cols-2 gap-4 mb-8">
         <StatCard
           icon={<Users className="size-5 text-blue-500" />}
-          label="Total Users"
+          label="Totaal Gebruikers"
           value={loading ? null : stats?.totalUsers ?? "—"}
           bg="bg-blue-500/10"
         />
         <StatCard
           icon={<FolderOpen className="size-5 text-violet-500" />}
-          label="Total Projects"
+          label="Totaal Projecten"
           value={loading ? null : stats?.totalProjects ?? "—"}
           bg="bg-violet-500/10"
         />
@@ -110,7 +110,7 @@ export default function AdminOverviewPage() {
           <h2 className="text-sm font-semibold">LLM Provider Status</h2>
           <Button variant="ghost" size="sm" className="text-xs" onClick={fetchBalances} disabled={balancesLoading}>
             <RefreshCw className={`size-3.5 ${balancesLoading ? "animate-spin" : ""}`} />
-            Refresh
+            Vernieuwen
           </Button>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border">
@@ -177,12 +177,12 @@ export default function AdminOverviewPage() {
       {/* Recent signups */}
       <div className="rounded-xl border border-border bg-card">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-          <h2 className="text-sm font-semibold">Recent Signups</h2>
+          <h2 className="text-sm font-semibold">Recente Aanmeldingen</h2>
           <Link
             href="/admin/users"
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            View all
+            Bekijk alles
             <ArrowRight className="size-3" />
           </Link>
         </div>

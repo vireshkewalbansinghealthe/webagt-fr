@@ -148,22 +148,44 @@ export function ShopManagerPanel({ project }: { project: Project }) {
   return (
     <div className="flex h-full flex-col bg-background">
       {/* Header */}
-      <div className="border-b px-6 py-4 flex items-center justify-between shrink-0">
+      <div className="border-b px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between shrink-0">
         <div>
-          <h2 className="text-lg font-semibold flex items-center gap-2">
-            <ShoppingBag className="size-5 text-primary" />
+          <h2 className="text-base sm:text-lg font-semibold flex items-center gap-2">
+            <ShoppingBag className="size-4 sm:size-5 text-primary" />
             Shop Manager
           </h2>
-          <p className="text-sm text-muted-foreground mt-1">
+          <p className="hidden sm:block text-sm text-muted-foreground mt-1">
             Manage your Turso database and payments for {projectState.name}
           </p>
         </div>
       </div>
       
+      {/* Mobile: horizontal scrollable tab bar */}
+      <div className="md:hidden flex items-center gap-1 px-3 py-2 border-b overflow-x-auto shrink-0 bg-muted/10">
+        {TABS.map(tab => {
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-full transition-colors whitespace-nowrap",
+                isActive
+                  ? "bg-primary text-primary-foreground font-medium shadow-sm"
+                  : "text-muted-foreground hover:text-foreground bg-muted/50"
+              )}
+            >
+              <tab.icon className="size-3.5" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+
       {/* Body */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <div className="w-48 lg:w-56 border-r bg-muted/10 p-4 space-y-1 shrink-0 overflow-y-auto">
+        {/* Sidebar — desktop only */}
+        <div className="hidden md:block w-48 lg:w-56 border-r bg-muted/10 p-4 space-y-1 shrink-0 overflow-y-auto">
           {TABS.map(tab => {
             const isActive = activeTab === tab.id;
             return (
@@ -208,7 +230,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
               </Button>
             </div>
           ) : (
-            <div className="h-full w-full p-6">
+            <div className="h-full w-full p-3 sm:p-6">
               {activeTab === "dashboard" && <DashboardTab turso={turso} />}
               {activeTab === "products" && <ProductsTab turso={turso} project={projectState} />}
               {activeTab === "inventory" && <InventoryTab turso={turso} />}

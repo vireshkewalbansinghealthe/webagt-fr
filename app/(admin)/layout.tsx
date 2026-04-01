@@ -24,14 +24,20 @@ import {
   ArrowLeft,
   Settings2,
   ScrollText,
+  ClipboardList,
+  Server,
+  Coins,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const NAV_ITEMS = [
-  { label: "Overview", href: "/admin", icon: LayoutDashboard },
-  { label: "Users", href: "/admin/users", icon: Users },
+  { label: "Overzicht", href: "/admin", icon: LayoutDashboard },
+  { label: "Gebruikers", href: "/admin/users", icon: Users },
+  { label: "Credits", href: "/admin/credits", icon: Coins },
+  { label: "Fly.io Machines", href: "/admin/fly", icon: Server },
+  { label: "Test Resultaten", href: "/admin/testing", icon: ClipboardList },
   { label: "Project Logs", href: "/admin/logs", icon: ScrollText },
 ];
 

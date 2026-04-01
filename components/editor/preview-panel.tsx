@@ -539,16 +539,26 @@ const INSPECTOR_SCRIPT = `
   }, true);
 
   // html2canvas for project thumbnails
+  function captureThumb() {
+    if (window.html2canvas && document.body) {
+      window.html2canvas(document.body, { scale: 0.5, useCORS: true, logging: false })
+        .then(function(canvas) { window.parent.postMessage({ type: 'SAVE_THUMBNAIL', dataUrl: canvas.toDataURL('image/jpeg', 0.6) }, '*'); })
+        .catch(function() {});
+    }
+  }
+
   var scr = document.createElement('script');
   scr.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
   scr.onload = function() {
-    setTimeout(function() {
-      if (window.html2canvas && document.body) {
-        window.html2canvas(document.body, { scale: 0.5, useCORS: true, logging: false })
-          .then(function(canvas) { window.parent.postMessage({ type: 'SAVE_THUMBNAIL', dataUrl: canvas.toDataURL('image/jpeg', 0.6) }, '*'); })
-          .catch(function() {});
+    // Initial capture after 4s (page load)
+    setTimeout(captureThumb, 4000);
+
+    // Listen for forced re-capture requests (e.g. after first generation completes)
+    window.addEventListener('message', function(e) {
+      if (e.data && e.data.type === 'CAPTURE_THUMBNAIL') {
+        setTimeout(captureThumb, e.data.delay || 0);
       }
-    }, 4000);
+    });
   };
   document.head.appendChild(scr);
 })();
@@ -909,6 +919,19 @@ export function PreviewPanel({ files, onError, isStreaming, onFilesChange, strea
       iframe.contentWindow.postMessage({ type: 'SET_VISUAL_EDIT_MODE', enabled: isVisualEditMode }, '*');
     }
   }, [isVisualEditMode, sandpackFiles]); // re-run if sandpack reloads files
+
+  // Listen for forced thumbnail capture requests (e.g. after first generation)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const delay = (e as CustomEvent).detail?.delay ?? 3000;
+      const iframe = document.querySelector(".sp-preview-iframe") as HTMLIFrameElement | null;
+      if (iframe?.contentWindow) {
+        iframe.contentWindow.postMessage({ type: "CAPTURE_THUMBNAIL", delay }, "*");
+      }
+    };
+    window.addEventListener("webagt:capture-thumbnail", handler);
+    return () => window.removeEventListener("webagt:capture-thumbnail", handler);
+  }, []);
 
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {

@@ -68,7 +68,7 @@ function daysUntil(dateString: string): number {
  * based on the user's plan and remaining balance.
  */
 export function CreditsDisplay() {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded, isSignedIn } = useAuth();
   const router = useRouter();
   const [credits, setCredits] = useState<CreditData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -80,37 +80,69 @@ export function CreditsDisplay() {
       const data = await client.credits.get();
       setCredits(data);
     } catch (error) {
+      const e = error as { isAuthError?: boolean; isNetworkError?: boolean };
+      if (e.isAuthError || e.isNetworkError) return; // Clerk loading or worker unreachable
       console.error("Failed to load credits:", error);
     } finally {
       setIsLoading(false);
     }
   }, [getToken]);
 
-  /** Fetch credit data on mount */
+  /** Fetch credit data only once Clerk is fully loaded and user is signed in */
   useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
     loadCredits();
-  }, [loadCredits]);
+  }, [loadCredits, isLoaded, isSignedIn]);
+
+  /**
+   * Polls for the new pro plan to appear in the credits API.
+   * Clerk webhooks can take a few seconds to propagate, so we retry
+   * up to ~15 s before giving up and doing a hard reload.
+   */
+  const pollForProPlan = useCallback(
+    async (attempts = 0): Promise<void> => {
+      const client = createApiClient(getToken);
+      try {
+        // Force-skip the in-memory cache each time
+        bustCreditsCache();
+        const data = await client.credits.get();
+        if (data.plan === "pro") {
+          setCredits(data);
+          setIsSyncing(false);
+          router.refresh();
+          return;
+        }
+      } catch {
+        // ignore fetch errors during polling
+      }
+      if (attempts < 10) {
+        setTimeout(() => pollForProPlan(attempts + 1), 1500);
+      } else {
+        // Fallback: hard reload so the user sees the updated state
+        window.location.reload();
+      }
+    },
+    [getToken, router]
+  );
 
   /**
    * Called when Clerk checkout completes successfully.
-   * Upgrades the plan in KV, then does a full Next.js router refresh so
-   * every component on the page picks up the new plan without a manual reload.
+   * Syncs the plan to KV, then polls the credits API until the pro plan
+   * is reflected — no manual page reload needed.
    */
   const handleCheckoutSuccess = useCallback(async () => {
     setIsSyncing(true);
     try {
+      // Force a fresh Clerk token so the new subscription is included
+      await getToken({ skipCache: true });
       const client = createApiClient(getToken);
       await client.credits.sync();
     } catch (err) {
       console.error("Failed to sync plan after checkout:", err);
-    } finally {
-      bustCreditsCache();
-      // router.refresh() re-runs all server components and invalidates
-      // the Next.js router cache — no manual page reload needed.
-      router.refresh();
-      setIsSyncing(false);
     }
-  }, [getToken, router]);
+    // Start polling — will update state and call router.refresh() when pro is confirmed
+    pollForProPlan();
+  }, [getToken, pollForProPlan]);
 
   // Loading skeleton
   if (isLoading) {

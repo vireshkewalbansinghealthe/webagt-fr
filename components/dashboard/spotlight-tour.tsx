@@ -59,6 +59,7 @@ export function SpotlightTour() {
   const [step, setStep] = useState(-1); // -1 = welcome
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [hasMeasured, setHasMeasured] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -80,12 +81,15 @@ export function SpotlightTour() {
     if (!active || step < 0) return;
     const el = document.querySelector(STEPS[step].target);
     if (el) setRect(el.getBoundingClientRect());
+    else setRect(null);
+    setHasMeasured(true);
   }, [active, step]);
 
   useEffect(() => {
     if (step < 0) return;
+    setHasMeasured(false);
     // Small delay so DOM has settled after step change
-    const t = setTimeout(measureTarget, 60);
+    const t = setTimeout(measureTarget, 100);
     window.addEventListener("resize", measureTarget);
     window.addEventListener("scroll", measureTarget, true);
     return () => {
@@ -127,7 +131,7 @@ export function SpotlightTour() {
           style={{ position: "fixed", inset: 0, zIndex: 9998, background: OVERLAY, backdropFilter: "blur(2px)" }}
           className="flex items-center justify-center p-4"
         >
-          <div className="tour-welcome w-full max-w-[360px] rounded-2xl border border-white/10 bg-popover shadow-2xl overflow-hidden">
+          <div className="tour-welcome w-full max-w-[360px] rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden">
             {/* Top accent strip */}
             <div className="h-1 w-full bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
 
@@ -168,7 +172,18 @@ export function SpotlightTour() {
   }
 
   // ── Spotlight steps ─────────────────────────────────────────────────────────
-  if (!rect) return null;
+  // Wait until measurement has been attempted before deciding to skip
+  if (!hasMeasured) return null;
+
+  if (!rect) {
+    // Target not in DOM — skip to next step or dismiss
+    if (step < STEPS.length - 1) {
+      setTimeout(() => setStep((s) => s + 1), 100);
+    } else {
+      dismiss();
+    }
+    return null;
+  }
 
   const { side } = STEPS[step];
   const vw = window.innerWidth;
@@ -317,7 +332,7 @@ export function SpotlightTour() {
         {/* Arrow */}
         <div style={arrowStyle} />
 
-        <div className="rounded-xl border border-white/10 bg-popover shadow-2xl overflow-hidden">
+        <div className="rounded-xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden">
           {/* Colored top accent */}
           <div className={`h-0.5 w-full ${currentStep.color}`} />
 

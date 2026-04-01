@@ -293,18 +293,7 @@ chatRoutes.post("/:projectId", async (c) => {
   // --- 3. Check credits and plan-based model gating ---
   const creditCheck = await checkCredits(userId, modelConfig.creditCost, c.env);
 
-  // Block free users from premium-tier models
-  if (modelConfig.tier === "premium" && creditCheck.credits.plan === "free") {
-    return c.json(
-      {
-        error:
-          "Premium models require a Pro plan. Upgrade to access Claude Sonnet, GPT-4o, and more.",
-        code: "PREMIUM_MODEL_LOCKED",
-        plan: creditCheck.credits.plan,
-      },
-      403,
-    );
-  }
+  // All models are accessible on all plans — no gating
 
   if (!creditCheck.allowed) {
     return c.json(

@@ -36,7 +36,8 @@ import type { DeviceMode } from "./device-toggle";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Eye, RotateCcw, ArrowLeft } from "lucide-react";
+import { Eye, RotateCcw, ArrowLeft, MessageSquare } from "lucide-react";
+import { EditorTour } from "./editor-tour";
 
 /**
  * Props for the EditorLayout component.
@@ -92,6 +93,8 @@ export interface EditorLayoutProps {
   onDelete: () => void;
   onStopGeneration?: () => void;
   canStop?: boolean;
+  /** Called before navigating away during first prompt — return false to cancel */
+  onNavigateAway?: () => boolean;
   projectType?: "website" | "webshop";
   /** Turso DB connection for webshop order badge polling */
   databaseUrl?: string;
@@ -141,6 +144,7 @@ export function EditorLayout({
   onDelete,
   onStopGeneration,
   canStop,
+  onNavigateAway,
   projectType,
   shopManagerPanel,
   databaseUrl,
@@ -149,6 +153,16 @@ export function EditorLayout({
   const [activeTab, setActiveTab] = useState<EditorTabValue>("preview");
   const [deviceMode, setDeviceMode] = useState<DeviceMode>("desktop");
   const [chatWidthPercent, setChatWidthPercent] = useState(DEFAULT_CHAT_PERCENT);
+
+  // Tour trigger: fire once when first generation completes (streaming → false with messages)
+  const [tourTrigger, setTourTrigger] = useState(false);
+  const prevStreamingRef = useRef(false);
+  useEffect(() => {
+    if (prevStreamingRef.current && !isStreaming && messages.length > 0) {
+      setTourTrigger(true);
+    }
+    prevStreamingRef.current = isStreaming;
+  }, [isStreaming, messages.length]);
 
   /** Register keyboard shortcuts (Cmd+P toggle, Cmd+B history) */
   useEditorShortcuts({ activeTab, onTabChange: setActiveTab });
@@ -262,6 +276,7 @@ export function EditorLayout({
         projectType={projectType}
         databaseUrl={databaseUrl}
         databaseToken={databaseToken}
+        onNavigateAway={onNavigateAway}
       />
 
       {/* Version viewing banner — shown when browsing an old version */}
@@ -313,6 +328,7 @@ export function EditorLayout({
       >
         {/* Left panel — Chat (min-width prevents collapse on window resize) */}
         <div
+          data-tour="editor-chat"
           className="shrink-0 overflow-hidden"
           style={{ width: `${chatWidthPercent}%`, minWidth: MIN_CHAT_PX }}
         >
@@ -342,7 +358,7 @@ export function EditorLayout({
         />
 
         {/* Right panel — Preview / Code / Shop Manager (fills remaining space) */}
-        <div className="relative flex-1 overflow-hidden">
+        <div data-tour="editor-preview" className="relative flex-1 overflow-hidden">
           {/* Shop Manager panel */}
           {activeTab === "shop-manager" && shopManagerPanel && (
             <div className="absolute inset-0 z-10 overflow-auto bg-background">
@@ -422,40 +438,85 @@ export function EditorLayout({
         </div>
       </div>
 
-      {/* === Mobile layout: Chat or Preview only (<md), no code editor === */}
-      <div className="flex flex-1 overflow-hidden md:hidden">
-        {/* Chat panel — visible when mobilePanel is "chat" */}
-        <div
-          className={cn(
-            "h-full w-full",
-            mobilePanel === "chat" ? "block" : "hidden"
+      {/* === Mobile layout: Preview fills full screen, floating chat bar at bottom === */}
+      <div className="flex flex-1 flex-col overflow-hidden md:hidden relative">
+        {/* Preview always fills the screen on mobile */}
+        <div className="flex-1 overflow-hidden relative">
+          {/* Shop manager as full-screen overlay on mobile */}
+          {activeTab === "shop-manager" && shopManagerPanel && (
+            <div className="absolute inset-0 z-20 overflow-auto bg-background">
+              {shopManagerPanel}
+            </div>
           )}
-        >
-          <ChatPanel
-            messages={messages}
-            isStreaming={isStreaming}
-            onSendMessage={onSendMessage}
-            creditsRemaining={creditsRemaining}
-            isCreditsExhausted={isCreditsExhausted}
-            selectedModelId={selectedModelId}
-            onModelChange={onModelChange}
-            userPlan={userPlan}
-            onStopGeneration={onStopGeneration}
-            canStop={canStop}
-          />
-        </div>
-
-        {/* Preview panel — visible when mobilePanel is "content" */}
-        <div
-          className={cn(
-            "h-full w-full",
-            mobilePanel === "content" ? "block" : "hidden"
-          )}
-        >
           <PanelErrorBoundary name="Preview">
             {previewPanel}
           </PanelErrorBoundary>
         </div>
+
+        {/* Floating chat drawer — slide up from bottom */}
+        <div
+          className={cn(
+            "absolute inset-x-0 bottom-0 z-30 flex flex-col transition-all duration-300 ease-in-out",
+            mobilePanel === "chat"
+              ? "h-[65vh] rounded-t-2xl shadow-2xl border-t border-border bg-background"
+              : "h-0 overflow-hidden"
+          )}
+        >
+          {/* Drag handle pill */}
+          {mobilePanel === "chat" && (
+            <div
+              className="flex h-6 shrink-0 items-center justify-center cursor-pointer"
+              onClick={() => setMobilePanel("content")}
+            >
+              <div className="h-1 w-10 rounded-full bg-border" />
+            </div>
+          )}
+
+          {mobilePanel === "chat" && (
+            <div className="flex-1 overflow-hidden">
+              <ChatPanel
+                messages={messages}
+                isStreaming={isStreaming}
+                onSendMessage={(...args) => {
+                  onSendMessage(...args);
+                  setMobilePanel("content"); // auto-close chat when prompt sent
+                }}
+                creditsRemaining={creditsRemaining}
+                isCreditsExhausted={isCreditsExhausted}
+                selectedModelId={selectedModelId}
+                onModelChange={onModelChange}
+                userPlan={userPlan}
+                onStopGeneration={onStopGeneration}
+                canStop={canStop}
+              />
+            </div>
+          )}
+        </div>
+
+      {/* Editor onboarding tour — shown once after the first generation */}
+      <EditorTour triggerShow={tourTrigger} />
+
+        {/* Floating action button — when chat is closed, show a prompt bar */}
+        {mobilePanel === "content" && (
+          <div className="absolute inset-x-0 bottom-0 z-30 p-3 pb-5">
+            <button
+              onClick={() => setMobilePanel("chat")}
+              className="w-full flex items-center gap-3 rounded-2xl border border-border/60 bg-background/95 backdrop-blur-sm px-4 py-3 shadow-xl text-muted-foreground text-sm hover:text-foreground transition-colors"
+            >
+              <MessageSquare className="size-4 shrink-0 text-primary" />
+              <span className="flex-1 text-left">Vraag iets aan de AI…</span>
+              {isStreaming && (
+                <span className="flex items-center gap-1.5 text-xs text-primary font-medium">
+                  <span className="relative flex size-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                    <span className="relative inline-flex rounded-full size-2 bg-primary" />
+                  </span>
+                  Generating
+                </span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

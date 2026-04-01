@@ -225,6 +225,9 @@ export default function EditorPage({
   /** Whether AI is currently generating a response */
   const [isStreaming, setIsStreaming] = useState(false);
 
+  /** Controls the first-prompt stop confirmation dialog */
+  const [showFirstPromptStopDialog, setShowFirstPromptStopDialog] = useState(false);
+
   /** Loading state while fetching project data */
   const [isLoading, setIsLoading] = useState(true);
 
@@ -302,7 +305,7 @@ export default function EditorPage({
 
         const state = await res.json() as { status: string; versionId?: string };
 
-        if (state.status === "completed" || state.status === "failed") {
+          if (state.status === "completed" || state.status === "failed") {
           // Stop polling
           clearInterval(pollingRef.current!);
           pollingRef.current = null;
@@ -327,6 +330,13 @@ export default function EditorPage({
             setProject((prev) =>
               prev ? { ...prev, currentVersion: prev.currentVersion + 1, updatedAt: new Date().toISOString() } : prev
             );
+
+            // Force thumbnail capture after Sandpack re-renders the new files
+            setTimeout(() => {
+              window.dispatchEvent(
+                new CustomEvent("webagt:capture-thumbnail", { detail: { delay: 2000 } })
+              );
+            }, 6000);
           }
 
           setIsStreaming(false);
@@ -820,21 +830,28 @@ export default function EditorPage({
               }
 
               if (event.versionId) {
-                setProject((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        currentVersion: prev.currentVersion + 1,
-                        updatedAt: new Date().toISOString(),
-                      }
-                    : prev
-                );
-
-                // Update the AI message with version number
                 const versionNumber = parseInt(
                   event.versionId.replace("v", ""),
                   10
                 );
+
+                setProject((prev) => {
+                  const isFirst = (prev?.currentVersion ?? 0) === 0;
+                  // After the FIRST generation, force a fresh thumbnail capture
+                  // (give Sandpack ~5s to fully render the new files)
+                  if (isFirst) {
+                    setTimeout(() => {
+                      window.dispatchEvent(
+                        new CustomEvent("webagt:capture-thumbnail", { detail: { delay: 2000 } })
+                      );
+                    }, 5000);
+                  }
+                  return prev
+                    ? { ...prev, currentVersion: prev.currentVersion + 1, updatedAt: new Date().toISOString() }
+                    : prev;
+                });
+
+                // Update the AI message with version number
                 setMessages((prev) =>
                   prev.map((msg) =>
                     msg.id === aiMessageId
@@ -1169,15 +1186,85 @@ export default function EditorPage({
     };
   }, [projectId, getToken]);
 
+  const userMessageCount = messages.filter(m => m.role === "user").length;
+  const isFirstPrompt = userMessageCount <= 1;
+  const canStop = true; // always allow stop; first-prompt gets a confirmation dialog
+
+  const handleStopWithConfirm = useCallback(async () => {
+    if (isFirstPrompt) {
+      setShowFirstPromptStopDialog(true);
+    } else {
+      await handleStopGeneration();
+    }
+  }, [isFirstPrompt, handleStopGeneration]);
+
+  // Block browser-level navigation (refresh, tab close) during first prompt
+  useEffect(() => {
+    if (!isStreaming || !isFirstPrompt) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isStreaming, isFirstPrompt]);
+
+  // Intercept SPA navigation (logo, sign-out) during first prompt
+  const handleNavigateAway = useCallback((): boolean => {
+    if (isStreaming && isFirstPrompt) {
+      setShowFirstPromptStopDialog(true);
+      return false; // cancel navigation
+    }
+    return true; // allow navigation
+  }, [isStreaming, isFirstPrompt]);
+
   // Show skeleton while loading
   if (isLoading) {
     return <EditorLayoutSkeleton />;
   }
 
-  const userMessageCount = messages.filter(m => m.role === "user").length;
-  const canStop = userMessageCount > 1;
-
   return (
+    <>
+      {/* First-prompt stop confirmation dialog */}
+      {showFirstPromptStopDialog && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
+          {/* Overlay */}
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setShowFirstPromptStopDialog(false)}
+          />
+          {/* Card */}
+          <div className="relative z-10 w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-900 p-6 shadow-2xl">
+            <div className="mb-4 flex size-11 items-center justify-center rounded-xl bg-red-500/15">
+              <svg className="size-6 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+            <h2 className="text-base font-bold text-white mb-1">Stop this generation?</h2>
+            <p className="text-sm text-white/60 leading-relaxed mb-6">
+              This is your first prompt — stopping now will <strong className="text-white/80">delete this project</strong> and bring you back to the dashboard. This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowFirstPromptStopDialog(false)}
+                className="flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/10 transition-colors"
+              >
+                Keep going
+              </button>
+              <button
+                onClick={async () => {
+                  setShowFirstPromptStopDialog(false);
+                  await handleStopGeneration();
+                  await handleDelete();
+                }}
+                className="flex-1 rounded-xl bg-red-500 px-4 py-2.5 text-sm font-semibold text-white hover:bg-red-600 transition-colors"
+              >
+                Stop & delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     <EditorLayout
       projectId={projectId}
       projectName={projectName}
@@ -1196,8 +1283,9 @@ export default function EditorPage({
       userPlan={userPlan}
       onRename={handleRename}
       onDelete={handleDelete}
-      onStopGeneration={handleStopGeneration}
+      onStopGeneration={handleStopWithConfirm}
       canStop={canStop}
+      onNavigateAway={handleNavigateAway}
       viewingVersion={viewingVersion}
       onBackToCurrent={handleBackToCurrent}
       onRestoreViewing={
@@ -1252,5 +1340,6 @@ export default function EditorPage({
         </div>
       }
     />
+    </>
   );
 }

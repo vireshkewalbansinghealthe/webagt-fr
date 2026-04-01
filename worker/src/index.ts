@@ -31,6 +31,7 @@ import { webhookRoutes } from "./routes/webhooks";
 import { stripeRoutes } from "./routes/stripe";
 import { collabRoutes } from "./routes/collaborators";
 import { adminRoutes } from "./routes/admin";
+import { testingRoutes } from "./routes/testing";
 
 /**
  * Create the Hono app with typed bindings and context variables.
@@ -199,5 +200,12 @@ app.route("/", collabRoutes);
  * See worker/src/routes/admin.ts for individual route handlers.
  */
 app.route("/", adminRoutes);
+
+/**
+ * Mount testing routes (Feedback & Bug reporting).
+ * POST /api/testing/submit, POST /api/testing/feedback
+ * GET /api/testing/admin/results (Admin only)
+ */
+app.route("/api/testing", testingRoutes);
 
 export default app;

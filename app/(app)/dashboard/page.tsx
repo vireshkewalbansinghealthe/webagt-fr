@@ -84,7 +84,7 @@ type FilterType = "all" | "website" | "webshop";
  * Uses the typed API client to communicate with the Worker backend.
  */
 export default function DashboardPage() {
-  const { getToken } = useAuth();
+  const { getToken, isLoaded } = useAuth();
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,6 +149,8 @@ export default function DashboardPage() {
       const data = await client.projects.list();
       setProjects(data.projects);
     } catch (error) {
+      const e = error as { isAuthError?: boolean; isNetworkError?: boolean };
+      if (e.isAuthError || e.isNetworkError) return; // Clerk loading or worker unreachable
       console.error("Failed to fetch projects:", error);
     } finally {
       setLoading(false);
@@ -156,8 +158,9 @@ export default function DashboardPage() {
   }, [getToken]);
 
   useEffect(() => {
+    if (!isLoaded) return;
     fetchProjects();
-  }, [fetchProjects]);
+  }, [fetchProjects, isLoaded]);
 
   /**
    * Handles creating a new project from the dialog form.
@@ -298,23 +301,25 @@ export default function DashboardPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 p-6">
+    <div className="flex flex-col gap-4 sm:gap-6 p-4 sm:p-6">
       {/* Top bar */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">My Projects</h1>
-        <Button data-tour="create-project" onClick={() => setDialogOpen(true)} className="gap-2">
-          <Plus className="size-4" />
-          Create Project
-        </Button>
+        <h1 className="text-xl sm:text-2xl font-bold">My Projects</h1>
+        {!loading && projects.length > 0 && (
+          <Button data-tour="create-project" onClick={() => setDialogOpen(true)} className="gap-2 hidden sm:flex">
+            <Plus className="size-4" />
+            Create Project
+          </Button>
+        )}
       </div>
 
       {/* Toolbar: search + filters + view toggle */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Search */}
-        <div data-tour="search" className="relative flex-1 min-w-[200px] max-w-sm">
+        <div data-tour="search" className="relative flex-1 min-w-[160px] max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
           <Input
-            className="pl-9"
+            className="pl-9 h-9"
             placeholder="Search projects…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -343,10 +348,10 @@ export default function DashboardPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Sort */}
+        {/* Sort — hidden on smallest screens */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="gap-1.5 h-9">
+            <Button variant="outline" size="sm" className="gap-1.5 h-9 hidden xs:flex sm:flex">
               {sortLabel[sortBy]}
               <ChevronDown className="size-3.5 text-muted-foreground" />
             </Button>
@@ -412,6 +417,15 @@ export default function DashboardPage() {
           onDelete={handleDelete}
         />
       )}
+
+      {/* Floating action button — mobile only */}
+      <button
+        onClick={() => setDialogOpen(true)}
+        className="fixed bottom-6 right-5 z-30 sm:hidden flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 active:scale-95 transition-transform"
+      >
+        <Plus className="size-4" />
+        New Project
+      </button>
 
       {/* Create project dialog */}
       <CreateProjectDialog

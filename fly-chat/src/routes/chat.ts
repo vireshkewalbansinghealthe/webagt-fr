@@ -166,13 +166,7 @@ chatRoutes.post("/:projectId", async (c) => {
   const creditCheck = await checkCredits(userId, modelConfig.creditCost, kv);
   console.log(`[${projectId}] [credits] plan=${creditCheck.credits.plan}, remaining=${creditCheck.credits.remaining}, cost=${modelConfig.creditCost}, allowed=${creditCheck.allowed} — ${Date.now() - t1}ms`);
 
-  if (modelConfig.tier === "premium" && creditCheck.credits.plan === "free") {
-    return c.json({
-      error: "Premium models require a Pro plan.",
-      code: "PREMIUM_MODEL_LOCKED",
-      plan: creditCheck.credits.plan,
-    }, 403);
-  }
+  // All models accessible on all plans — no gating
 
   if (!creditCheck.allowed) {
     return c.json({
@@ -241,10 +235,10 @@ chatRoutes.post("/:projectId", async (c) => {
 
   for (const msg of trimmedHistory) {
     if (typeof msg.content !== "string" || msg.content.trim().length === 0) continue;
-    const lastMsg = sdkMessages[sdkMessages.length - 1];
-    if (lastMsg && lastMsg.role === msg.role) {
-      if (typeof lastMsg.content === "string") {
-        lastMsg.content += "\n\n" + msg.content;
+    const lastEntry = sdkMessages[sdkMessages.length - 1];
+    if (lastEntry && lastEntry.role === msg.role) {
+      if (typeof lastEntry.content === "string") {
+        lastEntry.content += "\n\n" + msg.content;
       }
     } else {
       sdkMessages.push({
@@ -253,6 +247,9 @@ chatRoutes.post("/:projectId", async (c) => {
       });
     }
   }
+
+  // Capture the last message after history is built
+  const lastMsg = sdkMessages[sdkMessages.length - 1];
 
   // Append current user message
   const imageUrlLines = enrichedImages
@@ -287,10 +284,27 @@ chatRoutes.post("/:projectId", async (c) => {
     }
   }
 
-  // --- 7. Set generation state and stream ---
+  // --- 7. Persist user message immediately so it survives a page refresh ---
+  const nowIso = new Date().toISOString();
+  const pendingUserMsg = {
+    id: `msg-${Date.now()}-user`,
+    role: "user" as const,
+    content: userMessage,
+    timestamp: nowIso,
+    images: enrichedImages.length > 0 ? enrichedImages.map(({ base64: _b, ...rest }) => rest) : undefined,
+  };
+  const pendingChatSession = {
+    projectId,
+    messages: [...chatHistory, pendingUserMsg],
+    createdAt: chatSession?.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+  await kv.put(`chat:${projectId}`, JSON.stringify(pendingChatSession));
+
+  // --- 8. Set generation state and stream ---
   await kv.put(`generation:${projectId}`, JSON.stringify({
     status: "running",
-    startedAt: new Date().toISOString(),
+    startedAt: nowIso,
   } satisfies GenerationState));
 
   let clientConnected = true;

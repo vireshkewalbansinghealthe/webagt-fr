@@ -46,9 +46,25 @@ import {
   Zap,
   FolderOpen,
   ExternalLink,
+  UserCog,
+  BarChart3,
+  CreditCard,
+  User,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow, format } from "date-fns";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import type { AnalyticsData } from "@/types/analytics";
+import {
+  StatsCards,
+  ModelBreakdownCard,
+  CreditsChart,
+} from "@/components/analytics";
 
 const PAGE_SIZE = 20;
 
@@ -77,6 +93,18 @@ export default function AdminUsersPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [detail, setDetail] = useState<UserDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+
+  // Usage analytics
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
+  // Edit user dialog
+  const [editUserDialogOpen, setEditUserDialogOpen] = useState(false);
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editRole, setEditRole] = useState("");
+  const [editPlan, setEditPlan] = useState("");
+  const [editSaving, setEditSaving] = useState(false);
 
   // Credits override dialog
   const [creditsDialogOpen, setCreditsDialogOpen] = useState(false);
@@ -124,6 +152,7 @@ export default function AdminUsersPage() {
     setSelectedUserId(userId);
     setDetail(null);
     setDetailLoading(true);
+    setAnalytics(null);
     try {
       const client = createApiClient(getToken);
       const data = await client.admin.getUser(userId);
@@ -133,10 +162,51 @@ export default function AdminUsersPage() {
       setCreditsRemaining(String(cr?.remaining ?? ""));
       setCreditsTotal(String(cr?.total ?? ""));
       setCreditsPlan(String(cr?.plan ?? "free"));
+      
+      // Pre-fill edit user form
+      const nameParts = data.user.name.split(" ");
+      setEditFirstName(nameParts[0] || "");
+      setEditLastName(nameParts.slice(1).join(" ") || "");
+      setEditRole(data.user.role || "user");
+      setEditPlan(data.user.plan || "free");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to load user detail");
     } finally {
       setDetailLoading(false);
+    }
+  }
+
+  async function fetchUserAnalytics(userId: string) {
+    setAnalyticsLoading(true);
+    try {
+      const client = createApiClient(getToken);
+      const data = await client.admin.getUserAnalytics(userId);
+      setAnalytics(data);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to load usage analytics");
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }
+
+  async function saveUserData() {
+    if (!selectedUserId) return;
+    setEditSaving(true);
+    try {
+      const client = createApiClient(getToken);
+      await client.admin.updateUser(selectedUserId, {
+        firstName: editFirstName,
+        lastName: editLastName,
+        role: editRole,
+        plan: editPlan,
+      });
+      toast.success("Gebruikersgegevens gewijzigd");
+      setEditUserDialogOpen(false);
+      openDetail(selectedUserId); // refresh
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to update user data");
+    } finally {
+      setEditSaving(false);
     }
   }
 
@@ -183,9 +253,9 @@ export default function AdminUsersPage() {
       {/* Header */}
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Users</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Gebruikersoverzicht</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {loading ? "Loading…" : `${totalCount.toLocaleString()} total users`}
+            {loading ? "Laden…" : `${totalCount.toLocaleString()} gebruikers totaal`}
           </p>
         </div>
         <Button
@@ -195,7 +265,7 @@ export default function AdminUsersPage() {
           disabled={loading}
         >
           <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-          Refresh
+          Vernieuwen
         </Button>
       </div>
 
@@ -203,7 +273,7 @@ export default function AdminUsersPage() {
       <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
         <Input
-          placeholder="Search by name or email…"
+          placeholder="Zoeken op naam of e-mail…"
           value={search}
           onChange={handleSearchChange}
           className="pl-9"
@@ -215,11 +285,11 @@ export default function AdminUsersPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-border bg-muted/30">
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">User</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">Plan</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">Projects</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Joined</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Last sign-in</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Gebruiker</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden sm:table-cell">Abonnement</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden md:table-cell">Projecten</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Lid sinds</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground hidden lg:table-cell">Laatst actief</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -336,136 +406,261 @@ export default function AdminUsersPage() {
 
       {/* ── User Detail Dialog ── */}
       <Dialog open={!!selectedUserId} onOpenChange={(o) => { if (!o) setSelectedUserId(null); }}>
-        <DialogContent className="sm:max-w-[520px] max-h-[85vh] overflow-y-auto">
+        <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col p-0 gap-0">
           {detailLoading || !detail ? (
-            <div className="space-y-3 py-4">
+            <div className="space-y-3 p-6">
               <Skeleton className="h-6 w-40" />
               <Skeleton className="h-4 w-60" />
               <Skeleton className="h-32 w-full mt-4" />
             </div>
           ) : (
             <>
-              <DialogHeader>
-                <div className="flex items-center gap-3 mb-1">
-                  <Avatar className="size-10">
-                    <AvatarImage src={detail.user.imageUrl} />
-                    <AvatarFallback>{detail.user.name.slice(0, 2).toUpperCase()}</AvatarFallback>
-                  </Avatar>
-                  <div>
-                    <DialogTitle>{detail.user.name}</DialogTitle>
-                    <DialogDescription>{detail.user.email}</DialogDescription>
+              <DialogHeader className="p-6 pb-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Avatar className="size-10">
+                      <AvatarImage src={detail.user.imageUrl} />
+                      <AvatarFallback>{detail.user.name.slice(0, 2).toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                    <div>
+                      <DialogTitle>{detail.user.name}</DialogTitle>
+                      <DialogDescription>{detail.user.email}</DialogDescription>
+                    </div>
                   </div>
+                  <Button variant="outline" size="sm" onClick={() => setEditUserDialogOpen(true)}>
+                    <UserCog className="size-3.5 mr-1" />
+                    Bewerken
+                  </Button>
                 </div>
               </DialogHeader>
 
-              {/* Meta */}
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <InfoRow label="Plan" value={<PlanBadge plan={detail.user.plan} />} />
-                <InfoRow label="Role" value={<Badge variant="outline" className="text-xs">{detail.user.role}</Badge>} />
-                <InfoRow
-                  label="Joined"
-                  value={format(new Date(detail.user.createdAt), "PPP")}
-                />
-                <InfoRow
-                  label="Last sign-in"
-                  value={
-                    detail.user.lastSignInAt
-                      ? formatDistanceToNow(new Date(detail.user.lastSignInAt), { addSuffix: true })
-                      : "—"
-                  }
-                />
-              </div>
-
-              {/* Credits */}
-              {detail.credits && (
-                <>
-                  <Separator />
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm font-semibold">Credits</p>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="text-xs"
-                        onClick={() => setCreditsDialogOpen(true)}
-                      >
-                        <Zap className="size-3.5" />
-                        Override
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      {(["remaining", "total", "plan"] as const).map((k) => (
-                        <div key={k} className="rounded-lg border bg-muted/30 px-3 py-2">
-                          <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{k}</p>
-                          <p className="text-sm font-semibold mt-0.5">
-                            {String(detail.credits?.[k] ?? "—")}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-
-              {/* Projects */}
-              <Separator />
-              <div>
-                <div className="flex items-center gap-2 mb-3">
-                  <FolderOpen className="size-4 text-muted-foreground" />
-                  <p className="text-sm font-semibold">
-                    Projects ({detail.projects.length})
-                  </p>
+              <Tabs defaultValue="overview" className="flex-1 flex flex-col overflow-hidden" onValueChange={(v) => {
+                if (v === "analytics" && !analytics) fetchUserAnalytics(detail.user.id);
+              }}>
+                <div className="px-6 border-b">
+                  <TabsList className="bg-transparent h-auto p-0 gap-6">
+                    <TabsTrigger value="overview" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-2.5 text-sm">
+                      <User className="size-3.5 mr-2" />
+                      Overzicht
+                    </TabsTrigger>
+                    <TabsTrigger value="analytics" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-0 py-2.5 text-sm">
+                      <BarChart3 className="size-3.5 mr-2" />
+                      Token verbruik
+                    </TabsTrigger>
+                  </TabsList>
                 </div>
-                {detail.projects.length === 0 ? (
-                  <p className="text-xs text-muted-foreground">No projects.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {detail.projects.map((proj) => (
-                      <li
-                        key={proj.id}
-                        className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium truncate">{proj.name}</p>
-                          {proj.updatedAt && (
-                            <p className="text-[11px] text-muted-foreground">
-                              Updated {formatDistanceToNow(new Date(proj.updatedAt), { addSuffix: true })}
-                            </p>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                          <a
-                            href={`/project/${proj.id}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <Button variant="ghost" size="icon-xs" title="Open project">
-                              <ExternalLink className="size-3.5" />
-                            </Button>
-                          </a>
+
+                <div className="flex-1 overflow-y-auto p-6">
+                  <TabsContent value="overview" className="mt-0 space-y-6">
+                    {/* Meta */}
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <InfoRow label="Abonnement" value={<PlanBadge plan={detail.user.plan} />} />
+                      <InfoRow label="Rol" value={<Badge variant="outline" className="text-xs uppercase">{detail.user.role}</Badge>} />
+                      <InfoRow
+                        label="Lid sinds"
+                        value={format(new Date(detail.user.createdAt), "PPP")}
+                      />
+                      <InfoRow
+                        label="Laatst actief"
+                        value={
+                          detail.user.lastSignInAt
+                            ? formatDistanceToNow(new Date(detail.user.lastSignInAt), { addSuffix: true })
+                            : "—"
+                        }
+                      />
+                    </div>
+
+                    {/* Credits */}
+                    {detail.credits && (
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-semibold">Credits & Abonnement</p>
                           <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                            title="Delete project"
-                            onClick={() =>
-                              setDeleteTarget({
-                                userId: detail.user.id,
-                                projectId: proj.id,
-                                name: proj.name,
-                              })
-                            }
+                            variant="outline"
+                            size="sm"
+                            className="text-xs h-7"
+                            onClick={() => setCreditsDialogOpen(true)}
                           >
-                            <Trash2 className="size-3.5" />
+                            <Zap className="size-3 h-3 mr-1" />
+                            Overschrijven
                           </Button>
                         </div>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["remaining", "total", "plan"] as const).map((k) => (
+                            <div key={k} className="rounded-lg border bg-muted/30 px-3 py-2">
+                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{k}</p>
+                              <p className="text-sm font-semibold mt-0.5">
+                                {String(detail.credits?.[k] ?? "—")}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Projects */}
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="size-4 text-muted-foreground" />
+                        <p className="text-sm font-semibold">
+                          Projecten ({detail.projects.length})
+                        </p>
+                      </div>
+                      {detail.projects.length === 0 ? (
+                        <p className="text-xs text-muted-foreground">Geen projecten gevonden.</p>
+                      ) : (
+                        <ul className="space-y-1.5">
+                          {detail.projects.map((proj) => (
+                            <li
+                              key={proj.id}
+                              className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2"
+                            >
+                              <div className="min-w-0">
+                                <p className="text-sm font-medium truncate">{proj.name}</p>
+                                {proj.updatedAt && (
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Bijgewerkt {formatDistanceToNow(new Date(proj.updatedAt), { addSuffix: true })}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                                <a
+                                  href={`/project/${proj.id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <Button variant="ghost" size="icon-xs" title="Open project">
+                                    <ExternalLink className="size-3.5" />
+                                  </Button>
+                                </a>
+                                <Button
+                                  variant="ghost"
+                                  size="icon-xs"
+                                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                                  title="Verwijder project"
+                                  onClick={() =>
+                                    setDeleteTarget({
+                                      userId: detail.user.id,
+                                      projectId: proj.id,
+                                      name: proj.name,
+                                    })
+                                  }
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="analytics" className="mt-0">
+                    {analyticsLoading ? (
+                      <div className="space-y-4 pt-4">
+                        <Skeleton className="h-32 w-full" />
+                        <div className="grid grid-cols-2 gap-4">
+                          <Skeleton className="h-40 w-full" />
+                          <Skeleton className="h-40 w-full" />
+                        </div>
+                      </div>
+                    ) : analytics ? (
+                      <div className="space-y-6 pt-2">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-3 border rounded-lg bg-card">
+                            <p className="text-[10px] uppercase text-muted-foreground font-medium mb-1">Totaal Generaties</p>
+                            <p className="text-xl font-bold">{analytics.totalGenerations}</p>
+                          </div>
+                          <div className="p-3 border rounded-lg bg-card">
+                            <p className="text-[10px] uppercase text-muted-foreground font-medium mb-1">Credits Verbruikt</p>
+                            <p className="text-xl font-bold">{analytics.creditsUsed} / {analytics.creditsTotal}</p>
+                          </div>
+                        </div>
+
+                        <ModelBreakdownCard 
+                          modelBreakdown={analytics.modelBreakdown}
+                          totalGenerations={analytics.totalGenerations}
+                        />
+
+                        <CreditsChart 
+                          creditsUsed={analytics.creditsUsed}
+                          creditsTotal={analytics.creditsTotal}
+                          plan={analytics.plan as any}
+                          periodEnd={analytics.periodEnd}
+                        />
+                      </div>
+                    ) : (
+                      <div className="py-10 text-center">
+                        <BarChart3 className="size-10 text-muted-foreground/20 mx-auto mb-3" />
+                        <p className="text-sm text-muted-foreground">Geen verbruiksgegevens beschikbaar.</p>
+                      </div>
+                    )}
+                  </TabsContent>
+                </div>
+              </Tabs>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit User Data Dialog */}
+      <Dialog open={editUserDialogOpen} onOpenChange={setEditUserDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Gebruikersgegevens wijzigen</DialogTitle>
+            <DialogDescription>
+              Wijzig de basisgegevens van deze gebruiker in Clerk.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground uppercase">Voornaam</label>
+                <Input
+                  value={editFirstName}
+                  onChange={(e) => setEditFirstName(e.target.value)}
+                  placeholder="e.g. John"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground uppercase">Achternaam</label>
+                <Input
+                  value={editLastName}
+                  onChange={(e) => setEditLastName(e.target.value)}
+                  placeholder="e.g. Doe"
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase">Rol</label>
+              <select
+                value={editRole}
+                onChange={(e) => setEditRole(e.target.value)}
+                className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="user">User</option>
+                <option value="admin">Admin</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground uppercase">Abonnement</label>
+              <select
+                value={editPlan}
+                onChange={(e) => setEditPlan(e.target.value)}
+                className="w-full flex h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <option value="free">Free</option>
+                <option value="pro">Pro</option>
+              </select>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setEditUserDialogOpen(false)}>Annuleren</Button>
+            <Button disabled={editSaving} onClick={saveUserData}>
+              {editSaving ? "Opslaan…" : "Opslaan"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 

@@ -202,7 +202,7 @@ export default function EditorPage({
    * Used by the auto-send effect to avoid stale closure issues
    * without needing handleSendMessage in the effect's deps.
    */
-  const handleSendMessageRef = useRef<(content: string) => void>(() => {});
+  const handleSendMessageRef = useRef<(content: string, images?: ImageAttachment[], isAutoHeal?: boolean) => void>(() => {});
 
   /** Project metadata from the API */
   const [project, setProject] = useState<Project | null>(null);

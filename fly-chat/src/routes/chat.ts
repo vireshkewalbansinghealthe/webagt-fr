@@ -12,16 +12,16 @@ import { streamSSE } from "hono/streaming";
 import type { AppVariables } from "../types.js";
 import type { Project, ProjectFile, Version } from "../types/project.js";
 import type { ChatMessage, ChatSession, ImageAttachment } from "../types/chat.js";
-import { buildSystemPrompt, prepareChatHistory } from "../ai/system-prompt.js";
-import { rewriteAtAliasImportsForSandbox } from "../ai/default-project.js";
+import { buildSystemPrompt, prepareChatHistory } from "../ai/system-prompt";
+import { rewriteAtAliasImportsForSandbox } from "../ai/default-project";
 import {
   parseFilesFromResponse,
   filterUnsafeGeneratedFiles,
   mergeFiles,
   extractExplanation,
   extractSuggestions,
-} from "../ai/file-parser.js";
-import { getModel, MODEL_REGISTRY, DEFAULT_MODEL } from "../ai/providers/index.js";
+} from "../ai/file-parser";
+import { getModel, MODEL_REGISTRY, DEFAULT_MODEL } from "../ai/providers/index";
 import { streamText } from "ai";
 import type { ModelMessage } from "ai";
 import { checkCredits, deductCredits } from "../services/credits.js";
@@ -255,14 +255,13 @@ chatRoutes.post("/:projectId", async (c) => {
   }
 
   // Append current user message
-  const lastMsg = sdkMessages[sdkMessages.length - 1];
   const imageUrlLines = enrichedImages
     .map((img, i) => (img.url ? `- Image ${i + 1}: ${img.url}` : null))
     .filter(Boolean)
     .join("\n");
 
   const finalUserMessage = imageUrlLines
-    ? `${userMessage}\n\nUploaded image asset URL${enrichedImages.length > 1 ? "s" : ""} — use these directly as src attributes:\n${imageUrlLines}`
+    ? `${userMessage}\n\nUploaded image asset URL${enrichedImages.length > 1 ? "s" : ""} — use these directly as src attributes in <img> tags in your generated code:\n${imageUrlLines}`
     : userMessage;
 
   if (enrichedImages.length > 0 && modelConfig.supportsVision) {

@@ -22,7 +22,7 @@ import { ChatInput } from "./chat-input";
 import { ModelSelector } from "./model-selector";
 import { UpgradeCTA } from "./upgrade-cta";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sparkles, Code, MessageSquare } from "lucide-react";
+import { Sparkles, Code, MessageSquare, Loader2 } from "lucide-react";
 import { getModelById } from "@/lib/models";
 
 /**
@@ -168,6 +168,15 @@ export function ChatPanel({
               }
             />
           ))}
+
+          {/* Reconnect indicator: shown when server is still generating after a refresh
+              (isStreaming=true but no in-progress AI message in the list) */}
+          {isStreaming && messages.length > 0 && messages[messages.length - 1].role === "user" && (
+            <div className="flex items-center gap-2.5 self-start rounded-2xl border border-border/60 bg-card/60 px-4 py-3 text-sm text-muted-foreground">
+              <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
+              <span>Generating — will update when done…</span>
+            </div>
+          )}
 
           {/* Invisible anchor for auto-scroll */}
           <div ref={messagesEndRef} />

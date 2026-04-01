@@ -397,25 +397,6 @@ export default function EditorPage({
         if (genState.status === "running") {
           setIsStreaming(true);
           isStreamingRef.current = true;
-
-          // Inject a placeholder AI message so the typing indicator appears
-          // (the real message replaces it when polling detects completion)
-          setMessages((prev) => {
-            const lastIsUser = prev.length > 0 && prev[prev.length - 1].role === "user";
-            if (lastIsUser) {
-              return [
-                ...prev,
-                {
-                  id: `msg-${Date.now()}-assistant-reconnect`,
-                  role: "assistant" as const,
-                  content: "",
-                  timestamp: new Date().toISOString(),
-                },
-              ];
-            }
-            return prev;
-          });
-
           startPolling();
         }
 

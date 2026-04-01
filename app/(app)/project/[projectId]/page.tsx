@@ -389,12 +389,33 @@ export default function EditorPage({
           setActiveFile(filePaths[0]);
         }
 
-        // If the server is still generating (background), show the spinner
-        // and poll until it finishes — no user-visible reconnect message.
+        // If the server is still generating (background), restore the chat
+        // to how it looked before the refresh: show the user message + a
+        // typing AI bubble, then poll until the server finishes and swap in
+        // the real response automatically.
         const genState = statusRes as { status: string };
         if (genState.status === "running") {
           setIsStreaming(true);
           isStreamingRef.current = true;
+
+          // Inject a placeholder AI message so the typing indicator appears
+          // (the real message replaces it when polling detects completion)
+          setMessages((prev) => {
+            const lastIsUser = prev.length > 0 && prev[prev.length - 1].role === "user";
+            if (lastIsUser) {
+              return [
+                ...prev,
+                {
+                  id: `msg-${Date.now()}-assistant-reconnect`,
+                  role: "assistant" as const,
+                  content: "",
+                  timestamp: new Date().toISOString(),
+                },
+              ];
+            }
+            return prev;
+          });
+
           startPolling();
         }
 

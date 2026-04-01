@@ -113,37 +113,61 @@ export function ChatPanel({
           {/* Empty state when no messages */}
           {messages.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center px-6 py-16 text-center">
-              {/* Glowing icon */}
-              <div className="relative mb-5">
-                <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20 blur-xl" />
-                <div className="relative flex size-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
-                  <Sparkles className="size-7 text-primary" />
-                </div>
-              </div>
-
-              <h3 className="text-base font-semibold text-foreground">
-                What do you want to build?
-              </h3>
-              <p className="mt-2 max-w-[260px] text-sm leading-relaxed text-muted-foreground">
-                Describe your app and the AI will generate working code with a live preview.
-              </p>
-
-              {/* Suggestion chips */}
-              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
-                {[
-                  { icon: Code, label: "A landing page" },
-                  { icon: MessageSquare, label: "A chat app" },
-                ].map((suggestion) => (
-                  <button
-                    key={suggestion.label}
-                    onClick={() => onSendMessage(suggestion.label)}
-                    className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-foreground"
-                  >
-                    <suggestion.icon className="size-3" />
-                    {suggestion.label}
-                  </button>
-                ))}
-              </div>
+              {isStreaming ? (
+                /* Background generation indicator — shown after page refresh during generation */
+                <>
+                  <div className="relative mb-5">
+                    <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20 blur-xl" />
+                    <div className="relative flex size-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+                      <Sparkles className="size-7 text-primary animate-pulse" />
+                    </div>
+                  </div>
+                  <h3 className="text-base font-semibold text-foreground">
+                    Generating in the background…
+                  </h3>
+                  <p className="mt-2 max-w-[260px] text-sm leading-relaxed text-muted-foreground">
+                    Your AI generation is still running. The page will update automatically when it finishes.
+                  </p>
+                  <div className="mt-5 flex items-center gap-2 text-xs text-primary font-medium">
+                    <span className="relative flex size-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75" />
+                      <span className="relative inline-flex rounded-full size-2 bg-primary" />
+                    </span>
+                    Working…
+                  </div>
+                </>
+              ) : (
+                /* Normal empty state */
+                <>
+                  <div className="relative mb-5">
+                    <div className="absolute inset-0 animate-pulse rounded-full bg-primary/20 blur-xl" />
+                    <div className="relative flex size-14 items-center justify-center rounded-2xl border border-primary/20 bg-primary/10">
+                      <Sparkles className="size-7 text-primary" />
+                    </div>
+                  </div>
+                  <h3 className="text-base font-semibold text-foreground">
+                    What do you want to build?
+                  </h3>
+                  <p className="mt-2 max-w-[260px] text-sm leading-relaxed text-muted-foreground">
+                    Describe your app and the AI will generate working code with a live preview.
+                  </p>
+                  <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                    {[
+                      { icon: Code, label: "A landing page" },
+                      { icon: MessageSquare, label: "A chat app" },
+                    ].map((suggestion) => (
+                      <button
+                        key={suggestion.label}
+                        onClick={() => onSendMessage(suggestion.label)}
+                        className="flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 hover:text-foreground"
+                      >
+                        <suggestion.icon className="size-3" />
+                        {suggestion.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 

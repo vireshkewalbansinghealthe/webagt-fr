@@ -58,6 +58,24 @@ chatRoutes.get("/status/:projectId", async (c) => {
   return c.json(state);
 });
 
+// POST /stop/:projectId — stop a running generation
+chatRoutes.post("/stop/:projectId", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("projectId");
+  const kv = c.get("kv" as any) as CloudflareKV;
+
+  // Verify project ownership
+  const project = await kv.get<Project>(`project:${projectId}`, "json");
+  if (!project || project.userId !== userId) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  // Set a stop flag in KV that the running generation will check
+  await kv.put(`stop-signal:${projectId}`, "true", { expirationTtl: 300 }); // expires in 5 mins
+
+  return c.json({ success: true });
+});
+
 // POST /:projectId — Stream AI code generation (resilient to disconnects)
 chatRoutes.post("/:projectId", async (c) => {
   const userId = c.var.userId;
@@ -95,8 +113,19 @@ chatRoutes.post("/:projectId", async (c) => {
     return c.json({ error: `Unknown model: ${modelId}`, code: "INVALID_MODEL" }, 400);
   }
 
+  const mem = () => {
+    const m = process.memoryUsage();
+    return `RSS=${(m.rss / 1024 / 1024).toFixed(0)}MB heap=${(m.heapUsed / 1024 / 1024).toFixed(0)}MB`;
+  };
+
+  console.log(`[${projectId}] [auth] User ${userId} — POST /api/chat/${projectId} — ${mem()}`);
+  console.log(`[${projectId}] [request] model=${modelId}, prompt=${userMessage.length} chars, images=${images.length}`);
+
   // --- 2. Verify project exists and belongs to user ---
+  const t0 = Date.now();
   const project = await kv.get<Project>(`project:${projectId}`, "json");
+  console.log(`[${projectId}] [kv] project:${projectId} fetched in ${Date.now() - t0}ms — type=${project?.type}, v=${project?.currentVersion}`);
+
   if (!project) {
     return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
   }
@@ -133,7 +162,9 @@ chatRoutes.post("/:projectId", async (c) => {
   plog.info("chat", `Generation started — model=${modelId}, prompt=${userMessage.slice(0, 120)}…`);
 
   // --- 3. Check credits ---
+  const t1 = Date.now();
   const creditCheck = await checkCredits(userId, modelConfig.creditCost, kv);
+  console.log(`[${projectId}] [credits] plan=${creditCheck.credits.plan}, remaining=${creditCheck.credits.remaining}, cost=${modelConfig.creditCost}, allowed=${creditCheck.allowed} — ${Date.now() - t1}ms`);
 
   if (modelConfig.tier === "premium" && creditCheck.credits.plan === "free") {
     return c.json({
@@ -270,6 +301,9 @@ chatRoutes.post("/:projectId", async (c) => {
     let eventId = 0;
     const streamStart = Date.now();
 
+    // Clear any existing stop signal at start
+    await kv.delete(`stop-signal:${projectId}`).catch(() => {});
+
     // Detect client disconnect — but continue generation
     c.req.raw.signal.addEventListener("abort", () => {
       console.log(`[chat] Client disconnected for ${projectId} — continuing generation server-side`);
@@ -289,9 +323,23 @@ chatRoutes.post("/:projectId", async (c) => {
       });
 
       let chunkCount = 0;
+      let lastStopCheck = 0;
+      let stopped = false;
+
       for await (const chunk of result.textStream) {
         fullResponse += chunk;
         chunkCount++;
+
+        // Check for stop signal every 5 chunks to minimize KV reads
+        if (chunkCount - lastStopCheck > 5) {
+          lastStopCheck = chunkCount;
+          const stopSignal = await kv.get(`stop-signal:${projectId}`);
+          if (stopSignal === "true") {
+            console.log(`[chat] Stop signal detected for ${projectId}. Aborting stream.`);
+            stopped = true;
+            break;
+          }
+        }
 
         if (clientConnected) {
           try {
@@ -306,8 +354,31 @@ chatRoutes.post("/:projectId", async (c) => {
         }
       }
 
+      if (stopped) {
+        plog.info("chat", `Generation stopped by user after ${chunkCount} chunks.`);
+        await kv.delete(`stop-signal:${projectId}`).catch(() => {});
+        
+        // Update generation state to failed/stopped
+        await kv.put(`generation:${projectId}`, JSON.stringify({
+          status: "failed",
+          startedAt: new Date(streamStart).toISOString(),
+          completedAt: new Date().toISOString(),
+          error: "Generation stopped by user",
+        } satisfies GenerationState)).catch(() => {});
+
+        if (clientConnected) {
+          await stream.writeSSE({
+            event: "error",
+            data: JSON.stringify({ message: "Generation stopped by user", code: "STOPPED" }),
+            id: String(eventId++),
+          });
+        }
+        return;
+      }
+
       const streamDuration = Date.now() - streamStart;
       plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${fullResponse.length} chars, ${(streamDuration / 1000).toFixed(1)}s`);
+      console.log(`[${projectId}] [memory] After AI stream: ${mem()}`);
 
       // --- 8. Parse files ---
       const parsedFiles = parseFilesFromResponse(fullResponse);
@@ -434,6 +505,7 @@ chatRoutes.post("/:projectId", async (c) => {
 
       const totalDuration = Date.now() - streamStart;
       plog.info("chat", `Generation complete — v${newVersionNumber}, ${changedFilePaths.length} files, ${(totalDuration / 1000).toFixed(1)}s, client=${clientConnected ? "connected" : "disconnected"}`);
+      console.log(`[${projectId}] [done] v${newVersionNumber}, ${changedFilePaths.length} files, ${(totalDuration / 1000).toFixed(1)}s — ${mem()}`);
       await plog.flush();
 
     } catch (error) {

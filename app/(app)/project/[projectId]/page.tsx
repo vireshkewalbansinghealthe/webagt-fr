@@ -539,15 +539,31 @@ export default function EditorPage({
     setDiffState(null);
   }, []);
 
-  const handleStopGeneration = useCallback(() => {
+  const handleStopGeneration = useCallback(async () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+      
+      // Also notify the server to stop the generation in the background
+      try {
+        const token = await getToken();
+        if (token) {
+          await fetch(`${CHAT_URL}/api/chat/stop/${projectId}`, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+        }
+      } catch (err) {
+        console.error("Failed to notify server to stop generation:", err);
+      }
+
       setIsStreaming(false);
       isStreamingRef.current = false;
       toast.info("Generation stopped");
     }
-  }, []);
+  }, [getToken, projectId]);
 
   /**
    * Handles sending a new chat message via SSE streaming.

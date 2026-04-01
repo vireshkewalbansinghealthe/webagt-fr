@@ -45,5 +45,10 @@ next-env.d.ts
 # wrangler local state
 .wrangler
 
+# production builds
+dist/
+worker/dist/
+fly-chat/dist/
+
 # reference project
 web-agt/

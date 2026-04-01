@@ -21,11 +21,12 @@ An open-source clone of [lovable.dev](https://lovable.dev) where users describe 
 
 | Layer | Technology |
 |-------|-----------|
-| Frontend | Next.js 16 + React 19 |
+| Frontend | Next.js 16 + React 19 (Vercel) |
 | UI Components | shadcn/ui + Radix UI |
 | Styling | Tailwind CSS v4 |
 | Auth & Billing | Clerk |
 | Backend API | Cloudflare Workers + Hono |
+| **AI Generator** | **Node.js + Hono (Fly.io)** |
 | File Storage | Cloudflare R2 |
 | Metadata Store | Cloudflare KV |
 | Code Preview | Sandpack (CodeSandbox) |
@@ -109,14 +110,15 @@ nextjs-lovable-clone/
 │   └── editor/                   # Chat, preview, code editor, versions
 ├── lib/                          # Utilities & API client
 ├── types/                        # Shared TypeScript definitions
-├── docs/                         # Phase guides & architecture docs
-└── worker/                       # Cloudflare Worker backend
+├── worker/                       # Cloudflare Worker backend
+│   └── src/
+│       ├── routes/               # Projects, billing, versions
+│       ├── ai/                   # AI logic shared with Fly.io
+│       ├── middleware/            # Clerk JWT auth
+│       └── services/             # Credits & billing logic
+└── fly-chat/                     # AI generation service (Fly.io)
     └── src/
-        ├── routes/               # Projects, chat, versions, export
-        ├── ai/                   # System prompt, file parser, providers
-        │   └── providers/        # Anthropic, OpenAI, Google, DeepSeek
-        ├── middleware/            # Clerk JWT auth
-        └── services/             # Credits & billing logic
+        └── routes/               # Chat generation (SSE), stop logic
 ```
 
 ## Supported AI Models
@@ -155,14 +157,9 @@ npm run deploy           # Deploy Worker to Cloudflare
 npm run typecheck        # TypeScript type check
 ```
 
-## Documentation
+## Deployment
 
-Detailed docs live in the `docs/` directory:
-
-- **PLAN.md** — Master implementation plan
-- **ARCHITECTURE.md** — System architecture & data flows
-- **AI-COST-ANALYSIS.md** — Token usage & cost breakdowns
-- **phase-1 through phase-9** — Step-by-step phase guides
+For detailed instructions on how to deploy each component of the system, please refer to the **[DEPLOY.md](DEPLOY.md)** file.
 
 ## Development Phases
 

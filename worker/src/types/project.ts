@@ -48,6 +48,8 @@ export interface Project {
   stripePaymentMethods?: string[];
   paymentMode?: "off" | "test" | "live";
   deployment_uuid?: string;
+  customDomain?: string;
+  customDomainVerified?: boolean;
   deployToken?: string;
   ownerNotificationEmail?: string;
   ownerNotificationEmails?: string[];

@@ -35,6 +35,10 @@ import {
   Tag,
   Percent,
   FileDown,
+  ShieldCheck,
+  Link2,
+  Link2Off,
+  RefreshCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types/project";
@@ -3665,6 +3669,14 @@ function PublishTab({
   const [domainMode, setDomainMode] = useState<"subdomain" | "custom">("subdomain");
   const [customDomain, setCustomDomain] = useState("");
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
+
+  // Custom domain management state
+  const [domainInput, setDomainInput] = useState(project.customDomain ?? "");
+  const [domainSaving, setDomainSaving] = useState(false);
+  const [domainRemoving, setDomainRemoving] = useState(false);
+  const [domainVerifying, setDomainVerifying] = useState(false);
+  const [verifyResult, setVerifyResult] = useState<{ verified: boolean; serverIp: string | null; domainIp: string | null; cname: string | null; serverHostname: string } | null>(null);
+
   const { getToken } = useAuth();
 
   const isAlreadyDeployed = !!project.deployment_uuid;
@@ -3810,7 +3822,83 @@ function PublishTab({
     }
   };
 
+  const handleAddDomain = async () => {
+    const d = domainInput.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+    if (!d) return;
+    setDomainSaving(true);
+    setVerifyResult(null);
+    try {
+      const token = await getToken();
+      const { WORKER_URL } = await import("@/lib/api-client");
+      const res = await fetch(`${WORKER_URL}/api/projects/${project.id}/custom-domain`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ domain: d }),
+      });
+      const data = await res.json() as any;
+      if (!res.ok) throw new Error(data.error || "Failed to add domain");
+      const refreshed = await (await import("@/lib/api-client")).createApiClient(getToken).projects.get(project.id);
+      onProjectChange(refreshed.project);
+      toast.success("Domain added! Now configure your DNS records below.");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to add domain");
+    } finally {
+      setDomainSaving(false);
+    }
+  };
+
+  const handleRemoveDomain = async () => {
+    setDomainRemoving(true);
+    setVerifyResult(null);
+    try {
+      const token = await getToken();
+      const { WORKER_URL } = await import("@/lib/api-client");
+      const res = await fetch(`${WORKER_URL}/api/projects/${project.id}/custom-domain`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to remove domain");
+      const refreshed = await (await import("@/lib/api-client")).createApiClient(getToken).projects.get(project.id);
+      onProjectChange(refreshed.project);
+      setDomainInput("");
+      toast.success("Custom domain removed.");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to remove domain");
+    } finally {
+      setDomainRemoving(false);
+    }
+  };
+
+  const handleVerifyDomain = async () => {
+    setDomainVerifying(true);
+    try {
+      const token = await getToken();
+      const { WORKER_URL } = await import("@/lib/api-client");
+      const res = await fetch(`${WORKER_URL}/api/projects/${project.id}/custom-domain/verify`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json() as any;
+      if (!res.ok) throw new Error(data.error || "Verification failed");
+      setVerifyResult(data);
+      if (data.verified) {
+        const refreshed = await (await import("@/lib/api-client")).createApiClient(getToken).projects.get(project.id);
+        onProjectChange(refreshed.project);
+        toast.success("Domain verified! Your custom domain is active.");
+      } else {
+        toast.info("DNS not propagated yet. It can take up to 48 hours — try again later.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Verification failed");
+    } finally {
+      setDomainVerifying(false);
+    }
+  };
+
   if ((isAlreadyDeployed && !isDeploying && logs.length === 0) || isDeploySuccess) {
+    const savedDomain = project.customDomain;
+    const isVerified = project.customDomainVerified;
+    const activeSiteUrl = savedDomain ? `https://${savedDomain}` : siteUrl;
+
     return (
       <div className="space-y-6 max-w-2xl">
         <div>
@@ -3820,34 +3908,26 @@ function PublishTab({
           </p>
         </div>
 
-        <div className="p-8 bg-green-500/10 border border-green-500/20 rounded-xl text-center space-y-4 animate-in fade-in slide-in-from-bottom-4">
-          <div className="mx-auto w-14 h-14 bg-green-500/20 rounded-full flex items-center justify-center">
-            <CheckCircle2 className="size-7 text-green-600" />
+        {/* Live status card */}
+        <div className="p-6 bg-green-500/10 border border-green-500/20 rounded-xl text-center space-y-3 animate-in fade-in slide-in-from-bottom-4">
+          <div className="mx-auto w-12 h-12 bg-green-500/20 rounded-full flex items-center justify-center">
+            <CheckCircle2 className="size-6 text-green-600" />
           </div>
-          <h3 className="text-xl font-bold text-green-700">Your site is live!</h3>
-          <p className="text-green-600/80 text-sm">
-            Your webshop is deployed and accessible on the internet.
-          </p>
-          <div className="mx-auto max-w-xl rounded-xl border border-green-500/20 bg-white/70 px-4 py-3 text-sm text-green-900">
-            {paymentSummary}
-          </div>
+          <h3 className="text-lg font-bold text-green-700">Your site is live!</h3>
+          <p className="text-green-600/80 text-sm">{paymentSummary}</p>
           <div className="font-mono text-sm text-green-700 bg-green-500/10 rounded-lg py-2 px-4 inline-block">
-            {siteUrl}
+            {activeSiteUrl}
           </div>
-          <div className="pt-3 flex justify-center gap-3">
-            <Button 
-              onClick={() => window.open(siteUrl, '_blank')}
-              className="bg-green-600 hover:bg-green-700 text-white shadow-sm"
+          <div className="pt-2 flex justify-center gap-3">
+            <Button
+              onClick={() => window.open(activeSiteUrl, "_blank")}
+              className="bg-green-600 hover:bg-green-700 text-white shadow-sm gap-2"
             >
-              <ExternalLink className="mr-2 size-4" />
-              View Site
+              <ExternalLink className="size-4" /> View Site
             </Button>
             <Button
               variant="outline"
-              onClick={() => {
-                setLogs([]);
-                handlePublish();
-              }}
+              onClick={() => { setLogs([]); handlePublish(); }}
               disabled={loading}
               className="gap-2"
             >
@@ -3857,8 +3937,157 @@ function PublishTab({
           </div>
         </div>
 
+        {/* ── Custom Domain Section ── */}
+        <div className="rounded-xl border bg-card overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b bg-muted/30">
+            <Globe className="size-4 text-muted-foreground" />
+            <span className="text-sm font-semibold">Custom Domain</span>
+            {savedDomain && (
+              isVerified
+                ? <span className="ml-auto flex items-center gap-1 text-xs text-green-600 font-medium"><ShieldCheck className="size-3.5" /> Verified</span>
+                : <span className="ml-auto flex items-center gap-1 text-xs text-amber-600 font-medium"><AlertTriangle className="size-3.5" /> Pending DNS</span>
+            )}
+          </div>
+
+          <div className="p-4 space-y-4">
+            {!savedDomain ? (
+              /* — Add domain form — */
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  Connect your own domain so customers visit <span className="font-medium">shop.yourbrand.com</span> instead of the default Coolify URL.
+                </p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Globe className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <Input
+                      className="pl-8 font-mono text-sm"
+                      placeholder="shop.yourbrand.com"
+                      value={domainInput}
+                      onChange={e => setDomainInput(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && handleAddDomain()}
+                    />
+                  </div>
+                  <Button onClick={handleAddDomain} disabled={domainSaving || !domainInput.trim()} className="gap-1.5 shrink-0">
+                    {domainSaving ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
+                    Add Domain
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              /* — Domain added: show DNS instructions + verify — */
+              <div className="space-y-4">
+                {/* Current domain + remove button */}
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/20 px-3 py-2">
+                  <Globe className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex-1 font-mono text-sm font-medium">{savedDomain}</span>
+                  {isVerified && <ShieldCheck className="size-4 text-green-600 shrink-0" />}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="gap-1 text-muted-foreground hover:text-destructive h-7 px-2 shrink-0"
+                    disabled={domainRemoving}
+                    onClick={handleRemoveDomain}
+                  >
+                    {domainRemoving ? <Loader2 className="size-3.5 animate-spin" /> : <Link2Off className="size-3.5" />}
+                    Remove
+                  </Button>
+                </div>
+
+                {/* DNS instructions */}
+                {!isVerified && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/60 dark:border-amber-900/40 dark:bg-amber-950/20 p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-400">
+                      <AlertTriangle className="size-4" />
+                      Configure your DNS records
+                    </div>
+                    <p className="text-xs text-amber-700/80 dark:text-amber-400/70">
+                      Add one of the following records at your DNS provider (GoDaddy, Namecheap, Cloudflare, etc.):
+                    </p>
+
+                    {/* CNAME record */}
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 uppercase tracking-wide">
+                        Option A — Subdomain (recommended)
+                      </p>
+                      <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-white dark:bg-black/20 overflow-hidden text-xs font-mono">
+                        <div className="grid grid-cols-[80px_1fr_1fr] divide-x divide-amber-100 dark:divide-amber-900 text-amber-900/60 dark:text-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5">
+                          <span>Type</span><span>Name</span><span>Value</span>
+                        </div>
+                        <div className="grid grid-cols-[80px_1fr_1fr] divide-x divide-amber-100 dark:divide-amber-900 px-3 py-2">
+                          <span className="text-blue-600 font-bold">CNAME</span>
+                          <span className="px-2 text-foreground">
+                            {savedDomain.split(".").length > 2
+                              ? savedDomain.split(".")[0]
+                              : "@"}
+                          </span>
+                          <span className="px-2 text-foreground">dock.4esh.nl</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* A record */}
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 uppercase tracking-wide">
+                        Option B — Root / apex domain
+                      </p>
+                      <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-white dark:bg-black/20 overflow-hidden text-xs font-mono">
+                        <div className="grid grid-cols-[80px_1fr_1fr] divide-x divide-amber-100 dark:divide-amber-900 text-amber-900/60 dark:text-amber-400/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-1.5">
+                          <span>Type</span><span>Name</span><span>Value</span>
+                        </div>
+                        <div className="grid grid-cols-[80px_1fr_1fr] divide-x divide-amber-100 dark:divide-amber-900 px-3 py-2">
+                          <span className="text-purple-600 font-bold">A</span>
+                          <span className="px-2 text-foreground">@</span>
+                          <span className="px-2 text-foreground">
+                            {verifyResult?.serverIp ?? "resolving…"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-[11px] text-amber-700/70 dark:text-amber-400/60">
+                      DNS changes can take <strong>up to 48 hours</strong> to propagate worldwide. Once done, click Verify below.
+                    </p>
+                  </div>
+                )}
+
+                {/* Verified state */}
+                {isVerified && (
+                  <div className="rounded-lg border border-green-200 bg-green-50/60 dark:border-green-900/40 dark:bg-green-950/20 p-3 flex items-center gap-3 text-sm text-green-700 dark:text-green-400">
+                    <ShieldCheck className="size-4 shrink-0" />
+                    <span>DNS verified — <strong>https://{savedDomain}</strong> is active and serving your shop.</span>
+                  </div>
+                )}
+
+                {/* Verify result detail */}
+                {verifyResult && !verifyResult.verified && (
+                  <div className="rounded-lg border bg-muted/30 p-3 text-xs font-mono space-y-1 text-muted-foreground">
+                    <p>Server IP: <span className="text-foreground">{verifyResult.serverIp ?? "n/a"}</span></p>
+                    <p>Your domain A: <span className="text-foreground">{verifyResult.domainIp ?? "not found"}</span></p>
+                    <p>Your domain CNAME: <span className="text-foreground">{verifyResult.cname ?? "not found"}</span></p>
+                  </div>
+                )}
+
+                {/* Verify button */}
+                <Button
+                  variant={isVerified ? "outline" : "default"}
+                  size="sm"
+                  className="gap-1.5 w-full"
+                  disabled={domainVerifying}
+                  onClick={handleVerifyDomain}
+                >
+                  {domainVerifying
+                    ? <Loader2 className="size-3.5 animate-spin" />
+                    : <RefreshCcw className="size-3.5" />}
+                  {isVerified ? "Re-verify DNS" : "Verify DNS Configuration"}
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Deployment logs */}
         {logs.length > 0 && (
-          <details className="group" open>
+          <details className="group">
             <summary className="flex items-center gap-2 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none">
               <ChevronRight className="size-4 transition-transform group-open:rotate-90" />
               Deployment Logs
@@ -3868,7 +4097,7 @@ function PublishTab({
                 {logs.map((log, i) => (
                   <div key={i} className={cn(
                     "whitespace-pre-wrap py-0.5",
-                    log.startsWith("Error") || log.startsWith("Oops") ? "text-red-500 font-medium" : 
+                    log.startsWith("Error") || log.startsWith("Oops") ? "text-red-500 font-medium" :
                     log.startsWith("✨") ? "text-green-500 font-medium" :
                     log.startsWith("URL:") ? "text-blue-500 underline cursor-pointer" :
                     "text-muted-foreground"

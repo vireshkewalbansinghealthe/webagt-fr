@@ -2353,6 +2353,212 @@ projectRoutes.post("/:id/provision-database", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/projects/:id/custom-domain — Add a custom domain via Coolify API
+// ---------------------------------------------------------------------------
+projectRoutes.post("/:id/custom-domain", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  if (project.userId !== userId) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+  if (!project.deployment_uuid) return c.json({ error: "Project not deployed yet — publish first.", code: "NOT_DEPLOYED" }, 400);
+
+  const body = await c.req.json<{ domain: string }>();
+  if (!body?.domain) return c.json({ error: "domain is required" }, 400);
+
+  // Normalise: strip protocol + trailing slash, lowercase
+  const cleanDomain = body.domain.trim().toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
+
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(cleanDomain)) {
+    return c.json({ error: "Invalid domain format. Example: shop.yourbrand.com" }, 400);
+  }
+
+  const COOLIFY_URL = c.env.COOLIFY_URL || "https://dock.4esh.nl";
+  const COOLIFY_API_KEY = c.env.COOLIFY_API_KEY;
+  if (!COOLIFY_API_KEY) return c.json({ error: "Coolify not configured", code: "SERVER_ERROR" }, 500);
+
+  try {
+    // Get current app to preserve existing domains (the Coolify subdomain)
+    const appRes = await fetch(`${COOLIFY_URL}/api/v1/applications/${project.deployment_uuid}`, {
+      headers: { Authorization: `Bearer ${COOLIFY_API_KEY}`, Accept: "application/json" },
+    });
+
+    const subdomainUrl = `https://agt-${projectId.substring(0, 8)}.dock.4esh.nl`;
+    let existingDomains = [subdomainUrl];
+    if (appRes.ok) {
+      const app = await appRes.json() as any;
+      if (app.fqdn) {
+        existingDomains = app.fqdn.split(",").map((d: string) => d.trim()).filter(Boolean);
+      }
+    }
+
+    // Add custom domain if not already there
+    const newDomainUrl = `https://${cleanDomain}`;
+    if (!existingDomains.includes(newDomainUrl)) {
+      existingDomains.push(newDomainUrl);
+    }
+
+    const patchRes = await fetch(`${COOLIFY_URL}/api/v1/applications/${project.deployment_uuid}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${COOLIFY_API_KEY}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ domains: existingDomains.join(",") }),
+    });
+
+    if (!patchRes.ok) {
+      const errText = await patchRes.text();
+      return c.json({ error: `Coolify rejected domain: ${errText}` }, 502);
+    }
+
+    // Persist to project metadata
+    project.customDomain = cleanDomain;
+    project.customDomainVerified = false;
+    project.updatedAt = new Date().toISOString();
+    await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+
+    return c.json({ success: true, domain: cleanDomain, verified: false });
+  } catch (err) {
+    console.error("[custom-domain] add error:", err);
+    return c.json({ error: "Failed to add domain" }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/projects/:id/custom-domain — Remove custom domain from Coolify
+// ---------------------------------------------------------------------------
+projectRoutes.delete("/:id/custom-domain", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  if (project.userId !== userId) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+
+  const COOLIFY_URL = c.env.COOLIFY_URL || "https://dock.4esh.nl";
+  const COOLIFY_API_KEY = c.env.COOLIFY_API_KEY;
+  if (!COOLIFY_API_KEY) return c.json({ error: "Coolify not configured", code: "SERVER_ERROR" }, 500);
+
+  if (!project.customDomain || !project.deployment_uuid) {
+    project.customDomain = undefined;
+    project.customDomainVerified = undefined;
+    await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+    return c.json({ success: true });
+  }
+
+  try {
+    const appRes = await fetch(`${COOLIFY_URL}/api/v1/applications/${project.deployment_uuid}`, {
+      headers: { Authorization: `Bearer ${COOLIFY_API_KEY}`, Accept: "application/json" },
+    });
+
+    if (appRes.ok) {
+      const app = await appRes.json() as any;
+      const removeDomain = `https://${project.customDomain}`;
+      const updatedDomains = (app.fqdn || "")
+        .split(",")
+        .map((d: string) => d.trim())
+        .filter((d: string) => d && d !== removeDomain)
+        .join(",");
+
+      await fetch(`${COOLIFY_URL}/api/v1/applications/${project.deployment_uuid}`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${COOLIFY_API_KEY}`,
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ domains: updatedDomains }),
+      });
+    }
+
+    project.customDomain = undefined;
+    project.customDomainVerified = undefined;
+    project.updatedAt = new Date().toISOString();
+    await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+
+    return c.json({ success: true });
+  } catch (err) {
+    console.error("[custom-domain] remove error:", err);
+    return c.json({ error: "Failed to remove domain" }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:id/custom-domain/verify — Check DNS propagation
+// ---------------------------------------------------------------------------
+projectRoutes.get("/:id/custom-domain/verify", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  if (project.userId !== userId) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+
+  const domain = project.customDomain;
+  if (!domain) return c.json({ error: "No custom domain configured", code: "NO_DOMAIN" }, 400);
+
+  try {
+    // Resolve the Coolify server IP first
+    const serverHostname = "dock.4esh.nl";
+    let serverIp: string | null = null;
+    const serverDnsRes = await fetch(`https://cloudflare-dns.com/dns-query?name=${serverHostname}&type=A`, {
+      headers: { Accept: "application/dns-json" },
+    });
+    if (serverDnsRes.ok) {
+      const serverDns = await serverDnsRes.json() as any;
+      serverIp = serverDns.Answer?.find((r: any) => r.type === 1)?.data ?? null;
+    }
+
+    // Check A record for the custom domain
+    const aRes = await fetch(`https://cloudflare-dns.com/dns-query?name=${domain}&type=A`, {
+      headers: { Accept: "application/dns-json" },
+    });
+    let domainIp: string | null = null;
+    if (aRes.ok) {
+      const aDns = await aRes.json() as any;
+      domainIp = aDns.Answer?.find((r: any) => r.type === 1)?.data ?? null;
+    }
+
+    // Check CNAME for the custom domain
+    const cnameRes = await fetch(`https://cloudflare-dns.com/dns-query?name=${domain}&type=CNAME`, {
+      headers: { Accept: "application/dns-json" },
+    });
+    let cname: string | null = null;
+    if (cnameRes.ok) {
+      const cnameDns = await cnameRes.json() as any;
+      cname = cnameDns.Answer?.find((r: any) => r.type === 5)?.data ?? null;
+    }
+
+    const ipMatch = serverIp && domainIp && serverIp === domainIp;
+    const cnameMatch = cname && (cname.replace(/\.$/, "") === serverHostname);
+    const verified = Boolean(ipMatch || cnameMatch);
+
+    if (verified && !project.customDomainVerified) {
+      project.customDomainVerified = true;
+      project.updatedAt = new Date().toISOString();
+      await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+    }
+
+    return c.json({
+      domain,
+      verified,
+      serverIp,
+      domainIp,
+      cname: cname?.replace(/\.$/, "") ?? null,
+      serverHostname,
+    });
+  } catch (err) {
+    console.error("[custom-domain] verify error:", err);
+    return c.json({ error: "DNS check failed" }, 500);
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/projects/:id/orders/:orderId/invoice — Generate & return invoice HTML
 // ---------------------------------------------------------------------------
 projectRoutes.get("/:id/orders/:orderId/invoice", async (c) => {

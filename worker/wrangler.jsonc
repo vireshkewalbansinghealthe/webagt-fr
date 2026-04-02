@@ -10,7 +10,7 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "webagt-worker-v2",
+  "name": "webagt-worker-prod",
   "main": "src/index.ts",
   "account_id": "135ff035167965eb02d4b56e9ae7e317",
   "compatibility_date": "2025-01-01",

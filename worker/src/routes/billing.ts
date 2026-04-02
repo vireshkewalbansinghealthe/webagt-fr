@@ -30,6 +30,13 @@ export interface CreditPack {
   currency: string;
 }
 
+export interface PricingFormula {
+  inputPricePerMillion: number;
+  outputPricePerMillion: number;
+  creditUnitCostUsd: number;
+  markup: number;
+}
+
 export interface BillingConfig {
   subscription: {
     priceId: string;
@@ -39,17 +46,31 @@ export interface BillingConfig {
     description: string;
   };
   creditPacks: CreditPack[];
+  pricingFormula: PricingFormula;
 }
+
+export const DEFAULT_PRICING_FORMULA: PricingFormula = {
+  inputPricePerMillion: 3,
+  outputPricePerMillion: 15,
+  creditUnitCostUsd: 0.08,
+  markup: 4,
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const BILLING_CONFIG_KEY = "billing_config";
+export const BILLING_CONFIG_KEY = "billing_config";
 const customerKey = (userId: string) => `stripe_customer:${userId}`;
 
-async function getBillingConfig(env: Env): Promise<BillingConfig | null> {
-  return env.METADATA.get<BillingConfig>(BILLING_CONFIG_KEY, "json");
+/** Fetch billing config from KV, filling in pricingFormula defaults if absent. */
+export async function getBillingConfig(env: Env): Promise<BillingConfig | null> {
+  const config = await env.METADATA.get<BillingConfig>(BILLING_CONFIG_KEY, "json");
+  if (!config) return null;
+  return {
+    ...config,
+    pricingFormula: config.pricingFormula ?? DEFAULT_PRICING_FORMULA,
+  };
 }
 
 async function getOrCreateStripeCustomer(

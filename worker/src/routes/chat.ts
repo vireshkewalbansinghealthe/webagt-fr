@@ -184,6 +184,7 @@ import { checkCredits, deductCredits } from "../services/credits";
 import { sanitizeChatMessage } from "../services/sanitize";
 import { ProjectLogger } from "../services/project-logger";
 import { createTursoDatabase, createWebshopSchema } from "../services/turso";
+import { getBillingConfig, DEFAULT_PRICING_FORMULA } from "./billing";
 
 /**
  * Create a Hono router for chat endpoints.
@@ -290,30 +291,20 @@ chatRoutes.post("/:projectId", async (c) => {
   const plog = new ProjectLogger(c.env, projectId);
   plog.info("chat", `Generation started — model=${modelId}, prompt=${userMessage.slice(0, 120)}…`, JSON.stringify({ model: modelId, promptLength: userMessage.length, imageCount: images.length, existingVersion: project.currentVersion, hasDb: !!(project.databaseUrl && project.databaseToken) }));
 
-  // --- 3. Check credits and plan-based model gating ---
-  // Credit cost scales with prompt length to keep margins healthy on long inputs.
-  // Each tier of ~1-2k tokens costs one extra credit, plus 1 per image.
-  const dynamicCreditCost = (() => {
-    let cost = modelConfig.creditCost;
-    const len = userMessage.length;
-    if (len >= 8000) cost += 3;
-    else if (len >= 4000) cost += 2;
-    else if (len >= 1500) cost += 1;
-    cost += images.length; // each image ≈ 1000 extra tokens
-    return cost;
-  })();
-
-  const creditCheck = await checkCredits(userId, dynamicCreditCost, c.env);
+  // --- 3. Check credits ---
+  // We pre-check with a minimum of 1 credit, then deduct the real amount
+  // after generation based on actual Anthropic token usage.
+  const creditCheck = await checkCredits(userId, 1, c.env);
 
   // All models are accessible on all plans — no gating
 
   if (!creditCheck.allowed) {
     return c.json(
       {
-        error: "You've used all your credits. Upgrade to Pro for unlimited.",
+        error: "Je credits zijn op. Upgrade naar Pro voor meer credits per dag.",
         code: "CREDITS_EXHAUSTED",
         remaining: creditCheck.credits.remaining,
-        required: dynamicCreditCost,
+        required: 1,
       },
       402,
     );
@@ -524,9 +515,21 @@ chatRoutes.post("/:projectId", async (c) => {
         }
       }
 
+      // Capture real token usage from Anthropic (resolves after stream ends)
+      let inputTokens = 0;
+      let outputTokens = 0;
+      try {
+        const usage = await result.usage;
+        inputTokens = usage.promptTokens;
+        outputTokens = usage.completionTokens;
+      } catch {
+        // Fallback to character-based estimate if usage unavailable
+        inputTokens = Math.round(fullResponse.length / 4);
+        outputTokens = Math.round(fullResponse.length / 4);
+      }
+
       const streamDuration = Date.now() - streamStart;
-      const responseTokensApprox = Math.round(fullResponse.length / 4);
-      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ~${responseTokensApprox} tokens, ${(streamDuration / 1000).toFixed(1)}s${clientDisconnected ? " (background)" : ""}`, JSON.stringify({ chunkCount, responseLengthChars: fullResponse.length, approxTokens: responseTokensApprox, durationMs: streamDuration, background: clientDisconnected }));
+      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${inputTokens} input + ${outputTokens} output tokens, ${(streamDuration / 1000).toFixed(1)}s${clientDisconnected ? " (background)" : ""}`, JSON.stringify({ chunkCount, inputTokens, outputTokens, durationMs: streamDuration, background: clientDisconnected }));
 
       // Check for possible truncation
       const lastFileTagOpen = fullResponse.lastIndexOf("<file ");
@@ -617,14 +620,17 @@ chatRoutes.post("/:projectId", async (c) => {
         }
       }
 
-      // --- 10. Deduct credits after successful generation ---
-      const updatedCredits = await deductCredits(
-        userId,
-        dynamicCreditCost,
-        c.env,
-      );
+      // --- 10. Deduct credits based on real Anthropic token usage ---
+      const billingCfg = await getBillingConfig(c.env);
+      const formula = billingCfg?.pricingFormula ?? DEFAULT_PRICING_FORMULA;
+      const apiCostUsd =
+        (inputTokens * formula.inputPricePerMillion) / 1_000_000 +
+        (outputTokens * formula.outputPricePerMillion) / 1_000_000;
+      const creditsToDeduct = Math.max(1, Math.ceil(apiCostUsd / formula.creditUnitCostUsd));
+
+      const updatedCredits = await deductCredits(userId, creditsToDeduct, c.env);
       console.log(
-        `[chat] Credits deducted. Remaining: ${updatedCredits.remaining}`,
+        `[chat] Token usage — ${inputTokens} in / ${outputTokens} out — API cost $${apiCostUsd.toFixed(4)} — deducted ${creditsToDeduct} credits, remaining: ${updatedCredits.remaining}`,
       );
 
       // --- 11. Save chat messages to KV ---
@@ -664,6 +670,12 @@ chatRoutes.post("/:projectId", async (c) => {
         model: modelId,
         changedFiles: acceptedFiles.length > 0 ? changedFilePaths : undefined,
         suggestions: suggestions.length > 0 ? suggestions : undefined,
+        tokenUsage: {
+          inputTokens,
+          outputTokens,
+          costUsd: apiCostUsd,
+          creditsUsed: creditsToDeduct,
+        },
       };
 
       const updatedChatSession: ChatSession = {
@@ -708,13 +720,19 @@ chatRoutes.post("/:projectId", async (c) => {
       if (!clientDisconnected) {
         try {
           await stream.writeSSE({
-            event: "done",
-            data: JSON.stringify({
-              versionId: `v${newVersionNumber}`,
-              model: modelId,
-              changedFiles: changedFilePaths,
-              creditsRemaining: updatedCredits.remaining,
-            }),
+              event: "done",
+              data: JSON.stringify({
+                versionId: `v${newVersionNumber}`,
+                model: modelId,
+                changedFiles: changedFilePaths,
+                creditsRemaining: updatedCredits.remaining,
+                tokenUsage: {
+                  inputTokens,
+                  outputTokens,
+                  costUsd: apiCostUsd,
+                  creditsUsed: creditsToDeduct,
+                },
+              }),
             id: String(eventId++),
           });
         } catch (e) {

@@ -2,16 +2,16 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { createApiClient, type BillingConfig, type CreditPack } from "@/lib/api-client";
+import { createApiClient, type BillingConfig, type CreditPack, type PricingFormula } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { CreditCard, Package, Save, RefreshCw, CheckCircle2, AlertCircle, Euro } from "lucide-react";
+import { CreditCard, Package, Save, RefreshCw, CheckCircle2, AlertCircle, Euro, TrendingUp, Zap, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function formatEur(cents: number) {
@@ -72,6 +72,47 @@ export default function AdminBillingPage() {
       ),
     });
   };
+
+  const updateFormula = (field: keyof PricingFormula, value: number) => {
+    if (!config) return;
+    setConfig({
+      ...config,
+      pricingFormula: { ...config.pricingFormula, [field]: value },
+    });
+  };
+
+  // Derived margin metrics — recomputed whenever formula or subscription changes
+  const metrics = useMemo(() => {
+    if (!config) return null;
+    const f = config.pricingFormula;
+    const subUsd = config.subscription.amount / 100;
+
+    const revenuePerCreditUsd = f.creditUnitCostUsd * f.markup;
+    const proCreditsPerMonth = Math.floor(subUsd / revenuePerCreditUsd);
+
+    // Typical generation: ~15K input + 5K output tokens
+    const avgGenApiCostUsd =
+      (15_000 * f.inputPricePerMillion) / 1_000_000 +
+      (5_000 * f.outputPricePerMillion) / 1_000_000;
+    const avgGenCredits = Math.max(1, Math.ceil(avgGenApiCostUsd / f.creditUnitCostUsd));
+    const avgGenRevenueUsd = avgGenCredits * revenuePerCreditUsd;
+
+    // At 30% daily utilisation of Pro plan (10 credits/day × 30% × 31 days)
+    const dailyCredits = 10;
+    const utilisation = 0.3;
+    const monthlyApiCostAtUtil = dailyCredits * utilisation * 31 * f.creditUnitCostUsd;
+    const marginAtUtil = subUsd / monthlyApiCostAtUtil;
+
+    return {
+      revenuePerCreditUsd,
+      proCreditsPerMonth,
+      avgGenApiCostUsd,
+      avgGenCredits,
+      avgGenRevenueUsd,
+      monthlyApiCostAtUtil,
+      marginAtUtil,
+    };
+  }, [config]);
 
   return (
     <div className="p-8 max-w-3xl">
@@ -227,6 +268,143 @@ export default function AdminBillingPage() {
             <p className="mt-3 text-xs text-muted-foreground">
               Tip: maak nieuwe one-time prices aan in Stripe Dashboard voor prijswijzigingen, en vul hier het nieuwe Price ID in.
             </p>
+          </section>
+
+          <Separator />
+
+          {/* ── Pricing Formula ──────────────────────────────────────────── */}
+          <section>
+            <div className="mb-4 flex items-center gap-2">
+              <TrendingUp className="size-4 text-primary" />
+              <h2 className="text-base font-semibold">Prijsformule & marge</h2>
+              <Badge variant="secondary">Claude Sonnet 4.6</Badge>
+            </div>
+
+            <div className="rounded-xl border border-border bg-card p-6 space-y-6">
+              {/* API pricing */}
+              <div>
+                <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Anthropic API kosten</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Input prijs ($ / 1M tokens)</Label>
+                    <Input
+                      type="number"
+                      step="0.5"
+                      value={config.pricingFormula.inputPricePerMillion}
+                      onChange={(e) => updateFormula("inputPricePerMillion", parseFloat(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Claude Sonnet = $3.00</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Output prijs ($ / 1M tokens)</Label>
+                    <Input
+                      type="number"
+                      step="0.5"
+                      value={config.pricingFormula.outputPricePerMillion}
+                      onChange={(e) => updateFormula("outputPricePerMillion", parseFloat(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Claude Sonnet = $15.00</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Credit pricing */}
+              <div>
+                <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Credit pricing</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">API-kosten per credit ($)</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      value={config.pricingFormula.creditUnitCostUsd}
+                      onChange={(e) => updateFormula("creditUnitCostUsd", parseFloat(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Hoeveel API-tokens = 1 credit</p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Markup (×)</Label>
+                    <Input
+                      type="number"
+                      step="0.5"
+                      min="1"
+                      value={config.pricingFormula.markup}
+                      onChange={(e) => updateFormula("markup", parseFloat(e.target.value))}
+                    />
+                    <p className="text-xs text-muted-foreground">Hoe veel meer we rekenen vs API-kosten</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Live metrics */}
+              {metrics && (
+                <div>
+                  <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Live berekening</p>
+                  <div className="grid grid-cols-2 gap-3">
+
+                    <div className="rounded-lg bg-muted/50 px-4 py-3">
+                      <p className="text-xs text-muted-foreground">Revenue per credit</p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums">
+                        ${metrics.revenuePerCreditUsd.toFixed(3)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{config.pricingFormula.markup}× markup op API-kosten</p>
+                    </div>
+
+                    <div className="rounded-lg bg-muted/50 px-4 py-3">
+                      <p className="text-xs text-muted-foreground">Pro credits / maand</p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums">
+                        {metrics.proCreditsPerMonth} cr
+                      </p>
+                      <p className="text-xs text-muted-foreground">Bij {formatEur(config.subscription.amount)} abonnement</p>
+                    </div>
+
+                    <div className="rounded-lg bg-muted/50 px-4 py-3">
+                      <p className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Zap className="size-3" />
+                        Gem. generatie (~15K↑ 5K↓)
+                      </p>
+                      <p className="mt-0.5 text-xl font-bold tabular-nums">
+                        {metrics.avgGenCredits} cr
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        ${metrics.avgGenApiCostUsd.toFixed(3)} API · ${metrics.avgGenRevenueUsd.toFixed(3)} opbrengst
+                      </p>
+                    </div>
+
+                    <div className={cn(
+                      "rounded-lg px-4 py-3",
+                      metrics.marginAtUtil >= 3
+                        ? "bg-green-500/10 border border-green-500/20"
+                        : metrics.marginAtUtil >= 1.5
+                        ? "bg-amber-500/10 border border-amber-500/20"
+                        : "bg-destructive/10 border border-destructive/20"
+                    )}>
+                      <p className={cn(
+                        "text-xs flex items-center gap-1",
+                        metrics.marginAtUtil >= 3 ? "text-green-600 dark:text-green-400"
+                        : metrics.marginAtUtil >= 1.5 ? "text-amber-600 dark:text-amber-400"
+                        : "text-destructive"
+                      )}>
+                        <BarChart3 className="size-3" />
+                        Marge @ 30% gebruik
+                      </p>
+                      <p className={cn(
+                        "mt-0.5 text-xl font-bold tabular-nums",
+                        metrics.marginAtUtil >= 3 ? "text-green-600 dark:text-green-400"
+                        : metrics.marginAtUtil >= 1.5 ? "text-amber-600 dark:text-amber-400"
+                        : "text-destructive"
+                      )}>
+                        {metrics.marginAtUtil.toFixed(1)}×
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        API-kosten: ${metrics.monthlyApiCostAtUtil.toFixed(2)}/maand
+                      </p>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+            </div>
           </section>
 
         </div>

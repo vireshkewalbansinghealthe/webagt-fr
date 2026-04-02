@@ -18,7 +18,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { ChatMessage, ImageAttachment } from "@/types/chat";
+import type { ChatMessage, ImageAttachment, TokenUsage } from "@/types/chat";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Bot, User, Loader2, Wrench, Check, RotateCcw } from "lucide-react";
@@ -94,6 +94,33 @@ function stripFileTags(content: string, isStreaming: boolean): string {
  */
 function hasFileTags(content: string): boolean {
   return /<file\s+path="/.test(content);
+}
+
+/**
+ * Formats token counts (e.g. 12400 → "12.4K") for compact display.
+ */
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
+/**
+ * Renders a subtle token usage badge on AI messages.
+ * Shows input/output token counts + API cost in USD.
+ * Visible only on hover via the parent's group class.
+ */
+function TokenBadge({ usage }: { usage: TokenUsage }) {
+  return (
+    <span className="flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 select-none">
+      <span title="Input tokens">↑{fmtTokens(usage.inputTokens)}</span>
+      <span className="text-muted-foreground/30">·</span>
+      <span title="Output tokens">↓{fmtTokens(usage.outputTokens)}</span>
+      <span className="text-muted-foreground/30">·</span>
+      <span title="Anthropic API cost">${usage.costUsd.toFixed(3)}</span>
+      <span className="text-muted-foreground/30">·</span>
+      <span title="Credits deducted">{usage.creditsUsed}cr</span>
+    </span>
+  );
 }
 
 /**
@@ -390,10 +417,18 @@ export function MessageBubble({ message, isStreaming, isAutoHealInProgress, onSu
           </div>
         )}
 
-        {/* Timestamp — shown on hover */}
-        <span className="px-1 text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100">
-          {formatTime(message.timestamp)}
-        </span>
+        {/* Footer: timestamp + token usage (shown on hover) */}
+        <div className={cn(
+          "flex items-center gap-2",
+          isUser ? "flex-row-reverse" : "flex-row"
+        )}>
+          <span className="px-1 text-[10px] text-muted-foreground/60 opacity-0 transition-opacity group-hover:opacity-100">
+            {formatTime(message.timestamp)}
+          </span>
+          {!isUser && message.tokenUsage && (
+            <TokenBadge usage={message.tokenUsage} />
+          )}
+        </div>
       </div>
     </div>
   );

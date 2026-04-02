@@ -35,6 +35,14 @@ export interface ImageAttachment {
   url?: string;
 }
 
+/** Token and cost breakdown for an AI generation (assistant messages only). */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  creditsUsed: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -45,6 +53,7 @@ export interface ChatMessage {
   changedFiles?: string[];
   images?: ImageAttachment[];
   suggestions?: string[];
+  tokenUsage?: TokenUsage;
 }
 
 /**

@@ -799,6 +799,18 @@ export interface CreditPack {
   currency: string;
 }
 
+/** Configures how real Anthropic token costs map to credits and margin. */
+export interface PricingFormula {
+  /** $ per million input tokens (Claude Sonnet = 3) */
+  inputPricePerMillion: number;
+  /** $ per million output tokens (Claude Sonnet = 15) */
+  outputPricePerMillion: number;
+  /** API cost (in $) that equals 1 credit deducted from a user's balance */
+  creditUnitCostUsd: number;
+  /** Multiplier: how many times more we charge users vs raw API cost */
+  markup: number;
+}
+
 export interface BillingConfig {
   subscription: {
     priceId: string;
@@ -808,4 +820,5 @@ export interface BillingConfig {
     description: string;
   };
   creditPacks: CreditPack[];
+  pricingFormula: PricingFormula;
 }

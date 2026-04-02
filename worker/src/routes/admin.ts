@@ -773,8 +773,14 @@ adminRoutes.get("/api/admin/credits/report", async (c) => {
 // ---------------------------------------------------------------------------
 
 adminRoutes.get("/billing-config", adminMiddleware, async (c) => {
-  const config = await c.env.METADATA.get("billing_config", "json");
-  return c.json(config || {});
+  const { getBillingConfig, DEFAULT_PRICING_FORMULA } = await import("./billing");
+  const config = await getBillingConfig(c.env);
+  // If no config in KV yet, return shape with defaults so the UI renders
+  return c.json(config ?? {
+    subscription: { priceId: "", amount: 2900, currency: "eur", name: "Pro Plan", description: "" },
+    creditPacks: [],
+    pricingFormula: DEFAULT_PRICING_FORMULA,
+  });
 });
 
 // ---------------------------------------------------------------------------

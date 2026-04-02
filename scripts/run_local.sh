@@ -46,8 +46,9 @@ rm -f "$ROOT/.next/dev/lock" 2>/dev/null || true
 
 set -m  # enable job control / process groups
 
-# Worker uses --env dev so it reads the dev KV namespace (not production)
-(cd "$ROOT/worker" && npx wrangler dev --env dev --remote) &
+# Worker runs LOCALLY on localhost:8787 — KV/R2 use remote dev namespace
+# (remote: true is set per-binding in wrangler.jsonc, not via --remote flag)
+(cd "$ROOT/worker" && npx wrangler dev --env dev) &
 WORKER_PID=$!
 
 (cd "$ROOT" && npm run dev) &

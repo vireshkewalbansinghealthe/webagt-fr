@@ -2352,4 +2352,106 @@ projectRoutes.post("/:id/provision-database", async (c) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/projects/:id/orders/:orderId/invoice — Generate & return invoice HTML
+// ---------------------------------------------------------------------------
+projectRoutes.get("/:id/orders/:orderId/invoice", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+  const orderId = c.req.param("orderId");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found", code: "NOT_FOUND" }, 404);
+  if (project.userId !== userId) return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
+
+  if (!project.databaseUrl || !project.databaseToken) {
+    return c.json({ error: "No database configured for this project", code: "NO_DB" }, 400);
+  }
+
+  try {
+    const { createClient } = await import("@libsql/client/web");
+    const db = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+
+    // Fetch order
+    const orderRes = await db.execute({
+      sql: `SELECT o.id, o.orderNumber, o.status, o.totalAmount, o.currency,
+                   o.shippingAddress, o.billingAddress, o.createdAt,
+                   o.firstName, o.lastName, o.email
+            FROM [Order] o WHERE o.id = ? LIMIT 1`,
+      args: [orderId],
+    });
+    if (orderRes.rows.length === 0) {
+      return c.json({ error: "Order not found", code: "NOT_FOUND" }, 404);
+    }
+    const order = orderRes.rows[0] as any;
+
+    // Fetch order items
+    const itemsRes = await db.execute({
+      sql: `SELECT oi.name, oi.unitPrice, oi.quantity, oi.sku
+            FROM OrderItem oi WHERE oi.orderId = ?`,
+      args: [orderId],
+    });
+
+    // Fetch default tax rate
+    let taxRate = 21;
+    try {
+      const tgRes = await db.execute("SELECT rate FROM TaxGroup WHERE isDefault = 1 LIMIT 1");
+      if (tgRes.rows[0]) taxRate = Number((tgRes.rows[0] as any).rate) || 21;
+    } catch { /* fallback */ }
+
+    const { buildInvoiceHtml, buildInvoiceNumber } = await import("../services/invoice-pdf");
+
+    const items = itemsRes.rows.map((r: any) => ({
+      name: String(r.name),
+      quantity: Number(r.quantity),
+      unitPrice: Number(r.unitPrice),
+      taxRate,
+    }));
+
+    const total = Number(order.totalAmount);
+    const subtotal = items.length > 0
+      ? items.reduce((s: number, i: any) => s + i.unitPrice * i.quantity, 0)
+      : total;
+    const taxAmount = subtotal * (taxRate / 100);
+    const currency = String(order.currency || "EUR").toUpperCase();
+
+    let billingAddress: string | undefined;
+    let shippingAddress: string | undefined;
+    try { billingAddress = order.billingAddress ? JSON.stringify(JSON.parse(order.billingAddress)) : undefined; } catch { /* ignore */ }
+    try { shippingAddress = order.shippingAddress ? JSON.stringify(JSON.parse(order.shippingAddress)) : undefined; } catch { /* ignore */ }
+
+    const customerName = [order.firstName, order.lastName].filter(Boolean).join(" ") || undefined;
+    const orderNumber = String(order.orderNumber);
+    const invoiceNumber = buildInvoiceNumber(orderNumber);
+
+    const invoiceHtml = buildInvoiceHtml({
+      invoiceNumber,
+      orderNumber,
+      shopName: project.name,
+      date: new Date(String(order.createdAt)).toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" }),
+      customerName,
+      customerEmail: order.email ? String(order.email) : undefined,
+      billingAddress,
+      shippingAddress,
+      items: items.length > 0 ? items : [{ name: project.name, quantity: 1, unitPrice: total, taxRate }],
+      subtotal,
+      taxAmount,
+      taxRate,
+      shippingAmount: 0,
+      total,
+      currency,
+    });
+
+    return new Response(invoiceHtml, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${invoiceNumber}.html"`,
+      },
+    });
+  } catch (err) {
+    console.error("[invoice] Error generating invoice:", err);
+    return c.json({ error: "Failed to generate invoice" }, 500);
+  }
+});
+
 export { projectRoutes };

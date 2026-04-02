@@ -784,13 +784,15 @@ stripeRoutes.post("/webhook", async (c) => {
 
             if (event.type === "checkout.session.completed") {
               try {
-                await sendOwnerOrderEmailForSession(c.env, project, session);
+                await sendOwnerOrderEmailForSession(c.env, project, session, checkoutItems, defaultTaxRate);
               } catch (emailErr) {
                 console.warn("Webhook owner email send failed (non-fatal):", emailErr);
               }
             }
 
-            if (isPaid || event.type === "checkout.session.async_payment_succeeded") {
+            // Always send customer confirmation on completed checkout (paid or not),
+            // and also on async payment success
+            if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
               try {
                 await sendCustomerPaidEmailForSession(c.env, project, session, checkoutItems, defaultTaxRate);
               } catch (emailErr) {

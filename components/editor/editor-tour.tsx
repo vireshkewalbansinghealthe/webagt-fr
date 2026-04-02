@@ -18,7 +18,7 @@
  *  8. Export           – publish & deploy
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -142,7 +142,6 @@ export function EditorTour({
   const [step, setStep] = useState(-1); // -1 = welcome card
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [mounted, setMounted] = useState(false);
-  const [hasMeasured, setHasMeasured] = useState(false);
   const shownRef = useRef(false);
 
   useEffect(() => setMounted(true), []);
@@ -167,24 +166,22 @@ export function EditorTour({
     return () => clearTimeout(t);
   }, [triggerShow]);
 
-  // Filter steps to only those whose target exists (and optional condition passes)
-  const steps = ALL_STEPS.filter((s) => {
+  // Compute steps once on mount — stable reference prevents effect loop
+  const steps = useMemo(() => ALL_STEPS.filter((s) => {
     if (s.condition && !s.condition()) return false;
-    return true; // targets checked at render time
-  });
+    return true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
 
   const measureTarget = useCallback(() => {
     if (!active || step < 0 || step >= steps.length) return;
     const el = document.querySelector(steps[step].target);
-    if (el) setRect(el.getBoundingClientRect());
-    else setRect(null);
-    setHasMeasured(true);
+    setRect(el ? el.getBoundingClientRect() : null);
   }, [active, step, steps]);
 
   useEffect(() => {
     if (step < 0) return;
-    setHasMeasured(false);
-    const t = setTimeout(measureTarget, 100);
+    const t = setTimeout(measureTarget, 80);
     window.addEventListener("resize", measureTarget);
     window.addEventListener("scroll", measureTarget, true);
     return () => {
@@ -263,8 +260,6 @@ export function EditorTour({
   }
 
   // ── Spotlight steps ───────────────────────────────────────────────────────
-  if (!hasMeasured) return null;
-
   if (!rect) {
     // Target not in DOM — skip to next
     if (step < steps.length - 1) {

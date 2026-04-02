@@ -22,8 +22,6 @@
 
 import type { Env } from "../../types";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { createOpenAI } from "@ai-sdk/openai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createDeepSeek } from "@ai-sdk/deepseek";
 import type { LanguageModel } from "ai";
 
@@ -42,7 +40,7 @@ import type { LanguageModel } from "ai";
  * @property maxOutputTokens - Maximum tokens the model can generate per response
  */
 export interface ModelConfig {
-  provider: "anthropic" | "openai" | "google" | "deepseek";
+  provider: "anthropic" | "deepseek";
   displayName: string;
   apiModelId: string;
   creditCost: number;
@@ -105,56 +103,6 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
     supportsVision: true,
     maxOutputTokens: 64000,
   },
-  "gpt-4o": {
-    provider: "openai",
-    displayName: "GPT-4o",
-    apiModelId: "gpt-4o",
-    creditCost: 2,
-    tier: "premium",
-    speed: "medium",
-    quality: "high",
-    description:
-      "Versatile and reliable. Excellent for full-stack features.",
-    supportsVision: true,
-    maxOutputTokens: 16384,
-  },
-  "gpt-4o-mini": {
-    provider: "openai",
-    displayName: "GPT-4o Mini",
-    apiModelId: "gpt-4o-mini",
-    creditCost: 1,
-    tier: "fast",
-    speed: "fast",
-    quality: "good",
-    description: "Blazing fast and affordable. Perfect for small tweaks.",
-    supportsVision: true,
-    maxOutputTokens: 16384,
-  },
-  "gemini-2-flash": {
-    provider: "google",
-    displayName: "Gemini 2.0 Flash",
-    apiModelId: "gemini-2.0-flash",
-    creditCost: 1,
-    tier: "fast",
-    speed: "very-fast",
-    quality: "good",
-    description: "Fastest model available. Ideal for rapid prototyping.",
-    supportsVision: true,
-    maxOutputTokens: 16384,
-  },
-  "gemini-2-pro": {
-    provider: "google",
-    displayName: "Gemini 2.0 Pro",
-    apiModelId: "gemini-2.0-pro",
-    creditCost: 2,
-    tier: "premium",
-    speed: "medium",
-    quality: "high",
-    description:
-      "High quality with massive context. Great for large projects.",
-    supportsVision: true,
-    maxOutputTokens: 16384,
-  },
   "deepseek-v3": {
     provider: "deepseek",
     displayName: "DeepSeek V3",
@@ -187,7 +135,7 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
  * Default model used when no model is specified.
  * GPT-4o Mini is the default — fast, affordable, and reliable.
  */
-export const DEFAULT_MODEL = "gpt-4o-mini";
+export const DEFAULT_MODEL = "deepseek-v3";
 
 /**
  * Returns an AI SDK LanguageModel instance for the given model ID.
@@ -210,10 +158,6 @@ export function getModel(model: string, env: Env): LanguageModel {
   switch (config.provider) {
     case "anthropic":
       return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })(config.apiModelId);
-    case "openai":
-      return createOpenAI({ apiKey: env.OPENAI_API_KEY })(config.apiModelId);
-    case "google":
-      return createGoogleGenerativeAI({ apiKey: env.GOOGLE_AI_API_KEY })(config.apiModelId);
     case "deepseek":
       return createDeepSeek({ apiKey: env.DEEPSEEK_API_KEY })(config.apiModelId);
     default:

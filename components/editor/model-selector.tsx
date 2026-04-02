@@ -1,24 +1,9 @@
 /**
  * components/editor/model-selector.tsx
  *
- * Dropdown selector for choosing which AI model generates code.
- * Shows all 8 models grouped by provider (Anthropic, OpenAI, Google, DeepSeek)
- * with speed badges, quality badges, credit cost, and lock icons.
- *
- * ┌────────────────────────────────────────────────────┐
- * │  ⚡ Claude Sonnet 4.5                            ▼  │
- * └────────────────────────────────────────────────────┘
- *                     │
- *                     ▼
- * ┌────────────────────────────────────────────────────┐
- * │  ANTHROPIC                                          │
- * │  ✓ Claude Sonnet 4.5    ⚡ Medium  ★★★  2cr        │
- * │    Claude Haiku 3.5     ⚡⚡ Fast   ★★   1cr        │
- * │  ───────────────────────────────────────            │
- * │  OPENAI                                             │
- * │    GPT-4o               ⚡ Medium  ★★★  2cr  🔒     │
- * │    ...                                              │
- * └────────────────────────────────────────────────────┘
+ * Simplified model selector showing two tiers:
+ *   • Lite    — DeepSeek models (fast & affordable)
+ *   • Premium — Anthropic models (high quality)
  *
  * Used by: components/editor/chat-panel.tsx
  */
@@ -26,7 +11,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Zap, Star, Lock, Check, ImageOff } from "lucide-react";
+import { ChevronDown, Zap, Lock, Check } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -35,26 +20,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import {
-  MODELS,
-  PROVIDER_LABELS,
-  PROVIDER_ORDER,
-  getModelById,
-  getSpeedBolts,
-  getSpeedLabel,
-  getQualityStars,
-  getQualityLabel,
-} from "@/lib/models";
+import { MODELS, TIER_LABELS, TIER_ORDER, getModelById } from "@/lib/models";
 import type { ModelInfo } from "@/lib/models";
 
-/**
- * Props for the ModelSelector component.
- *
- * @property selectedModelId - Currently selected model ID
- * @property onModelChange - Callback when the user selects a different model
- * @property userPlan - The user's current plan ("free" or "pro")
- * @property disabled - Whether the selector is disabled (e.g., during streaming)
- */
 export interface ModelSelectorProps {
   selectedModelId: string;
   onModelChange: (modelId: string) => void;
@@ -62,48 +30,35 @@ export interface ModelSelectorProps {
   disabled?: boolean;
 }
 
-/**
- * Renders speed indicator lightning bolts.
- * More bolts = faster model.
- *
- * @param count - Number of lightning bolts (1-3)
- */
-function SpeedIndicator({ count }: { count: number }) {
+const TIER_DESCRIPTION: Record<string, string> = {
+  lite: "Fast & affordable",
+  premium: "Highest quality",
+};
+
+const TIER_COLOR: Record<string, string> = {
+  lite: "text-blue-500",
+  premium: "text-amber-500",
+};
+
+function SpeedDots({ speed }: { speed: ModelInfo["speed"] }) {
+  const count = speed === "very-fast" ? 3 : speed === "fast" ? 2 : 1;
   return (
-    <span className="inline-flex items-center gap-0">
-      {Array.from({ length: count }).map((_, i) => (
-        <Zap key={i} className="size-3 fill-yellow-500 text-yellow-500" />
+    <span className="inline-flex items-center gap-0.5">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <Zap
+          key={i}
+          className={cn(
+            "size-2.5",
+            i < count
+              ? "fill-yellow-400 text-yellow-400"
+              : "fill-muted text-muted stroke-muted"
+          )}
+        />
       ))}
     </span>
   );
 }
 
-/**
- * Renders quality indicator stars.
- * More stars = higher quality output.
- *
- * @param count - Number of stars (2-3)
- */
-function QualityIndicator({ count }: { count: number }) {
-  return (
-    <span className="inline-flex items-center gap-0">
-      {Array.from({ length: count }).map((_, i) => (
-        <Star key={i} className="size-3 fill-orange-400 text-orange-400" />
-      ))}
-    </span>
-  );
-}
-
-/**
- * ModelSelector is a dropdown that lets users choose their AI model.
- * Models are grouped by provider with section headers.
- * Premium models are locked for free users with a lock icon.
- *
- * @param selectedModelId - ID of the currently selected model
- * @param onModelChange - Called when user picks a new model
- * @param userPlan - "free" or "pro" — controls premium model access
- * @param disabled - Disables the entire selector
- */
 export function ModelSelector({
   selectedModelId,
   onModelChange,
@@ -113,80 +68,80 @@ export function ModelSelector({
   const [open, setOpen] = useState(false);
 
   const selectedModel = getModelById(selectedModelId);
-  const displayName = selectedModel?.name ?? "Select model";
+  const tier = selectedModel?.tier ?? "lite";
 
-  /**
-   * Groups models by provider in the specified order.
-   * Returns an array of [providerKey, models[]] tuples.
-   */
-  const groupedModels = PROVIDER_ORDER.map((provider) => ({
-    provider,
-    label: PROVIDER_LABELS[provider],
-    models: MODELS.filter((m) => m.provider === provider),
-  }));
-
-  /**
-   * Handles model selection. If the model is premium and user is free,
-   * don't select it (the lock icon is shown instead).
-   */
   function handleSelect(model: ModelInfo) {
-    const isLocked = model.tier === "premium" && userPlan === "free";
-    if (isLocked) return;
-
+    if (model.tier === "premium" && userPlan === "free") return;
     onModelChange(model.id);
     setOpen(false);
   }
 
+  const groupedTiers = TIER_ORDER.map((t) => ({
+    tier: t,
+    label: TIER_LABELS[t],
+    description: TIER_DESCRIPTION[t],
+    models: MODELS.filter((m) => m.tier === t),
+  }));
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      {/* Trigger button — shows selected model name */}
       <PopoverTrigger asChild>
         <Button
           variant="ghost"
           size="sm"
           disabled={disabled}
           className={cn(
-            "h-7 gap-1.5 px-2.5 text-xs font-medium text-muted-foreground",
-            "hover:text-foreground hover:bg-secondary/80",
+            "h-7 gap-1.5 px-2.5 text-xs font-medium",
+            "text-muted-foreground hover:text-foreground hover:bg-secondary/80",
             open && "bg-secondary/80 text-foreground"
           )}
         >
-          {selectedModel && (
-            <SpeedIndicator count={getSpeedBolts(selectedModel.speed)} />
-          )}
+          {/* Tier badge */}
+          <span
+            className={cn(
+              "rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              tier === "lite"
+                ? "bg-blue-500/10 text-blue-500"
+                : "bg-amber-500/10 text-amber-500"
+            )}
+          >
+            {TIER_LABELS[tier]}
+          </span>
           <span className="max-w-[120px] truncate sm:max-w-[160px]">
-            {displayName}
+            {selectedModel?.name ?? "Select model"}
           </span>
           <ChevronDown
             className={cn(
-              "size-3 transition-transform duration-150",
+              "size-3 shrink-0 transition-transform duration-150",
               open && "rotate-180"
             )}
           />
         </Button>
       </PopoverTrigger>
 
-      {/* Dropdown content — grouped by provider */}
-      <PopoverContent
-        className="w-[320px] p-0"
-        align="start"
-        sideOffset={4}
-      >
-        <div className="max-h-[400px] overflow-y-auto py-1">
-          {groupedModels.map((group, groupIndex) => (
-            <div key={group.provider}>
-              {/* Provider section header */}
-              <div className="px-3 py-1.5">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+      <PopoverContent className="w-[300px] p-0" align="start" sideOffset={4}>
+        <div className="max-h-[420px] overflow-y-auto py-1.5">
+          {groupedTiers.map((group, gIdx) => (
+            <div key={group.tier}>
+              {/* Tier header */}
+              <div className="flex items-baseline gap-2 px-3 py-1.5">
+                <span
+                  className={cn(
+                    "text-xs font-bold uppercase tracking-wider",
+                    TIER_COLOR[group.tier]
+                  )}
+                >
                   {group.label}
+                </span>
+                <span className="text-[10px] text-muted-foreground">
+                  {group.description}
                 </span>
               </div>
 
-              {/* Models in this provider group */}
+              {/* Models in tier */}
               {group.models.map((model) => {
                 const isSelected = model.id === selectedModelId;
-                const isLocked =
-                  model.tier === "premium" && userPlan === "free";
+                const isLocked = model.tier === "premium" && userPlan === "free";
 
                 return (
                   <button
@@ -194,27 +149,22 @@ export function ModelSelector({
                     onClick={() => handleSelect(model)}
                     disabled={isLocked}
                     className={cn(
-                      "flex w-full cursor-pointer items-start gap-3 px-3 py-2 text-left transition-colors duration-100",
-                      isSelected
-                        ? "bg-secondary/60"
-                        : "hover:bg-secondary/40",
-                      isLocked && "opacity-60 cursor-not-allowed"
+                      "flex w-full cursor-pointer items-center gap-3 px-3 py-2 text-left transition-colors",
+                      isSelected ? "bg-secondary/60" : "hover:bg-secondary/40",
+                      isLocked && "cursor-not-allowed opacity-50"
                     )}
                   >
-                    {/* Check mark or empty space */}
-                    <div className="flex size-4 shrink-0 items-center justify-center pt-0.5">
-                      {isSelected && (
-                        <Check className="size-3.5 text-primary" />
-                      )}
+                    {/* Check / empty */}
+                    <div className="flex size-4 shrink-0 items-center justify-center">
+                      {isSelected && <Check className="size-3.5 text-primary" />}
                     </div>
 
-                    {/* Model info */}
+                    {/* Info */}
                     <div className="flex-1 min-w-0">
-                      {/* Name + lock icon */}
                       <div className="flex items-center gap-2">
                         <span
                           className={cn(
-                            "text-sm font-medium",
+                            "text-sm font-medium truncate",
                             isSelected && "text-primary"
                           )}
                         >
@@ -223,68 +173,40 @@ export function ModelSelector({
                         {isLocked && (
                           <Badge
                             variant="outline"
-                            className="h-4 gap-0.5 px-1 py-0 text-[10px]"
+                            className="h-4 shrink-0 gap-0.5 px-1 py-0 text-[10px]"
                           >
                             <Lock className="size-2.5" />
                             Pro
                           </Badge>
                         )}
-                        {!model.supportsVision && (
-                          <Badge
-                            variant="outline"
-                            className="h-4 gap-0.5 px-1 py-0 text-[10px] text-muted-foreground"
-                          >
-                            <ImageOff className="size-2.5" />
-                            No vision
-                          </Badge>
-                        )}
                       </div>
 
-                      {/* Badges row: speed + quality + credits */}
-                      <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-0.5">
-                          <SpeedIndicator
-                            count={getSpeedBolts(model.speed)}
-                          />
-                          <span className="ml-0.5">
-                            {getSpeedLabel(model.speed)}
-                          </span>
-                        </span>
-
+                      <div className="mt-0.5 flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <SpeedDots speed={model.speed} />
                         <span className="text-border">·</span>
-
-                        <span className="inline-flex items-center gap-0.5">
-                          <QualityIndicator
-                            count={getQualityStars(model.quality)}
-                          />
-                          <span className="ml-0.5">
-                            {getQualityLabel(model.quality)}
-                          </span>
-                        </span>
-
-                        <span className="text-border">·</span>
-
                         <span>
                           {model.creditCost}{" "}
                           {model.creditCost === 1 ? "credit" : "credits"}
                         </span>
+                        <span className="text-border">·</span>
+                        <span className="truncate">{model.description}</span>
                       </div>
-
-                      {/* Description — shown below badges */}
-                      <p className="mt-0.5 text-[11px] leading-tight text-muted-foreground/70">
-                        {model.description}
-                      </p>
                     </div>
                   </button>
                 );
               })}
 
-              {/* Separator between provider groups (except last) */}
-              {groupIndex < groupedModels.length - 1 && (
-                <div className="mx-3 my-1 border-t border-border" />
+              {/* Divider */}
+              {gIdx < groupedTiers.length - 1 && (
+                <div className="mx-3 my-1 border-t border-border/60" />
               )}
             </div>
           ))}
+        </div>
+
+        {/* Footer hint */}
+        <div className="border-t border-border/60 px-3 py-2 text-[10px] text-muted-foreground/60">
+          Lite models are free to use · Premium requires a Pro plan
         </div>
       </PopoverContent>
     </Popover>

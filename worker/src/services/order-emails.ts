@@ -292,6 +292,16 @@ function buildEmailHtml(opts: EmailTemplateOptions): string {
 // Send helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** btoa() only handles Latin-1; this handles full UTF-8 (shop names, product names, etc.) */
+function toBase64Utf8(str: string): string {
+  const bytes = new TextEncoder().encode(str);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
+
 async function sendViaResend(
   env: Env,
   from: string,
@@ -317,7 +327,7 @@ async function sendViaResend(
         ? {
             attachments: input.attachments.map((a) => ({
               filename: a.filename,
-              content: btoa(a.content),
+              content: toBase64Utf8(a.content),
             })),
           }
         : {}),
@@ -362,6 +372,8 @@ export async function sendOwnerOrderEmailForSession(
   env: Env,
   project: Project,
   session: Stripe.Checkout.Session,
+  checkoutItems?: CheckoutItemForEmail[],
+  taxRate?: number,
 ): Promise<void> {
   const { from, replyTo } = resolveSender(project, env);
   if (!from || !env.RESEND_API_KEY) {
@@ -373,6 +385,56 @@ export async function sendOwnerOrderEmailForSession(
 
   const details = moneyFromSession(session);
   const ownerEmails = getOwnerRecipients(project);
+
+  // Build invoice attachment for owner
+  let attachments: EmailAttachment[] | undefined;
+  try {
+    const effectiveTaxRate = taxRate ?? 21;
+    const invoiceItems: InvoiceLineItem[] = (checkoutItems ?? []).map((i) => ({
+      name: i.name,
+      quantity: i.quantity,
+      unitPrice: i.unitAmount / 100,
+      taxRate: effectiveTaxRate,
+    }));
+    const totalFromSession = (session.amount_total || 0) / 100;
+    const subtotal = invoiceItems.length > 0
+      ? invoiceItems.reduce((s, i) => s + i.unitPrice * i.quantity, 0)
+      : totalFromSession;
+    const taxAmount = subtotal * (effectiveTaxRate / 100);
+
+    const shippingDetails = (session as any).shipping_details;
+    const shippingAddr = shippingDetails?.address
+      ? JSON.stringify({ ...shippingDetails.address, name: shippingDetails.name })
+      : undefined;
+    const billingAddr = session.customer_details?.address
+      ? JSON.stringify({ ...session.customer_details.address, name: session.customer_details.name })
+      : undefined;
+
+    const invoiceNumber = buildInvoiceNumber(details.orderNumber);
+    const invoiceHtml = buildInvoiceHtml({
+      invoiceNumber,
+      orderNumber: details.orderNumber,
+      shopName: project.name,
+      date: new Date().toLocaleDateString("en-GB", { year: "numeric", month: "long", day: "numeric" }),
+      customerName: details.customerName,
+      customerEmail: details.customerEmail,
+      billingAddress: billingAddr,
+      shippingAddress: shippingAddr,
+      items: invoiceItems.length > 0
+        ? invoiceItems
+        : [{ name: project.name, quantity: 1, unitPrice: totalFromSession, taxRate: effectiveTaxRate }],
+      subtotal,
+      taxAmount,
+      taxRate: effectiveTaxRate,
+      shippingAmount: 0,
+      total: totalFromSession,
+      currency: details.currency,
+    });
+    attachments = [{ filename: `${invoiceNumber}.html`, content: invoiceHtml }];
+  } catch (err) {
+    console.warn("[order-email] Owner invoice generation failed (non-fatal):", err);
+  }
+
   const tasks: Promise<SendResult>[] = [];
 
   for (const ownerEmail of ownerEmails) {
@@ -393,6 +455,7 @@ export async function sendOwnerOrderEmailForSession(
         recipientType: "owner",
         idempotencyKey: `order-email:${project.id}:${details.orderId}:owner:${ownerEmail}`,
         replyTo,
+        attachments,
       }),
     );
   }
@@ -400,9 +463,9 @@ export async function sendOwnerOrderEmailForSession(
   const results = await Promise.allSettled(tasks);
   for (const result of results) {
     if (result.status === "rejected") {
-      console.error("[order-email] send failed:", result.reason);
+      console.error("[order-email] owner send failed:", result.reason);
     } else if (!result.value.sent) {
-      console.log(`[order-email] skipped: ${result.value.skippedReason}`);
+      console.log(`[order-email] owner skipped: ${result.value.skippedReason}`);
     }
   }
 }
@@ -429,10 +492,15 @@ export async function sendCustomerPaidEmailForSession(
     return;
   }
 
-  const shouldSendCustomer = project.orderCustomerEmailsEnabled !== false;
   const details = moneyFromSession(session);
 
-  if (!shouldSendCustomer || !isValidEmail(details.customerEmail)) {
+  if (project.orderCustomerEmailsEnabled === false) {
+    console.log(`[order-email] Customer email disabled for project ${project.id} — skipping`);
+    return;
+  }
+
+  if (!isValidEmail(details.customerEmail)) {
+    console.warn(`[order-email] No valid customer email in session ${details.orderId} — skipping customer confirm`);
     return;
   }
 

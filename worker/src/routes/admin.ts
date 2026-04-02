@@ -327,16 +327,14 @@ adminRoutes.delete("/api/admin/users/:userId/projects/:projectId", async (c) => 
 adminRoutes.get("/api/admin/provider-balances", async (c) => {
   const results = await Promise.allSettled([
     checkAnthropicBalance(c.env.ANTHROPIC_API_KEY, c.env.ANTHROPIC_ADMIN_KEY),
-    checkOpenAIBalance(c.env.OPENAI_API_KEY),
     checkDeepSeekBalance(c.env.DEEPSEEK_API_KEY),
-    checkGoogleBalance(c.env.GOOGLE_AI_API_KEY),
   ]);
 
-  const [anthropic, openai, deepseek, google] = results.map((r) =>
+  const [anthropic, deepseek] = results.map((r) =>
     r.status === "fulfilled" ? r.value : { available: false, error: (r.reason as Error)?.message ?? "Unknown error" }
   );
 
-  return c.json({ anthropic, openai, deepseek, google });
+  return c.json({ anthropic, deepseek });
 });
 
 interface ProviderBalance {
@@ -466,7 +464,6 @@ async function checkAnthropicBalance(apiKey: string | undefined, adminKey: strin
         available: true,
         balance: `$${totalCost.toFixed(2)} spent this month`,
         extra: {
-          note: "Remaining balance not available via API — check console",
           inputTokens: totalInput,
           outputTokens: totalOutput,
           costUsd: totalCost,
@@ -486,43 +483,6 @@ async function checkAnthropicBalance(apiKey: string | undefined, adminKey: strin
     });
     if (res.ok) {
       return { ...base, available: true, balance: "Key valid — add ANTHROPIC_ADMIN_KEY for spend data" };
-    }
-    const body = await res.json() as { error?: { message?: string } };
-    return { ...base, available: false, error: body.error?.message ?? `HTTP ${res.status}` };
-  } catch (e) {
-    return { ...base, available: false, error: (e as Error).message };
-  }
-}
-
-async function checkOpenAIBalance(apiKey: string | undefined): Promise<ProviderBalance> {
-  const base = { dashboardUrl: "https://platform.openai.com/settings/organization/billing/overview" };
-  if (!apiKey) return { ...base, available: false, error: "API key not configured" };
-  try {
-    // Trial / prepaid balance endpoint (works for prepaid credits accounts)
-    const res = await fetch("https://api.openai.com/dashboard/billing/credit_grants", {
-      headers: { Authorization: `Bearer ${apiKey}` },
-    });
-    if (res.ok) {
-      const data = await res.json() as {
-        total_granted?: number;
-        total_used?: number;
-        total_available?: number;
-      };
-      const available = data.total_available;
-      return {
-        ...base,
-        available: true,
-        balance: available !== undefined ? `$${available.toFixed(2)}` : "Check console",
-        extra: {
-          granted: data.total_granted,
-          used: data.total_used,
-          remaining: data.total_available,
-        },
-      };
-    }
-    // For pay-as-you-go accounts this endpoint returns 404 — key is still valid
-    if (res.status === 404) {
-      return { ...base, available: true, balance: "Pay-as-you-go (check console)" };
     }
     const body = await res.json() as { error?: { message?: string } };
     return { ...base, available: false, error: body.error?.message ?? `HTTP ${res.status}` };
@@ -561,22 +521,6 @@ async function checkDeepSeekBalance(apiKey: string | undefined): Promise<Provide
   }
 }
 
-async function checkGoogleBalance(apiKey: string | undefined): Promise<ProviderBalance> {
-  const base = { dashboardUrl: "https://console.cloud.google.com/billing" };
-  if (!apiKey) return { ...base, available: false, error: "API key not configured" };
-  // Google AI Studio / Gemini has no REST balance endpoint.
-  // Validate the key by calling the models list.
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}&pageSize=1`
-    );
-    if (res.ok) return { ...base, available: true, balance: "Check Google Cloud console" };
-    const body = await res.json() as { error?: { message?: string } };
-    return { ...base, available: false, error: body.error?.message ?? `HTTP ${res.status}` };
-  } catch (e) {
-    return { ...base, available: false, error: (e as Error).message };
-  }
-}
 
 // ---------------------------------------------------------------------------
 // Clerk user shape + mapping helper

@@ -34,6 +34,7 @@ import {
   Columns3,
   Tag,
   Percent,
+  FileDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types/project";
@@ -101,6 +102,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [projectState, setProjectState] = useState(project);
   const [provisioning, setProvisioning] = useState(false);
+  const [pendingOrderCount, setPendingOrderCount] = useState(0);
   const { getToken } = useAuth();
 
   useEffect(() => {
@@ -130,6 +132,25 @@ export function ShopManagerPanel({ project }: { project: Project }) {
       authToken: projectState.databaseToken,
     });
   }, [projectState.databaseUrl, projectState.databaseToken]);
+
+  // Poll for pending orders to show badge
+  useEffect(() => {
+    if (!turso) return;
+    const fetchPending = async () => {
+      try {
+        const res = await turso.execute("SELECT count(*) as c FROM [Order] WHERE status = 'PENDING'");
+        setPendingOrderCount(Number(res.rows[0]?.c) || 0);
+      } catch { /* silently ignore */ }
+    };
+    fetchPending();
+    const timer = setInterval(fetchPending, POLL_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [turso]);
+
+  // Clear badge when user opens Orders tab
+  useEffect(() => {
+    if (activeTab === "orders") setPendingOrderCount(0);
+  }, [activeTab]);
 
   const handleProvisionDatabase = async () => {
     setProvisioning(true);
@@ -164,12 +185,13 @@ export function ShopManagerPanel({ project }: { project: Project }) {
       <div className="md:hidden flex items-center gap-1 px-3 py-2 border-b overflow-x-auto shrink-0 bg-muted/10">
         {TABS.map(tab => {
           const isActive = activeTab === tab.id;
+          const showBadge = tab.id === "orders" && pendingOrderCount > 0;
           return (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                "flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-full transition-colors whitespace-nowrap",
+                "relative flex shrink-0 items-center gap-1.5 px-3 py-1.5 text-xs rounded-full transition-colors whitespace-nowrap",
                 isActive
                   ? "bg-primary text-primary-foreground font-medium shadow-sm"
                   : "text-muted-foreground hover:text-foreground bg-muted/50"
@@ -177,6 +199,11 @@ export function ShopManagerPanel({ project }: { project: Project }) {
             >
               <tab.icon className="size-3.5" />
               {tab.label}
+              {showBadge && (
+                <span className="ml-0.5 min-w-[16px] h-4 flex items-center justify-center rounded-full bg-red-500 text-white text-[9px] font-bold px-1 leading-none">
+                  {pendingOrderCount > 99 ? "99+" : pendingOrderCount}
+                </span>
+              )}
             </button>
           );
         })}
@@ -188,6 +215,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
         <div className="hidden md:block w-48 lg:w-56 border-r bg-muted/10 p-4 space-y-1 shrink-0 overflow-y-auto">
           {TABS.map(tab => {
             const isActive = activeTab === tab.id;
+            const showBadge = tab.id === "orders" && pendingOrderCount > 0;
             return (
               <button
                 key={tab.id}
@@ -199,8 +227,13 @@ export function ShopManagerPanel({ project }: { project: Project }) {
                     : "hover:bg-muted text-muted-foreground hover:text-foreground"
                 )}
               >
-                <tab.icon className="size-4" />
-                {tab.label}
+                <tab.icon className="size-4 shrink-0" />
+                <span className="flex-1 text-left">{tab.label}</span>
+                {showBadge && (
+                  <span className="ml-auto min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold px-1 leading-none">
+                    {pendingOrderCount > 99 ? "99+" : pendingOrderCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1978,9 +2011,34 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
   const [loadingItems, setLoadingItems] = useState(false);
   const [pendingAction, setPendingAction] = useState<{ id: string; orderNumber: string; action: OrderAction } | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
+  const [downloadingInvoice, setDownloadingInvoice] = useState(false);
   const { bump, label } = useLastUpdated();
   const { getToken } = useAuth();
   const client = useMemo(() => createApiClient(getToken), [getToken]);
+
+  const downloadInvoice = useCallback(async (order: any) => {
+    setDownloadingInvoice(true);
+    try {
+      const token = await getToken();
+      const { WORKER_URL } = await import("@/lib/api-client");
+      const res = await fetch(`${WORKER_URL}/api/projects/${project.id}/orders/${order.id}/invoice`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`Failed to generate invoice (${res.status})`);
+      const html = await res.text();
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${order.orderNumber}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error("Could not download invoice. Please try again.");
+    } finally {
+      setDownloadingInvoice(false);
+    }
+  }, [getToken, project.id]);
 
   const loadOrders = useCallback(async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -2328,6 +2386,18 @@ function OrdersTab({ turso, project }: { turso: any; project: Project }) {
 
             {/* Footer actions */}
             <div className="shrink-0 border-t px-5 py-3 flex gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={downloadingInvoice}
+                onClick={() => downloadInvoice(selectedOrder)}
+              >
+                {downloadingInvoice
+                  ? <Loader2 className="size-3.5 animate-spin" />
+                  : <FileDown className="size-3.5" />}
+                Invoice
+              </Button>
               {(selectedOrder.status !== "CANCELLED" && selectedOrder.status !== "REFUNDED") && (
                 <Button
                   variant="outline"

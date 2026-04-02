@@ -27,9 +27,7 @@ interface StatsData {
 
 const PROVIDER_META: Record<string, { name: string; logo: string }> = {
   anthropic: { name: "Anthropic", logo: "https://www.anthropic.com/favicon.ico" },
-  openai: { name: "OpenAI", logo: "https://openai.com/favicon.ico" },
   deepseek: { name: "DeepSeek", logo: "https://www.deepseek.com/favicon.ico" },
-  google: { name: "Google AI", logo: "https://www.gstatic.com/devrel-devsite/prod/v0e0f589edd85502a40d78d7d0825db8ea5ef3b99ab4070381ee86977c9168730/cloud/images/favicons/onecloud/favicon.ico" },
 };
 
 export default function AdminOverviewPage() {
@@ -113,8 +111,8 @@ export default function AdminOverviewPage() {
             Vernieuwen
           </Button>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-border">
-          {(["anthropic", "openai", "deepseek", "google"] as const).map((key) => {
+        <div className="grid grid-cols-2 divide-x divide-border">
+          {(["anthropic", "deepseek"] as const).map((key) => {
             const meta = PROVIDER_META[key];
             const b = balances?.[key];
             return (
@@ -139,9 +137,6 @@ export default function AdminOverviewPage() {
                     </div>
                     {b.extra?.period && (
                       <p className="text-[11px] text-muted-foreground">{String(b.extra.period)}</p>
-                    )}
-                    {b.extra?.note && (
-                      <p className="text-[10px] text-amber-500/80 leading-tight">{String(b.extra.note)}</p>
                     )}
                     {b.extra?.byModel && (
                       <div className="mt-1 space-y-0.5">

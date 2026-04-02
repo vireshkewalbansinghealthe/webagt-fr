@@ -3,7 +3,7 @@
 # scripts/run_local.sh
 #
 # Starts the LOCAL dev environment:
-#   - Cloudflare Worker on http://localhost:8787  (dev KV/R2 via --env dev --remote)
+#   - Cloudflare Worker on http://localhost:8787  (dev KV/R2 via remote bindings)
 #   - Next.js frontend    on http://localhost:3000 (dev Clerk keys from .env.local)
 #
 # Kills any stale processes on those ports first.
@@ -44,14 +44,12 @@ kill_port 8787
 kill_port 3000
 rm -f "$ROOT/.next/dev/lock" 2>/dev/null || true
 
-set -m  # enable job control / process groups
-
-# Worker runs LOCALLY on localhost:8787 — KV/R2 use remote dev namespace
-# (remote: true is set per-binding in wrangler.jsonc, not via --remote flag)
-(cd "$ROOT/worker" && npx wrangler dev --env dev) &
+# Redirect stdin to /dev/null so background processes never block on TTY reads
+# (wrangler sometimes prompts interactively; without this it suspends silently)
+(cd "$ROOT/worker" && npx wrangler dev --env dev </dev/null) &
 WORKER_PID=$!
 
-(cd "$ROOT" && npm run dev) &
+(cd "$ROOT" && npm run dev </dev/null) &
 FRONTEND_PID=$!
 
 echo "✅ Both started (worker PID $WORKER_PID, frontend PID $FRONTEND_PID)"

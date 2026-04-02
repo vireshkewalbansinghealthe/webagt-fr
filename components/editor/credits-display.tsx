@@ -22,9 +22,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { CreditCard, Zap, Infinity } from "lucide-react";
+import { CreditCard, Zap, Infinity, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -48,7 +48,6 @@ function daysUntil(dateString: string): number {
 
 export function CreditsDisplay() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  const { user } = useUser();
   const router = useRouter();
   const [credits, setCredits] = useState<CreditData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -73,22 +72,9 @@ export function CreditsDisplay() {
     loadCredits();
   }, [loadCredits, isLoaded, isSignedIn]);
 
-  /**
-   * Redirect to Stripe Checkout for Pro subscription.
-   * Passes the user's email so Stripe can pre-fill it.
-   */
-  const handleUpgradeClick = useCallback(async () => {
-    setIsRedirecting(true);
-    try {
-      const client = createApiClient(getToken);
-      const email = user?.primaryEmailAddress?.emailAddress;
-      const { url } = await client.billing.createCheckout(email);
-      if (url) window.location.href = url;
-    } catch (err) {
-      console.error("Failed to start checkout:", err);
-      setIsRedirecting(false);
-    }
-  }, [getToken, user]);
+  const handleUpgradeClick = useCallback(() => {
+    router.push("/pricing");
+  }, [router]);
 
   /**
    * Redirect to Stripe Customer Portal to manage/cancel subscription.
@@ -191,15 +177,25 @@ export function CreditsDisplay() {
             {isRedirecting ? "Opening…" : "Manage subscription"}
           </Button>
         ) : (
-          <Button
-            size="sm"
-            className="mt-2 h-7 w-full gap-1 text-xs"
-            onClick={handleUpgradeClick}
-            disabled={isRedirecting}
-          >
-            <Zap className="size-3" />
-            {isRedirecting ? "Redirecting…" : "Upgrade to Pro"}
-          </Button>
+          <div className="mt-2 flex flex-col gap-1">
+            <Button
+              size="sm"
+              className="h-7 w-full gap-1 text-xs"
+              onClick={handleUpgradeClick}
+            >
+              <Zap className="size-3" />
+              Upgrade to Pro
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-full gap-1 text-xs text-muted-foreground"
+              onClick={() => router.push("/pricing#credits")}
+            >
+              <Package className="size-3" />
+              Koop credits
+            </Button>
+          </div>
         )}
       </div>
     </div>

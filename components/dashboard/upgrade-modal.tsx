@@ -7,8 +7,7 @@
  * Uses native Stripe Checkout (with iDEAL, SEPA, card) instead of Clerk Billing.
  */
 
-import { useState } from "react";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
 import {
   Dialog,
   DialogContent,
@@ -18,16 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { createApiClient } from "@/lib/api-client";
-import {
-  Zap,
-  Rocket,
-  Infinity,
-  LayoutDashboard,
-  Shield,
-  X,
-  Check,
-} from "lucide-react";
+import { Zap, Rocket, Infinity, LayoutDashboard, Shield, X, Check } from "lucide-react";
 
 interface UpgradeModalProps {
   open: boolean;
@@ -63,21 +53,11 @@ const PRO_HIGHLIGHTS = [
 ];
 
 export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
-  const { getToken } = useAuth();
-  const { user } = useUser();
-  const [isRedirecting, setIsRedirecting] = useState(false);
+  const router = useRouter();
 
-  const handleUpgrade = async () => {
-    setIsRedirecting(true);
-    try {
-      const client = createApiClient(getToken);
-      const email = user?.primaryEmailAddress?.emailAddress;
-      const { url } = await client.billing.createCheckout(email);
-      if (url) window.location.href = url;
-    } catch (err) {
-      console.error("Failed to start checkout:", err);
-      setIsRedirecting(false);
-    }
+  const handleUpgrade = () => {
+    onOpenChange(false);
+    router.push("/pricing");
   };
 
   return (
@@ -169,10 +149,9 @@ export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
               className="mt-6 w-full gap-2"
               size="lg"
               onClick={handleUpgrade}
-              disabled={isRedirecting}
             >
               <Zap className="size-4" />
-              {isRedirecting ? "Naar Stripe…" : "Nu upgraden"}
+              Bekijk prijzen
             </Button>
           </div>
 

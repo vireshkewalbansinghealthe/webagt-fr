@@ -5,6 +5,13 @@ export interface ImageAttachment {
   url?: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  costUsd: number;
+  creditsUsed: number;
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -15,6 +22,7 @@ export interface ChatMessage {
   changedFiles?: string[];
   images?: ImageAttachment[];
   suggestions?: string[];
+  tokenUsage?: TokenUsage;
 }
 
 export interface ChatSession {

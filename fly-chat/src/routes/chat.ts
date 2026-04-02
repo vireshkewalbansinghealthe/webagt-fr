@@ -161,19 +161,17 @@ chatRoutes.post("/:projectId", async (c) => {
   const plog = new ProjectLogger(kv, projectId, project.databaseUrl, project.databaseToken);
   plog.info("chat", `Generation started — model=${modelId}, prompt=${userMessage.slice(0, 120)}…`);
 
-  // --- 3. Check credits ---
+  // --- 3. Check credits (pre-check with minimum 1, real deduction after generation) ---
   const t1 = Date.now();
-  const creditCheck = await checkCredits(userId, modelConfig.creditCost, kv);
-  console.log(`[${projectId}] [credits] plan=${creditCheck.credits.plan}, remaining=${creditCheck.credits.remaining}, cost=${modelConfig.creditCost}, allowed=${creditCheck.allowed} — ${Date.now() - t1}ms`);
-
-  // All models accessible on all plans — no gating
+  const creditCheck = await checkCredits(userId, 1, kv);
+  console.log(`[${projectId}] [credits] plan=${creditCheck.credits.plan}, remaining=${creditCheck.credits.remaining}, allowed=${creditCheck.allowed} — ${Date.now() - t1}ms`);
 
   if (!creditCheck.allowed) {
     return c.json({
-      error: "You've used all your credits. Upgrade to Pro for unlimited.",
+      error: "Je credits zijn op. Upgrade naar Pro voor meer credits per dag.",
       code: "CREDITS_EXHAUSTED",
       remaining: creditCheck.credits.remaining,
-      required: modelConfig.creditCost,
+      required: 1,
     }, 402);
   }
 
@@ -389,8 +387,20 @@ chatRoutes.post("/:projectId", async (c) => {
         return;
       }
 
+      // Capture real token usage (resolves after stream ends)
+      let inputTokens = 0;
+      let outputTokens = 0;
+      try {
+        const usage = await result.usage;
+        inputTokens = usage.promptTokens;
+        outputTokens = usage.completionTokens;
+      } catch {
+        inputTokens = Math.round(fullResponse.length / 4);
+        outputTokens = Math.round(fullResponse.length / 4);
+      }
+
       const streamDuration = Date.now() - streamStart;
-      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${fullResponse.length} chars, ${(streamDuration / 1000).toFixed(1)}s`);
+      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${inputTokens} in / ${outputTokens} out tokens, ${(streamDuration / 1000).toFixed(1)}s`);
       console.log(`[${projectId}] [memory] After AI stream: ${mem()}`);
 
       // --- 8. Parse files ---
@@ -437,8 +447,17 @@ chatRoutes.post("/:projectId", async (c) => {
         plog.info("chat", `KV put SUCCESS: project:${projectId} (v${newVersionNumber})`);
       }
 
-      // --- 10. Deduct credits ---
-      const updatedCredits = await deductCredits(userId, modelConfig.creditCost, kv);
+      // --- 10. Deduct credits based on real token usage ---
+      const BILLING_CONFIG_KEY = "billing_config";
+      const billingCfg = await kv.get<{ pricingFormula?: { inputPricePerMillion: number; outputPricePerMillion: number; creditUnitCostUsd: number } }>(BILLING_CONFIG_KEY, "json");
+      const inputPrice = (billingCfg?.pricingFormula?.inputPricePerMillion ?? 3) / 1_000_000;
+      const outputPrice = (billingCfg?.pricingFormula?.outputPricePerMillion ?? 15) / 1_000_000;
+      const creditUnit = billingCfg?.pricingFormula?.creditUnitCostUsd ?? 0.08;
+      const apiCostUsd = (inputTokens * inputPrice) + (outputTokens * outputPrice);
+      const creditsToDeduct = Math.max(1, Math.ceil(apiCostUsd / creditUnit));
+
+      const updatedCredits = await deductCredits(userId, creditsToDeduct, kv);
+      console.log(`[${projectId}] [credits] ${inputTokens} in / ${outputTokens} out — $${apiCostUsd.toFixed(4)} — deducted ${creditsToDeduct} credits, remaining: ${updatedCredits.remaining}`);
 
       // --- 11. Save chat messages to KV ---
       const blockedChangeNote = rejectedFiles.length > 0
@@ -471,6 +490,7 @@ chatRoutes.post("/:projectId", async (c) => {
         model: modelId,
         changedFiles: acceptedFiles.length > 0 ? changedFilePaths : undefined,
         suggestions: suggestions.length > 0 ? suggestions : undefined,
+        tokenUsage: { inputTokens, outputTokens, costUsd: apiCostUsd, creditsUsed: creditsToDeduct },
       };
 
       const updatedChatSession: ChatSession = {
@@ -500,6 +520,7 @@ chatRoutes.post("/:projectId", async (c) => {
               model: modelId,
               changedFiles: changedFilePaths,
               creditsRemaining: updatedCredits.remaining,
+              tokenUsage: { inputTokens, outputTokens, costUsd: apiCostUsd, creditsUsed: creditsToDeduct },
             }),
             id: String(eventId++),
           });

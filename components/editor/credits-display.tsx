@@ -24,7 +24,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { CreditCard, Zap, Infinity, Package } from "lucide-react";
+import { CreditCard, Zap, Package } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -116,53 +116,49 @@ export function CreditsDisplay() {
   }
 
   const isPro = credits.plan === "pro";
-  const isExhausted = !isPro && credits.remaining === 0;
-  const progressPercent = isPro
-    ? 100
-    : (credits.remaining / credits.total) * 100;
-  const resetDays = daysUntil(credits.periodEnd);
+  const isExhausted = credits.remaining === 0;
+  const progressPercent = (credits.remaining / credits.total) * 100;
+
+  // Time until next daily reset
+  const resetMs = new Date(credits.periodEnd).getTime() - Date.now();
+  const resetHours = Math.max(0, Math.ceil(resetMs / (1000 * 60 * 60)));
+  const resetLabel = resetHours <= 1 ? "< 1u" : `${resetHours}u`;
 
   return (
     <div className="px-3 pb-2">
       <div className="rounded-lg bg-sidebar-accent/50 px-3 py-2.5">
-        {/* Header row — icon + plan label */}
+        {/* Header row */}
         <div className="mb-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CreditCard className="size-4 text-muted-foreground" />
             <span className="text-xs font-medium">Credits</span>
           </div>
-          {isPro && (
-            <span className="flex items-center gap-1 text-xs font-medium text-primary">
-              <Infinity className="size-3" />
-              Unlimited
-            </span>
-          )}
+          <span className={cn(
+            "text-xs font-medium",
+            isPro ? "text-primary" : "text-muted-foreground"
+          )}>
+            {isPro ? "Pro" : "Free"}
+          </span>
         </div>
 
-        {/* Progress bar (free users only) */}
-        {!isPro && (
-          <>
-            <Progress
-              value={progressPercent}
-              className={cn(
-                "mb-1.5 h-1.5",
-                isExhausted && "[&>div]:bg-destructive"
-              )}
-            />
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span
-                className={cn(isExhausted && "font-medium text-destructive")}
-              >
-                {credits.remaining}/{credits.total}
-              </span>
-              <span>Resets in {resetDays}d</span>
-            </div>
-          </>
-        )}
+        {/* Progress bar */}
+        <Progress
+          value={progressPercent}
+          className={cn(
+            "mb-1.5 h-1.5",
+            isExhausted && "[&>div]:bg-destructive"
+          )}
+        />
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className={cn(isExhausted && "font-medium text-destructive")}>
+            {credits.remaining}/{credits.total} vandaag
+          </span>
+          <span>Reset in {resetLabel}</span>
+        </div>
 
         {/* Plan label */}
         <p className="mt-1.5 text-xs text-muted-foreground">
-          {isPro ? "Pro Plan" : "Free Plan"}
+          {isPro ? "Pro Plan · 10 credits/dag" : "Free Plan · 1 credit/dag"}
         </p>
 
         {/* CTA button */}

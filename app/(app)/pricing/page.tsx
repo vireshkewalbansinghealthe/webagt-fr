@@ -9,16 +9,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 
 const FREE_FEATURES = [
-  "3 projecten",
-  "50 AI credits per maand",
+  "1 AI credit per dag",
+  "Alleen websites (geen webshop)",
+  "Max 3 projecten",
   "Live preview",
   "Code editor",
   "Versiegeschiedenis",
 ];
 
 const PRO_FEATURES = [
+  "10 AI credits per dag",
+  "Websites én webshops",
   "Onbeperkte projecten",
-  "Onbeperkte AI credits",
   "iDEAL & kaartbetalingen",
   "Volledige webshop backend",
   "Premium AI modellen (Claude, DeepSeek)",

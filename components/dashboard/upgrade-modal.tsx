@@ -131,11 +131,11 @@ export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
 
             <ul className="mt-5 space-y-2 text-sm text-left">
               {[
+                "10 AI credits per dag",
+                "Websites én webshops",
                 "Onbeperkte projecten",
-                "Onbeperkte AI credits",
                 "iDEAL & kaartbetalingen",
                 "Premium AI modellen",
-                "Volledige webshop backend",
                 "Prioriteit support",
               ].map((item) => (
                 <li key={item} className="flex items-center gap-2">

@@ -855,9 +855,20 @@ projectRoutes.post("/", async (c) => {
     );
   }
 
-  // Check project count limit for free users
+  // Check project count limit and webshop restriction for free users
   const credits = await getCredits(userId, c.env);
   if (credits.plan === "free") {
+    // Webshop is a Pro-only feature
+    if (body.type === "webshop") {
+      return c.json(
+        {
+          error: "Webshops zijn alleen beschikbaar in het Pro plan. Upgrade om een webshop te maken.",
+          code: "PLAN_RESTRICTION",
+        },
+        403
+      );
+    }
+
     const existingIds = await c.env.METADATA.get<string[]>(
       `user-projects:${userId}`,
       "json"

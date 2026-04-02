@@ -43,13 +43,6 @@ const creditRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
  */
 creditRoutes.get("/", async (c) => {
   const userId = c.var.userId;
-  
-  // FORCE UPGRADE for viresh@flexy.nl
-  if (userId === "user_3BJSQjGBOOdBT2WKyMz0tAFruoh") {
-    const { upgradePlan } = await import("../services/credits");
-    await upgradePlan(userId, c.env);
-  }
-
   const credits = await getCredits(userId, c.env);
 
   return c.json({
@@ -57,7 +50,7 @@ creditRoutes.get("/", async (c) => {
     total: credits.total,
     plan: credits.plan,
     periodEnd: credits.periodEnd,
-    isUnlimited: credits.remaining === -1,
+    isUnlimited: false,
   });
 });
 

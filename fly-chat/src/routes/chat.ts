@@ -336,47 +336,54 @@ chatRoutes.post("/:projectId", async (c) => {
       let chunkCount = 0;
       let lastStopCheck = 0;
       let stopped = false;
+      let inputTokens = 0;
+      let outputTokens = 0;
 
-      for await (const chunk of result.textStream) {
-        fullResponse += chunk;
-        chunkCount++;
+      // Use fullStream (not textStream) so the finish/usage event is consumed
+      // and result.usage resolves correctly.
+      for await (const part of result.fullStream) {
+        if (part.type === "text-delta") {
+          fullResponse += part.textDelta;
+          chunkCount++;
 
-        // Check for stop signal every 5 chunks to minimize KV reads
-        if (chunkCount - lastStopCheck > 5) {
-          lastStopCheck = chunkCount;
-          const stopSignal = await kv.get(`stop-signal:${projectId}`);
-          if (stopSignal === "true") {
-            console.log(`[chat] Stop signal detected for ${projectId}. Aborting stream.`);
-            stopped = true;
-            break;
+          // Check for stop signal every 5 chunks
+          if (chunkCount - lastStopCheck > 5) {
+            lastStopCheck = chunkCount;
+            const stopSignal = await kv.get(`stop-signal:${projectId}`);
+            if (stopSignal === "true") {
+              console.log(`[chat] Stop signal detected for ${projectId}. Aborting stream.`);
+              stopped = true;
+              break;
+            }
           }
-        }
 
-        if (clientConnected) {
-          try {
-            await stream.writeSSE({
-              event: "chunk",
-              data: JSON.stringify({ text: chunk }),
-              id: String(eventId++),
-            });
-          } catch {
-            clientConnected = false;
+          if (clientConnected) {
+            try {
+              await stream.writeSSE({
+                event: "chunk",
+                data: JSON.stringify({ text: part.textDelta }),
+                id: String(eventId++),
+              });
+            } catch {
+              clientConnected = false;
+            }
           }
+        } else if (part.type === "finish") {
+          // Real usage from Anthropic — available in fullStream finish event
+          inputTokens = part.usage?.promptTokens ?? 0;
+          outputTokens = part.usage?.completionTokens ?? 0;
         }
       }
 
       if (stopped) {
         plog.info("chat", `Generation stopped by user after ${chunkCount} chunks.`);
         await kv.delete(`stop-signal:${projectId}`).catch(() => {});
-        
-        // Update generation state to failed/stopped
         await kv.put(`generation:${projectId}`, JSON.stringify({
           status: "failed",
           startedAt: new Date(streamStart).toISOString(),
           completedAt: new Date().toISOString(),
           error: "Generation stopped by user",
         } satisfies GenerationState)).catch(() => {});
-
         if (clientConnected) {
           await stream.writeSSE({
             event: "error",
@@ -387,23 +394,11 @@ chatRoutes.post("/:projectId", async (c) => {
         return;
       }
 
-      // Capture real token usage (resolves after stream ends)
-      let inputTokens = 0;
-      let outputTokens = 0;
-      try {
-        const usage = await result.usage;
-        inputTokens = usage.promptTokens ?? 0;
-        outputTokens = usage.completionTokens ?? 0;
-      } catch {
-        // will use fallback below
-      }
-      // Fallback: estimate from character count when provider returns 0
-      // (happens in some Hono SSE environments where stream events aren't fully consumed)
+      // Fallback only if provider didn't return usage (should not happen with Anthropic)
       if (outputTokens === 0 && fullResponse.length > 0) {
         outputTokens = Math.round(fullResponse.length / 4);
-        // Input is typically 3-5x output for code generation (system prompt + context + history)
         inputTokens = outputTokens * 4;
-        console.log(`[${projectId}] [tokens] usage unavailable — estimating from chars: ${inputTokens} in / ${outputTokens} out`);
+        console.log(`[${projectId}] [tokens] finish event had no usage — estimating: ${inputTokens} in / ${outputTokens} out`);
       }
 
       const streamDuration = Date.now() - streamStart;

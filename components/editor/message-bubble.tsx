@@ -105,20 +105,19 @@ function fmtTokens(n: number): string {
 }
 
 /**
- * Renders a subtle token usage badge on AI messages.
- * Shows input/output token counts + API cost in USD.
- * Visible only on hover via the parent's group class.
+ * Renders a subtle token usage line below AI messages.
+ * Always visible but very low-contrast so it doesn't distract.
  */
 function TokenBadge({ usage }: { usage: TokenUsage }) {
   return (
-    <span className="flex items-center gap-1.5 px-1 text-[10px] text-muted-foreground/50 opacity-0 transition-opacity group-hover:opacity-100 select-none">
+    <span className="flex items-center gap-1 px-1 text-[10px] text-muted-foreground/40 select-none">
       <span title="Input tokens">↑{fmtTokens(usage.inputTokens)}</span>
-      <span className="text-muted-foreground/30">·</span>
+      <span className="text-muted-foreground/20">·</span>
       <span title="Output tokens">↓{fmtTokens(usage.outputTokens)}</span>
-      <span className="text-muted-foreground/30">·</span>
-      <span title="Anthropic API cost">${usage.costUsd.toFixed(3)}</span>
-      <span className="text-muted-foreground/30">·</span>
-      <span title="Credits deducted">{usage.creditsUsed}cr</span>
+      <span className="text-muted-foreground/20">·</span>
+      <span title="Anthropic API cost" className="tabular-nums">${usage.costUsd.toFixed(3)}</span>
+      <span className="text-muted-foreground/20">·</span>
+      <span title="Credits deducted" className="tabular-nums">{usage.creditsUsed} cr</span>
     </span>
   );
 }
@@ -417,7 +416,7 @@ export function MessageBubble({ message, isStreaming, isAutoHealInProgress, onSu
           </div>
         )}
 
-        {/* Footer: timestamp + token usage (shown on hover) */}
+        {/* Footer: timestamp + token usage */}
         <div className={cn(
           "flex items-center gap-2",
           isUser ? "flex-row-reverse" : "flex-row"

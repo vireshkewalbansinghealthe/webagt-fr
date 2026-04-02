@@ -31,4 +31,27 @@
       "binding": "FILES",
     },
   ],
+
+  // ── Environments ──────────────────────────────────────────────────────────
+  // Deploy dev:  cd worker && npx wrangler deploy --env dev
+  // Run locally: cd worker && npx wrangler dev
+  "env": {
+    "dev": {
+      "name": "webagt-worker-dev",
+      // Separate KV namespace so dev data never touches production
+      "kv_namespaces": [
+        {
+          "binding": "METADATA",
+          "id": "7a4bacb56b7649329593aee32522e6a5",
+        },
+      ],
+      // Dev still uses the same R2 bucket (files are cheap & isolated by project ID)
+      "r2_buckets": [
+        {
+          "bucket_name": "webagt-files",
+          "binding": "FILES",
+        },
+      ],
+    },
+  },
 }

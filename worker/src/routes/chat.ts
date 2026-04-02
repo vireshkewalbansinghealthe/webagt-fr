@@ -520,12 +520,15 @@ chatRoutes.post("/:projectId", async (c) => {
       let outputTokens = 0;
       try {
         const usage = await result.usage;
-        inputTokens = usage.promptTokens;
-        outputTokens = usage.completionTokens;
+        inputTokens = usage.promptTokens ?? 0;
+        outputTokens = usage.completionTokens ?? 0;
       } catch {
-        // Fallback to character-based estimate if usage unavailable
-        inputTokens = Math.round(fullResponse.length / 4);
+        // will use fallback below
+      }
+      // Fallback: estimate from character count when provider returns 0
+      if (outputTokens === 0 && fullResponse.length > 0) {
         outputTokens = Math.round(fullResponse.length / 4);
+        inputTokens = outputTokens * 4;
       }
 
       const streamDuration = Date.now() - streamStart;

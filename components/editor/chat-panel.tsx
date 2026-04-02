@@ -186,7 +186,7 @@ export function ChatPanel({
       {/* Upgrade CTA — shown when credits exhausted */}
       {isCreditsExhausted && (
         <div className="border-t border-border p-3">
-          <UpgradeCTA reason="You've used all 50 free messages this month." />
+          <UpgradeCTA reason="Je dagelijkse credits zijn op. Upgrade naar Pro voor 10 credits/dag." />
         </div>
       )}
 

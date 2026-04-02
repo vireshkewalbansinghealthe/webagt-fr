@@ -392,11 +392,18 @@ chatRoutes.post("/:projectId", async (c) => {
       let outputTokens = 0;
       try {
         const usage = await result.usage;
-        inputTokens = usage.promptTokens;
-        outputTokens = usage.completionTokens;
+        inputTokens = usage.promptTokens ?? 0;
+        outputTokens = usage.completionTokens ?? 0;
       } catch {
-        inputTokens = Math.round(fullResponse.length / 4);
+        // will use fallback below
+      }
+      // Fallback: estimate from character count when provider returns 0
+      // (happens in some Hono SSE environments where stream events aren't fully consumed)
+      if (outputTokens === 0 && fullResponse.length > 0) {
         outputTokens = Math.round(fullResponse.length / 4);
+        // Input is typically 3-5x output for code generation (system prompt + context + history)
+        inputTokens = outputTokens * 4;
+        console.log(`[${projectId}] [tokens] usage unavailable — estimating from chars: ${inputTokens} in / ${outputTokens} out`);
       }
 
       const streamDuration = Date.now() - streamStart;

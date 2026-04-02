@@ -23,7 +23,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import type { Env } from "../types";
-import { upgradePlan, downgradePlan } from "../services/credits";
+import { upgradePlan, downgradePlan, getCredits } from "../services/credits";
 
 const stripeBillingWebhookRoutes = new Hono<{ Bindings: Env }>();
 
@@ -63,27 +63,43 @@ stripeBillingWebhookRoutes.post("/", async (c) => {
      */
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
-      if (session.mode !== "subscription") break;
-
       const userId = session.metadata?.clerk_user_id;
       if (!userId) {
         console.error("[stripe-billing-webhook] checkout.session.completed: missing clerk_user_id");
         break;
       }
 
-      // Store the Stripe customer ID if we don't have it yet
+      // Persist Stripe customer ID
       if (session.customer) {
         const customerId = typeof session.customer === "string"
-          ? session.customer
-          : session.customer.id;
+          ? session.customer : session.customer.id;
         const existing = await env.METADATA.get(`stripe_customer:${userId}`);
-        if (!existing) {
-          await env.METADATA.put(`stripe_customer:${userId}`, customerId);
-        }
+        if (!existing) await env.METADATA.put(`stripe_customer:${userId}`, customerId);
       }
 
-      console.log(`[stripe-billing-webhook] Upgrading user ${userId} to Pro`);
-      await upgradePlan(userId, env);
+      if (session.mode === "subscription") {
+        // Pro subscription payment
+        console.log(`[stripe-billing-webhook] Upgrading user ${userId} to Pro`);
+        await upgradePlan(userId, env);
+      } else if (session.mode === "payment" && session.metadata?.type === "credit_pack") {
+        // One-time credit pack purchase — add credits to user balance
+        const creditsToAdd = parseInt(session.metadata?.credits || "0", 10);
+        if (creditsToAdd > 0) {
+          const current = await getCredits(userId, env);
+          // Pro users are already unlimited, no need to add
+          if (current.remaining !== -1) {
+            const updated = {
+              ...current,
+              remaining: current.remaining + creditsToAdd,
+              total: current.total + creditsToAdd,
+            };
+            await env.METADATA.put(`credits:${userId}`, JSON.stringify(updated));
+            console.log(`[stripe-billing-webhook] Added ${creditsToAdd} credits to user ${userId}`);
+          } else {
+            console.log(`[stripe-billing-webhook] User ${userId} is Pro (unlimited) — skipping credit add`);
+          }
+        }
+      }
       break;
     }
 

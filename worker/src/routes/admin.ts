@@ -768,4 +768,23 @@ adminRoutes.get("/api/admin/credits/report", async (c) => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// GET /api/admin/billing-config — Get billing config from KV
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/billing-config", adminMiddleware, async (c) => {
+  const config = await c.env.METADATA.get("billing_config", "json");
+  return c.json(config || {});
+});
+
+// ---------------------------------------------------------------------------
+// PUT /api/admin/billing-config — Save billing config to KV
+// ---------------------------------------------------------------------------
+
+adminRoutes.put("/billing-config", adminMiddleware, async (c) => {
+  const body = await c.req.json();
+  await c.env.METADATA.put("billing_config", JSON.stringify(body));
+  return c.json({ ok: true });
+});
+
 export { adminRoutes };

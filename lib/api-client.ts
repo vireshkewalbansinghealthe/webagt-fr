@@ -463,13 +463,9 @@ export function createApiClient(getToken: GetTokenFunction) {
     },
 
     billing: {
-      /**
-       * Create a Stripe Checkout Session for the Pro subscription.
-       * Returns a Stripe-hosted checkout URL — redirect the user to it.
-       *
-       * @param email - Optional email to pre-fill in Stripe checkout
-       * @returns { url: string } — redirect to this URL
-       */
+      getConfig: () =>
+        authenticatedFetch<BillingConfig>(getToken, "/api/billing/config"),
+
       createCheckout: (email?: string) =>
         authenticatedFetch<{ url: string }>(getToken, "/api/billing/checkout", {
           method: "POST",
@@ -477,12 +473,13 @@ export function createApiClient(getToken: GetTokenFunction) {
           body: JSON.stringify({ email }),
         }),
 
-      /**
-       * Create a Stripe Customer Portal session.
-       * Lets Pro users manage/cancel their subscription.
-       *
-       * @returns { url: string } — redirect to this URL
-       */
+      buyCredits: (packId: string, email?: string) =>
+        authenticatedFetch<{ url: string }>(getToken, "/api/billing/buy-credits", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ packId, email }),
+        }),
+
       createPortal: () =>
         authenticatedFetch<{ url: string }>(getToken, "/api/billing/portal", {
           method: "POST",
@@ -737,6 +734,16 @@ export function createApiClient(getToken: GetTokenFunction) {
           credits: { userId: string; remaining: number; total: number; plan: string; updatedAt?: string }[];
           summary: { users: number; totalAllocated: number; totalRemaining: number; totalConsumed: number };
         }>(getToken, "/api/admin/credits/report"),
+
+      getBillingConfig: () =>
+        authenticatedFetch<BillingConfig>(getToken, "/api/admin/billing-config"),
+
+      saveBillingConfig: (config: BillingConfig) =>
+        authenticatedFetch<{ ok: boolean }>(getToken, "/api/admin/billing-config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(config),
+        }),
     },
 
     testing: {
@@ -782,4 +789,23 @@ export interface AdminUserSummary {
   plan: string;
   createdAt: string;
   lastSignInAt: string | null;
+}
+
+export interface CreditPack {
+  id: string;
+  credits: number;
+  priceId: string;
+  amount: number;
+  currency: string;
+}
+
+export interface BillingConfig {
+  subscription: {
+    priceId: string;
+    amount: number;
+    currency: string;
+    name: string;
+    description: string;
+  };
+  creditPacks: CreditPack[];
 }

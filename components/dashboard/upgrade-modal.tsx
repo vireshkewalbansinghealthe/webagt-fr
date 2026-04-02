@@ -142,7 +142,7 @@ export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
               </span>
             </div>
             <div className="mt-2">
-              <span className="text-4xl font-bold">€9</span>
+              <span className="text-4xl font-bold">€29</span>
               <span className="text-muted-foreground text-sm">/maand</span>
             </div>
             <p className="text-xs text-muted-foreground mt-1">

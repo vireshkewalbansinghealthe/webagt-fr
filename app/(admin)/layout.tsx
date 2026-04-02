@@ -27,6 +27,7 @@ import {
   ClipboardList,
   Server,
   Coins,
+  CreditCard,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
@@ -36,6 +37,7 @@ const NAV_ITEMS = [
   { label: "Overzicht", href: "/admin", icon: LayoutDashboard },
   { label: "Gebruikers", href: "/admin/users", icon: Users },
   { label: "Credits", href: "/admin/credits", icon: Coins },
+  { label: "Billing", href: "/admin/billing", icon: CreditCard },
   { label: "Fly.io Machines", href: "/admin/fly", icon: Server },
   { label: "Test Resultaten", href: "/admin/testing", icon: ClipboardList },
   { label: "Project Logs", href: "/admin/logs", icon: ScrollText },

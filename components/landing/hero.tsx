@@ -69,21 +69,28 @@ export function Hero() {
         {/* CTA input card with animated example */}
         <div className="mt-8 w-full">
           <Link href="/sign-up" className="group block transform transition-all duration-300 hover:scale-[1.01] active:scale-[0.99]">
-              <div className="relative overflow-hidden rounded-[2rem] border border-white/8 bg-[#141414]/95 shadow-[0_0_60px_rgba(0,0,0,0.5)] backdrop-blur-xl transition-all duration-150 hover:border-white/15">
-              <div className="px-8 pb-4 pt-8 min-h-[64px] flex items-center">
+            <div
+              className="relative overflow-hidden rounded-[2rem] bg-white/[0.06] backdrop-blur-xl transition-all duration-200 hover:bg-white/[0.09]"
+              style={{
+                border: "1.5px solid rgba(255,255,255,0.18)",
+                boxShadow: "0 0 0 1px rgba(255,255,255,0.06) inset, 0 8px 40px rgba(0,0,0,0.45)",
+              }}
+            >
+              <div className="px-6 sm:px-8 pb-3 pt-6 sm:pt-8 min-h-[56px] flex items-center">
                 <p
-                  className="text-left text-lg font-medium text-white/35 transition-all duration-400"
+                  className="text-left text-base sm:text-lg font-medium text-white/60"
                   style={{
                     opacity: visible ? 1 : 0,
-                    transform: visible ? "translateY(0px)" : "translateY(-8px)",
+                    transform: visible ? "translateY(0px)" : "translateY(-6px)",
                     transition: "opacity 0.35s ease, transform 0.35s ease",
                   }}
                 >
                   {EXAMPLES[index]}…
                 </p>
               </div>
-              <div className="flex items-center justify-end px-5 pb-5">
-                <div className="flex items-center gap-2 rounded-full bg-white px-5 py-2 text-sm font-semibold text-black shadow-md transition-all duration-150 group-hover:bg-white/90">
+              <div className="flex items-center justify-between px-4 sm:px-5 pb-4 sm:pb-5">
+                <span className="text-xs text-white/25 pl-2 hidden sm:block">Press Enter or click →</span>
+                <div className="ml-auto flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black shadow-lg transition-all duration-150 group-hover:bg-white/90 group-hover:shadow-white/10">
                   Start building <ArrowRight className="size-4" />
                 </div>
               </div>

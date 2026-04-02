@@ -212,6 +212,7 @@ export function ChatPanel({
             draftMessage={draftMessage}
             onStop={onStopGeneration}
             canStop={canStop}
+            modelBaseCost={selectedModel?.creditCost ?? 1}
           />
         </div>
       )}

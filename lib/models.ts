@@ -126,3 +126,35 @@ export function getQualityStars(quality: ModelInfo["quality"]): number {
 // Legacy exports kept for any existing references
 export const PROVIDER_LABELS: Record<string, string> = { anthropic: "Anthropic", deepseek: "DeepSeek" };
 export const PROVIDER_ORDER: Array<"anthropic" | "deepseek"> = ["deepseek", "anthropic"];
+
+/**
+ * Calculate the credit cost for a generation based on prompt character length.
+ *
+ * Longer prompts require more tokens to process, increasing provider costs.
+ * We scale the credit cost to keep a healthy margin regardless of prompt size.
+ *
+ * Thresholds (character count → approximate tokens):
+ *   < 1500 chars  (~375 tokens)  → base cost           (short)
+ *   < 4000 chars  (~1000 tokens) → base + 1            (medium)
+ *   < 8000 chars  (~2000 tokens) → base + 2            (long)
+ *   ≥ 8000 chars  (~2000+ tokens)→ base + 3            (very long)
+ *
+ * Each attached image adds ~1000 tokens, so +1 per image.
+ *
+ * @param promptLength - Character count of the user's message
+ * @param baseCost - The model's base credit cost (from modelConfig.creditCost)
+ * @param imageCount - Number of attached images (default 0)
+ */
+export function calculateCreditCost(
+  promptLength: number,
+  baseCost: number,
+  imageCount = 0,
+): number {
+  let cost = baseCost;
+  if (promptLength >= 8000) cost += 3;
+  else if (promptLength >= 4000) cost += 2;
+  else if (promptLength >= 1500) cost += 1;
+  // Each image adds roughly 1000 tokens of context
+  cost += imageCount;
+  return cost;
+}

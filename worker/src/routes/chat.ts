@@ -291,7 +291,19 @@ chatRoutes.post("/:projectId", async (c) => {
   plog.info("chat", `Generation started — model=${modelId}, prompt=${userMessage.slice(0, 120)}…`, JSON.stringify({ model: modelId, promptLength: userMessage.length, imageCount: images.length, existingVersion: project.currentVersion, hasDb: !!(project.databaseUrl && project.databaseToken) }));
 
   // --- 3. Check credits and plan-based model gating ---
-  const creditCheck = await checkCredits(userId, modelConfig.creditCost, c.env);
+  // Credit cost scales with prompt length to keep margins healthy on long inputs.
+  // Each tier of ~1-2k tokens costs one extra credit, plus 1 per image.
+  const dynamicCreditCost = (() => {
+    let cost = modelConfig.creditCost;
+    const len = userMessage.length;
+    if (len >= 8000) cost += 3;
+    else if (len >= 4000) cost += 2;
+    else if (len >= 1500) cost += 1;
+    cost += images.length; // each image ≈ 1000 extra tokens
+    return cost;
+  })();
+
+  const creditCheck = await checkCredits(userId, dynamicCreditCost, c.env);
 
   // All models are accessible on all plans — no gating
 
@@ -301,7 +313,7 @@ chatRoutes.post("/:projectId", async (c) => {
         error: "You've used all your credits. Upgrade to Pro for unlimited.",
         code: "CREDITS_EXHAUSTED",
         remaining: creditCheck.credits.remaining,
-        required: modelConfig.creditCost,
+        required: dynamicCreditCost,
       },
       402,
     );
@@ -608,7 +620,7 @@ chatRoutes.post("/:projectId", async (c) => {
       // --- 10. Deduct credits after successful generation ---
       const updatedCredits = await deductCredits(
         userId,
-        modelConfig.creditCost,
+        dynamicCreditCost,
         c.env,
       );
       console.log(

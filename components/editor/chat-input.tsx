@@ -17,12 +17,13 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { SendHorizontal, Clock, Paperclip, X, Wand2, Square } from "lucide-react";
+import { SendHorizontal, Clock, Paperclip, X, Wand2, Square, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useRateLimit } from "@/components/rate-limit-provider";
 import { toast } from "sonner";
 import type { ImageAttachment } from "@/types/chat";
+import { calculateCreditCost } from "@/lib/models";
 
 /**
  * Props for the ChatInput component.
@@ -48,6 +49,8 @@ export interface ChatInputProps {
   draftMessage?: { id: number; text: string } | null;
   onStop?: () => void;
   canStop?: boolean;
+  /** Base credit cost of the currently selected model (used to compute dynamic cost) */
+  modelBaseCost?: number;
 }
 
 /**
@@ -66,6 +69,7 @@ export function ChatInput({
   draftMessage = null,
   onStop,
   canStop = false,
+  modelBaseCost = 1,
 }: ChatInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -263,13 +267,14 @@ export function ChatInput({
   const hasContent = value.trim().length > 0 || attachedImages.length > 0;
   const isDisabled = isStreaming || isCreditsExhausted || isRateLimited;
 
-  /** Format the credits label for the bottom-right of the input */
-  const creditsLabel =
-    creditsRemaining === undefined
+  /** Compute how many credits this specific prompt will cost (updates live as user types) */
+  const thisCost = calculateCreditCost(value.length, modelBaseCost, attachedImages.length);
+
+  /** Show the remaining balance label */
+  const balanceLabel =
+    creditsRemaining === undefined || creditsRemaining === -1
       ? null
-      : creditsRemaining === -1
-        ? null
-        : `${creditsRemaining} credits`;
+      : `${creditsRemaining} left`;
 
   return (
     <div
@@ -426,7 +431,7 @@ export function ChatInput({
         </div>
       )}
 
-      {/* Hint text with optional credit counter */}
+      {/* Hint text with dynamic credit cost */}
       {!isRateLimited && (
         <div className="mt-1.5 flex items-center justify-between px-0.5 text-[10px] text-muted-foreground/50">
           <span>
@@ -434,7 +439,19 @@ export function ChatInput({
               ? "Upgrade to Pro for unlimited messages"
               : "Enter to send \u00B7 Shift+Enter for new line"}
           </span>
-          {creditsLabel && <span>{creditsLabel}</span>}
+          {creditsRemaining !== undefined && creditsRemaining !== -1 && (
+            <span className={cn(
+              "flex items-center gap-0.5 tabular-nums transition-colors",
+              // Highlight cost if it scaled up due to long prompt
+              thisCost > modelBaseCost && "text-amber-500/80",
+            )}>
+              <Zap className="size-2.5" />
+              {thisCost} credit{thisCost !== 1 ? "s" : ""}
+              {balanceLabel && (
+                <span className="ml-1 opacity-60">({balanceLabel})</span>
+              )}
+            </span>
+          )}
         </div>
       )}
     </div>

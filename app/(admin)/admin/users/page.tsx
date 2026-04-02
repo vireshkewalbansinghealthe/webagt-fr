@@ -486,14 +486,26 @@ export default function AdminUsersPage() {
                           </Button>
                         </div>
                         <div className="grid grid-cols-3 gap-2">
-                          {(["remaining", "total", "plan"] as const).map((k) => (
-                            <div key={k} className="rounded-lg border bg-muted/30 px-3 py-2">
-                              <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{k}</p>
-                              <p className="text-sm font-semibold mt-0.5">
-                                {String(detail.credits?.[k] ?? "—")}
-                              </p>
-                            </div>
-                          ))}
+                          {(["remaining", "total", "plan"] as const).map((k) => {
+                            const raw = detail.credits?.[k];
+                            const display =
+                              raw === -1 ? "∞ (Pro)"
+                              : typeof raw === "number" && raw > 9999 ? `${(raw / 1000).toFixed(0)}k ⚠️`
+                              : String(raw ?? "—");
+                            return (
+                              <div key={k} className="rounded-lg border bg-muted/30 px-3 py-2">
+                                <p className="text-[10px] text-muted-foreground uppercase tracking-wider">{k}</p>
+                                <p className="text-sm font-semibold mt-0.5">{display}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {/* Credit cost explanation */}
+                        <div className="rounded-lg border border-dashed bg-muted/10 px-3 py-2 text-[10px] text-muted-foreground space-y-0.5">
+                          <p className="font-semibold text-foreground/70 mb-1">Kosten per generatie</p>
+                          <p>Lite (DeepSeek): 1 credit kort · 2 medium · 3 lang · 4 zeer lang</p>
+                          <p>Premium (Claude Sonnet): 2 · 3 · 4 · 5 credits</p>
+                          <p className="mt-1 opacity-70">Lang = prompt &gt;1500 tekens · Zeer lang &gt;8000 tekens</p>
                         </div>
                       </div>
                     )}

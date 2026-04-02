@@ -3676,6 +3676,20 @@ function PublishTab({
   const [domainRemoving, setDomainRemoving] = useState(false);
   const [domainVerifying, setDomainVerifying] = useState(false);
   const [verifyResult, setVerifyResult] = useState<{ verified: boolean; serverIp: string | null; domainIp: string | null; cname: string | null; serverHostname: string } | null>(null);
+  const [serverIp, setServerIp] = useState<string | null>(null);
+
+  // Resolve Coolify server IP on mount so the A-record instruction is ready immediately
+  useEffect(() => {
+    fetch("https://cloudflare-dns.com/dns-query?name=dock.4esh.nl&type=A", {
+      headers: { Accept: "application/dns-json" },
+    })
+      .then(r => r.json())
+      .then((data: any) => {
+        const ip = data?.Answer?.find((r: any) => r.type === 1)?.data ?? null;
+        setServerIp(ip);
+      })
+      .catch(() => {/* silent */});
+  }, []);
 
   const { getToken } = useAuth();
 
@@ -4038,7 +4052,7 @@ function PublishTab({
                           <span className="text-purple-600 font-bold">A</span>
                           <span className="px-2 text-foreground">@</span>
                           <span className="px-2 text-foreground">
-                            {verifyResult?.serverIp ?? "resolving…"}
+                            {serverIp ?? "loading…"}
                           </span>
                         </div>
                       </div>

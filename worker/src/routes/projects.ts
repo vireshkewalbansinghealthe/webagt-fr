@@ -2408,7 +2408,7 @@ projectRoutes.post("/:id/custom-domain", async (c) => {
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ domains: existingDomains.join(",") }),
+      body: JSON.stringify({ domains: existingDomains.join(","), force_domain_override: true }),
     });
 
     if (!patchRes.ok) {

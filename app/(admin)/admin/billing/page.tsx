@@ -83,7 +83,7 @@ export default function AdminBillingPage() {
 
   // Derived margin metrics — recomputed whenever formula or subscription changes
   const metrics = useMemo(() => {
-    if (!config) return null;
+    if (!config?.pricingFormula) return null;
     const f = config.pricingFormula;
     const subUsd = config.subscription.amount / 100;
 

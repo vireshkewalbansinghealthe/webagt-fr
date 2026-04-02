@@ -26,25 +26,40 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Globe, Loader2, Search, ShoppingBag, Sparkles } from "lucide-react";
+import { ArrowLeft, Globe, Loader2, Search, ShoppingBag, Sparkles, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { AVAILABLE_TEMPLATES, TemplatePicker } from "./template-picker";
 
-/**
- * Available AI models for project generation.
- * Each entry has a machine-readable value and a human-readable label.
- */
-const AI_MODELS = [
-  { value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
-  { value: "claude-opus-4-6", label: "Claude Opus 4.6" },
-  { value: "gpt-4o-mini", label: "GPT-4o Mini" },
-  { value: "gpt-4o", label: "GPT-4o" },
-  { value: "gemini-2-flash", label: "Gemini 2.0 Flash" },
-  { value: "gemini-2-pro", label: "Gemini 2.0 Pro" },
-  { value: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
-  { value: "deepseek-v3", label: "DeepSeek V3" },
-  { value: "deepseek-r1", label: "DeepSeek R1" },
-] as const;
+type ModelTier = "lite" | "premium";
+
+const TIER_CONFIG: Record<ModelTier, {
+  model: string;
+  label: string;
+  sub: string;
+  modelLabel: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+}> = {
+  lite: {
+    model: "deepseek-v3",
+    label: "Lite",
+    sub: "Fast & affordable",
+    modelLabel: "DeepSeek V3",
+    color: "text-blue-600",
+    bgColor: "bg-blue-500/10",
+    borderColor: "border-blue-500/40",
+  },
+  premium: {
+    model: "claude-sonnet-4-6",
+    label: "Premium",
+    sub: "Highest quality",
+    modelLabel: "Claude Sonnet 4.6",
+    color: "text-amber-600",
+    bgColor: "bg-amber-500/10",
+    borderColor: "border-amber-500/40",
+  },
+};
 
 /**
  * Data submitted when the user creates a new project.
@@ -82,7 +97,7 @@ export function CreateProjectDialog({
 }: CreateProjectDialogProps) {
   const { user } = useUser();
   const [name, setName] = useState("");
-  const [model, setModel] = useState<string>(AI_MODELS[0].value);
+  const [tier, setTier] = useState<ModelTier>("premium");
   const [description, setDescription] = useState("");
   const [type, setType] = useState<"website" | "webshop" | null>(null);
   const [templateId, setTemplateId] = useState<string>("blank-ai");
@@ -91,9 +106,11 @@ export function CreateProjectDialog({
   const [templateCategory, setTemplateCategory] = useState<string>("all");
   const [isLoading, setIsLoading] = useState(false);
 
+  const model = TIER_CONFIG[tier].model;
+
   function resetForm() {
     setName("");
-    setModel(AI_MODELS[0].value);
+    setTier("premium");
     setDescription("");
     setType(null);
     setTemplateId("blank-ai");
@@ -332,6 +349,49 @@ export function CreateProjectDialog({
                   disabled={isLoading}
                   className="h-10"
                 />
+              </div>
+
+              {/* ── AI Tier selection ── */}
+              <div className="space-y-1.5">
+                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+                  AI Model
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["premium", "lite"] as ModelTier[]).map((t) => {
+                    const cfg = TIER_CONFIG[t];
+                    const selected = tier === t;
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        disabled={isLoading}
+                        onClick={() => setTier(t)}
+                        className={cn(
+                          "flex flex-col items-start gap-1 px-3 py-2.5 rounded-xl border text-left transition-all disabled:pointer-events-none disabled:opacity-50",
+                          selected
+                            ? cn(cfg.bgColor, cfg.borderColor, "ring-1", cfg.borderColor.replace("border-", "ring-"))
+                            : "border-border hover:border-primary/30"
+                        )}
+                      >
+                        <div className="flex items-center gap-1.5 w-full">
+                          <Zap className={cn("size-3.5 shrink-0", selected ? cfg.color : "text-muted-foreground")} />
+                          <span className={cn("text-sm font-semibold", selected ? cfg.color : "text-foreground")}>
+                            {cfg.label}
+                          </span>
+                          {t === "premium" && (
+                            <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600">
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-snug">{cfg.sub}</p>
+                        <p className={cn("text-[10px] font-mono font-medium", selected ? cfg.color : "text-muted-foreground/60")}>
+                          {cfg.modelLabel}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* ── Description / AI prompt ── */}

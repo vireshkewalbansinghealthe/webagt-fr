@@ -45,16 +45,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -67,6 +57,8 @@ import {
   ProjectTable,
   EmptyState,
   CreateProjectDialog,
+  DeleteProjectDialog,
+  type ProjectDeletionInfo,
 } from "@/components/dashboard";
 import { UpgradeModal } from "@/components/dashboard/upgrade-modal";
 import { SpotlightTour } from "@/components/dashboard/spotlight-tour";
@@ -99,8 +91,8 @@ export default function DashboardPage() {
   /** Whether the upgrade modal is open */
   const [upgradeModalOpen, setUpgradeModalOpen] = useState(false);
 
-  /** ID of the project pending deletion (null = dialog closed) */
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  /** Project pending deletion (null = dialog closed) */
+  const [deleteTarget, setDeleteTarget] = useState<ProjectDeletionInfo & { id: string } | null>(null);
 
   /** ID of the project being renamed (null = dialog closed) */
   const [renameTarget, setRenameTarget] = useState<string | null>(null);
@@ -265,7 +257,15 @@ export default function DashboardPage() {
    * Opens the delete confirmation dialog for a project.
    */
   function handleDelete(id: string) {
-    setDeleteTarget(id);
+    const p = projects.find((proj) => proj.id === id);
+    if (!p) return;
+    setDeleteTarget({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      deployment_uuid: p.deployment_uuid,
+      databaseUrl: p.databaseUrl,
+    });
   }
 
   /**
@@ -273,19 +273,12 @@ export default function DashboardPage() {
    */
   async function confirmDelete() {
     if (!deleteTarget) return;
-    try {
-      const client = createApiClient(getToken);
-      await client.projects.delete(deleteTarget);
-      setProjects((previous) =>
-        previous.filter((project) => project.id !== deleteTarget)
-      );
-      toast.success("Project deleted.");
-    } catch (error) {
-      console.error("Failed to delete project:", error);
-      toast.error("Failed to delete project. Try again.");
-    } finally {
-      setDeleteTarget(null);
-    }
+    const client = createApiClient(getToken);
+    await client.projects.delete(deleteTarget.id);
+    setProjects((previous) =>
+      previous.filter((project) => project.id !== deleteTarget.id)
+    );
+    toast.success("Project deleted.");
   }
 
   const sortLabel: Record<SortBy, string> = {
@@ -497,31 +490,12 @@ export default function DashboardPage() {
       </Dialog>
 
       {/* Delete confirmation dialog */}
-      <AlertDialog
+      <DeleteProjectDialog
+        project={deleteTarget}
         open={deleteTarget !== null}
-        onOpenChange={(open) => {
-          if (!open) setDeleteTarget(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the project and all its versions.
-              This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={confirmDelete}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={confirmDelete}
+      />
     </div>
   );
 }

@@ -86,10 +86,12 @@ export interface EditorHeaderProps {
   creditsRemaining?: number;
   creditsTotal?: number;
   onRename: (newName: string) => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
   deviceMode: DeviceMode;
   onDeviceModeChange: (mode: DeviceMode) => void;
   projectType?: "website" | "webshop";
+  /** Coolify deployment UUID — present when the project has been published */
+  deploymentUuid?: string;
   /** Turso connection — only present for webshop projects */
   databaseUrl?: string;
   databaseToken?: string;
@@ -133,6 +135,7 @@ export function EditorHeader({
   deviceMode,
   onDeviceModeChange,
   projectType,
+  deploymentUuid,
   databaseUrl,
   databaseToken,
   onNavigateAway,
@@ -223,6 +226,9 @@ export function EditorHeader({
             creditsRemaining={creditsRemaining}
             creditsTotal={creditsTotal}
             userPlan={userPlan}
+            projectType={projectType}
+            isPublished={Boolean(deploymentUuid)}
+            hasDatabase={Boolean(databaseUrl)}
             onRename={onRename}
             onDelete={onDelete}
           />
@@ -279,6 +285,9 @@ export function EditorHeader({
           creditsRemaining={creditsRemaining}
           creditsTotal={creditsTotal}
           userPlan={userPlan}
+          projectType={projectType}
+          isPublished={Boolean(deploymentUuid)}
+          hasDatabase={Boolean(databaseUrl)}
           onRename={onRename}
           onDelete={onDelete}
         />

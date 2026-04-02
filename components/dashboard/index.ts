@@ -23,3 +23,5 @@ export { ProjectTable } from "./project-table";
 export type { ProjectTableProps } from "./project-table";
 export { TemplatePicker } from "./template-picker";
 export type { TemplateDefinition, TemplatePickerProps } from "./template-picker";
+export { DeleteProjectDialog } from "./delete-project-dialog";
+export type { ProjectDeletionInfo } from "./delete-project-dialog";

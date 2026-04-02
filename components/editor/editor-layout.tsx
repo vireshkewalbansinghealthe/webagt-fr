@@ -90,12 +90,14 @@ export interface EditorLayoutProps {
   onModelChange: (modelId: string) => void;
   userPlan: "free" | "pro";
   onRename: (newName: string) => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
   onStopGeneration?: () => void;
   canStop?: boolean;
   /** Called before navigating away during first prompt — return false to cancel */
   onNavigateAway?: () => boolean;
   projectType?: "website" | "webshop";
+  /** Coolify deployment UUID — present when project is published */
+  deploymentUuid?: string;
   /** Turso DB connection for webshop order badge polling */
   databaseUrl?: string;
   databaseToken?: string;
@@ -146,6 +148,7 @@ export function EditorLayout({
   canStop,
   onNavigateAway,
   projectType,
+  deploymentUuid,
   shopManagerPanel,
   databaseUrl,
   databaseToken,
@@ -274,6 +277,7 @@ export function EditorLayout({
         deviceMode={deviceMode}
         onDeviceModeChange={setDeviceMode}
         projectType={projectType}
+        deploymentUuid={deploymentUuid}
         databaseUrl={databaseUrl}
         databaseToken={databaseToken}
         onNavigateAway={onNavigateAway}

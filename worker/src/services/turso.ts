@@ -493,3 +493,85 @@ export async function createWebshopSchema(dbUrl: string, authToken: string) {
     try { await executeTursoSQL(dbUrl, authToken, sql); } catch { /* column already exists */ }
   }
 }
+
+/**
+ * Deletes a Turso database given its libsql URL.
+ * Resolves the org and database name via the Turso API, then issues a DELETE.
+ * Errors are logged but not re-thrown so callers can continue cleaning up.
+ */
+export async function deleteTursoDatabase(env: any, databaseUrl: string): Promise<void> {
+  const TURSO_API_URL = env.TURSO_API_URL || 'https://api.turso.tech/v1';
+  const TURSO_API_TOKEN = env.TURSO_API_TOKEN;
+
+  if (!TURSO_API_TOKEN) {
+    console.warn('[Turso] TURSO_API_TOKEN not set, skipping database deletion');
+    return;
+  }
+
+  // Extract the hostname from the libsql URL, e.g. "libsql://dbname-org.region.turso.io"
+  let hostname: string;
+  try {
+    hostname = databaseUrl.replace(/^libsql:\/\//, '').split('/')[0];
+  } catch {
+    console.warn(`[Turso] Could not parse databaseUrl: ${databaseUrl}`);
+    return;
+  }
+
+  try {
+    // Discover organisation
+    const orgsRes = await fetch(`${TURSO_API_URL}/organizations`, {
+      headers: { 'Authorization': `Bearer ${TURSO_API_TOKEN}` }
+    });
+
+    let orgSlug: string | null = null;
+    if (orgsRes.ok) {
+      const orgsData: any = await orgsRes.json();
+      const org = Array.isArray(orgsData) ? orgsData[0] : orgsData.organizations?.[0];
+      orgSlug = org?.slug || org?.name || null;
+    }
+
+    // List databases and find the matching one by hostname
+    const listUrl = orgSlug
+      ? `${TURSO_API_URL}/organizations/${orgSlug}/databases`
+      : `${TURSO_API_URL}/databases`;
+
+    const listRes = await fetch(listUrl, {
+      headers: { 'Authorization': `Bearer ${TURSO_API_TOKEN}` }
+    });
+
+    if (!listRes.ok) {
+      console.warn(`[Turso] Failed to list databases: ${await listRes.text()}`);
+      return;
+    }
+
+    const listData: any = await listRes.json();
+    const databases: any[] = listData.databases || listData || [];
+    const db = databases.find((d: any) => {
+      const h = (d.Hostname || d.hostname || '').toLowerCase();
+      return h === hostname.toLowerCase() || h.startsWith(hostname.split('.')[0].toLowerCase());
+    });
+
+    if (!db) {
+      console.warn(`[Turso] Could not find database with hostname ${hostname}, skipping deletion`);
+      return;
+    }
+
+    const dbName: string = db.name || db.Name;
+    const deleteUrl = orgSlug
+      ? `${TURSO_API_URL}/organizations/${orgSlug}/databases/${dbName}`
+      : `${TURSO_API_URL}/databases/${dbName}`;
+
+    const deleteRes = await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${TURSO_API_TOKEN}` }
+    });
+
+    if (!deleteRes.ok) {
+      console.warn(`[Turso] Failed to delete database ${dbName}: ${await deleteRes.text()}`);
+    } else {
+      console.log(`[Turso] Successfully deleted database ${dbName}`);
+    }
+  } catch (err) {
+    console.error(`[Turso] Error deleting database: ${err}`);
+  }
+}

@@ -40,17 +40,8 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { DeleteProjectDialog, type ProjectDeletionInfo } from "@/components/dashboard/delete-project-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -79,8 +70,11 @@ import { CollaboratorsPanel } from "./collaborators-panel";
  * @property creditsRemaining - Credits left (-1 = unlimited, undefined = loading)
  * @property creditsTotal - Total credits for the plan period (e.g. 50)
  * @property userPlan - User's current plan ("free" or "pro")
+ * @property projectType - Type of the project ("website" | "webshop")
+ * @property isPublished - Whether the project has a live Coolify deployment
+ * @property hasDatabase - Whether the project has a Turso database
  * @property onRename - Callback after project is renamed with new name
- * @property onDelete - Callback to delete the project
+ * @property onDelete - Async callback that performs the actual deletion
  */
 export interface ProjectMenuProps {
   projectName: string;
@@ -88,8 +82,11 @@ export interface ProjectMenuProps {
   creditsRemaining?: number;
   creditsTotal?: number;
   userPlan: "free" | "pro";
+  projectType?: "website" | "webshop";
+  isPublished?: boolean;
+  hasDatabase?: boolean;
   onRename: (newName: string) => void;
-  onDelete: () => void;
+  onDelete: () => Promise<void>;
 }
 
 /**
@@ -120,6 +117,9 @@ export function ProjectMenu({
   creditsRemaining,
   creditsTotal = 50,
   userPlan,
+  projectType,
+  isPublished = false,
+  hasDatabase = false,
   onRename,
   onDelete,
 }: ProjectMenuProps) {
@@ -356,26 +356,17 @@ export function ProjectMenu({
       </Dialog>
 
       {/* === Delete Confirmation Dialog === */}
-      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete project?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete <strong>{projectName}</strong> and all
-              its files, versions, and chat history. This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={onDelete}
-              className="bg-destructive text-white hover:bg-destructive/90"
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteProjectDialog
+        project={{
+          name: projectName,
+          type: projectType,
+          deployment_uuid: isPublished ? projectId : undefined,
+          databaseUrl: hasDatabase ? "present" : undefined,
+        } satisfies ProjectDeletionInfo}
+        open={isDeleteOpen}
+        onOpenChange={setIsDeleteOpen}
+        onConfirm={onDelete}
+      />
 
       {/* === Collaborators Dialog === */}
       <Dialog open={isCollabOpen} onOpenChange={setIsCollabOpen}>

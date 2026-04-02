@@ -1294,6 +1294,7 @@ export default function EditorPage({
           : undefined
       }
       projectType={project?.type}
+      deploymentUuid={project?.deployment_uuid}
       databaseUrl={project?.databaseUrl}
       databaseToken={project?.databaseToken}
       shopManagerPanel={project && project.type === "webshop" ? <ShopManagerPanel project={project} /> : undefined}

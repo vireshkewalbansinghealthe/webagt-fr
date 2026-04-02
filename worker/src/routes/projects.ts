@@ -26,7 +26,7 @@ import type { Project, Version } from "../types/project";
 import { createInitialVersion } from "../ai/default-project";
 import { getCredits, FREE_PROJECT_LIMIT } from "../services/credits";
 import { sanitizeProjectName } from "../services/sanitize";
-import { createTursoDatabase, createWebshopSchema, executeTursoSQL } from "../services/turso";
+import { createTursoDatabase, createWebshopSchema, executeTursoSQL, deleteTursoDatabase } from "../services/turso";
 import {
   createStripeConnectedAccount,
   getStripePublishConfig,
@@ -1561,10 +1561,12 @@ export async function createCheckoutSession(
 
 /**
  * Deletes a project by:
- * 1. Removing project metadata from KV
- * 2. Removing chat history from KV
- * 3. Removing the project ID from the user's project list
- * 4. Deleting all version files from R2
+ * 1. Deleting the Coolify application (if deployed)
+ * 2. Deleting the Turso database (if provisioned)
+ * 3. Removing project metadata from KV
+ * 4. Removing chat history from KV
+ * 5. Removing the project ID from the user's project list
+ * 6. Deleting all version files from R2
  *
  * Only the project owner can delete it.
  */
@@ -1585,33 +1587,54 @@ projectRoutes.delete("/:id", async (c) => {
     return c.json({ error: "Access denied", code: "FORBIDDEN" }, 403);
   }
 
-  // Remove project ID from the user's list
+  // 1. Delete Coolify application (best-effort, non-blocking)
+  if (project.deployment_uuid && c.env.COOLIFY_URL && c.env.COOLIFY_API_KEY) {
+    try {
+      const coolifyRes = await fetch(
+        `${c.env.COOLIFY_URL}/api/v1/applications/${project.deployment_uuid}?delete_volumes=true&delete_configurations=true`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${c.env.COOLIFY_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      if (!coolifyRes.ok) {
+        console.warn(`[Delete] Coolify app deletion failed: ${await coolifyRes.text()}`);
+      } else {
+        console.log(`[Delete] Coolify app ${project.deployment_uuid} deletion queued`);
+      }
+    } catch (err) {
+      console.error(`[Delete] Coolify deletion error: ${err}`);
+    }
+  }
+
+  // 2. Delete Turso database (best-effort, non-blocking)
+  if (project.databaseUrl) {
+    await deleteTursoDatabase(c.env, project.databaseUrl);
+  }
+
+  // 3. Remove project ID from the user's list
   const existingIds = await c.env.METADATA.get<string[]>(
     `user-projects:${userId}`,
     "json"
   );
   const updatedIds = (existingIds ?? []).filter((id) => id !== projectId);
 
-  // Delete all R2 objects for this project (all versions)
+  // 4. Delete all R2 objects for this project (all versions)
   const r2Objects = await c.env.FILES.list({ prefix: `${projectId}/` });
   const deletePromises = r2Objects.objects.map((object) =>
     c.env.FILES.delete(object.key)
   );
 
   await Promise.all([
-    // Delete project metadata from KV
     c.env.METADATA.delete(`project:${projectId}`),
-
-    // Delete chat history from KV
     c.env.METADATA.delete(`chat:${projectId}`),
-
-    // Update user's project list
     c.env.METADATA.put(
       `user-projects:${userId}`,
       JSON.stringify(updatedIds)
     ),
-
-    // Delete all R2 files
     ...deletePromises,
   ]);
 

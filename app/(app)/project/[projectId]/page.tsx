@@ -829,6 +829,17 @@ export default function EditorPage({
                 setCreditsRemaining(event.creditsRemaining);
               }
 
+              // Attach token usage to the AI message as soon as done arrives
+              if (event.tokenUsage) {
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === aiMessageId
+                      ? { ...msg, tokenUsage: event.tokenUsage }
+                      : msg
+                  )
+                );
+              }
+
               if (event.versionId) {
                 const versionNumber = parseInt(
                   event.versionId.replace("v", ""),

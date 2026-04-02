@@ -56,6 +56,7 @@ export default function PricingPage() {
           { id: "pack_100", credits: 100, priceId: "", amount: 2999, currency: "eur" },
           { id: "pack_250", credits: 250, priceId: "", amount: 5999, currency: "eur" },
         ],
+        pricingFormula: { inputPricePerMillion: 3, outputPricePerMillion: 15, creditUnitCostUsd: 0.08, markup: 4 },
       });
     }
   }, [getToken]);

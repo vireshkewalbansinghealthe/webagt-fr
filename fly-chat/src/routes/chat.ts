@@ -339,39 +339,33 @@ chatRoutes.post("/:projectId", async (c) => {
       let inputTokens = 0;
       let outputTokens = 0;
 
-      // Use fullStream (not textStream) so the finish/usage event is consumed
-      // and result.usage resolves correctly.
-      for await (const part of result.fullStream) {
-        if (part.type === "text-delta") {
-          fullResponse += part.textDelta;
-          chunkCount++;
+      // Use textStream for reliable chunk delivery.
+      // Token usage is captured via onFinish callback on the streamText call above.
+      for await (const chunk of result.textStream) {
+        fullResponse += chunk;
+        chunkCount++;
 
-          // Check for stop signal every 5 chunks
-          if (chunkCount - lastStopCheck > 5) {
-            lastStopCheck = chunkCount;
-            const stopSignal = await kv.get(`stop-signal:${projectId}`);
-            if (stopSignal === "true") {
-              console.log(`[chat] Stop signal detected for ${projectId}. Aborting stream.`);
-              stopped = true;
-              break;
-            }
+        // Check for stop signal every 5 chunks
+        if (chunkCount - lastStopCheck > 5) {
+          lastStopCheck = chunkCount;
+          const stopSignal = await kv.get(`stop-signal:${projectId}`);
+          if (stopSignal === "true") {
+            console.log(`[chat] Stop signal detected for ${projectId}. Aborting stream.`);
+            stopped = true;
+            break;
           }
+        }
 
-          if (clientConnected) {
-            try {
-              await stream.writeSSE({
-                event: "chunk",
-                data: JSON.stringify({ text: part.textDelta }),
-                id: String(eventId++),
-              });
-            } catch {
-              clientConnected = false;
-            }
+        if (clientConnected) {
+          try {
+            await stream.writeSSE({
+              event: "chunk",
+              data: JSON.stringify({ text: chunk }),
+              id: String(eventId++),
+            });
+          } catch {
+            clientConnected = false;
           }
-        } else if (part.type === "finish") {
-          // Real usage from Anthropic — available in fullStream finish event
-          inputTokens = part.usage?.promptTokens ?? 0;
-          outputTokens = part.usage?.completionTokens ?? 0;
         }
       }
 
@@ -394,11 +388,21 @@ chatRoutes.post("/:projectId", async (c) => {
         return;
       }
 
-      // Fallback only if provider didn't return usage (should not happen with Anthropic)
+      // Get real token usage — try result.usage (resolves after textStream is drained)
+      // AI SDK v6 may use promptTokens or inputTokens depending on version
+      try {
+        const usage = await result.usage;
+        inputTokens = (usage as any).inputTokens ?? (usage as any).promptTokens ?? 0;
+        outputTokens = (usage as any).outputTokens ?? (usage as any).completionTokens ?? 0;
+      } catch {
+        // fallback below
+      }
+
+      // Fallback: estimate from character count when API doesn't return usage
       if (outputTokens === 0 && fullResponse.length > 0) {
         outputTokens = Math.round(fullResponse.length / 4);
         inputTokens = outputTokens * 4;
-        console.log(`[${projectId}] [tokens] finish event had no usage — estimating: ${inputTokens} in / ${outputTokens} out`);
+        console.log(`[${projectId}] [tokens] estimating from chars: ${inputTokens} in / ${outputTokens} out`);
       }
 
       const streamDuration = Date.now() - streamStart;

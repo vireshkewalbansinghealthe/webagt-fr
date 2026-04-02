@@ -28,6 +28,7 @@ import { billingRoutes } from "./routes/billing";
 import { exportRoutes } from "./routes/export";
 import { analyticsRoutes } from "./routes/analytics";
 import { webhookRoutes } from "./routes/webhooks";
+import { stripeBillingWebhookRoutes } from "./routes/stripe-billing-webhook";
 import { stripeRoutes } from "./routes/stripe";
 import { collabRoutes } from "./routes/collaborators";
 import { adminRoutes } from "./routes/admin";
@@ -102,6 +103,13 @@ app.get("/health", (c) => {
  * See worker/src/routes/webhooks.ts for the handler.
  */
 app.route("/webhooks/clerk-billing", webhookRoutes);
+
+/**
+ * Native Stripe subscription webhook.
+ * PUBLIC — security via Stripe HMAC-SHA256 signature verification.
+ * Configure in Stripe Dashboard → Developers → Webhooks.
+ */
+app.route("/webhooks/stripe-billing", stripeBillingWebhookRoutes);
 
 // ---------------------------------------------------------------------------
 // Protected routes (require valid Clerk JWT)

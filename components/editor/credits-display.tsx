@@ -8,11 +8,13 @@
  * States:
  * - Free user with credits: Shows progress bar and count (e.g., "45/50")
  * - Free user exhausted: Shows 0/50 with warning styling
- * - Pro user: Shows "Unlimited" with a manage subscription link
+ * - Pro user: Shows "Unlimited" with a manage subscription button
  * - Loading: Shows a subtle skeleton
  *
- * The "Upgrade to Pro" button uses Clerk's CheckoutButton to open
- * the checkout drawer directly — no redirect to /pricing needed.
+ * The "Upgrade to Pro" button creates a Stripe Checkout Session (with iDEAL
+ * support) and redirects the user to Stripe-hosted checkout.
+ * After payment, Stripe fires a webhook that upgrades the plan in KV.
+ * The dashboard polls /api/credits until plan === "pro".
  *
  * Used by: app/(app)/layout.tsx (sidebar)
  */
@@ -20,10 +22,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
-import { CheckoutButton } from "@clerk/nextjs/experimental";
-import Link from "next/link";
 import { CreditCard, Zap, Infinity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -31,16 +31,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { createApiClient, bustCreditsCache } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-/**
- * Clerk Pro plan ID — set via NEXT_PUBLIC_CLERK_PRO_PLAN_ID environment variable.
- * Created in the Clerk Dashboard under Billing > Configure.
- * This opens the checkout drawer when the "Upgrade to Pro" button is clicked.
- */
-const PRO_PLAN_ID = process.env.NEXT_PUBLIC_CLERK_PRO_PLAN_ID ?? "";
-
-/**
- * Shape of the credit data returned from the API.
- */
 interface CreditData {
   remaining: number;
   total: number;
@@ -49,12 +39,6 @@ interface CreditData {
   isUnlimited: boolean;
 }
 
-/**
- * Calculates the number of days until a given date.
- *
- * @param dateString - ISO 8601 date string
- * @returns Number of days from now (minimum 0)
- */
 function daysUntil(dateString: string): number {
   const target = new Date(dateString);
   const now = new Date();
@@ -62,17 +46,13 @@ function daysUntil(dateString: string): number {
   return Math.max(0, Math.ceil(diffMs / (1000 * 60 * 60 * 24)));
 }
 
-/**
- * CreditsDisplay renders the credit counter in the sidebar.
- * Fetches credit data on mount and shows the appropriate UI
- * based on the user's plan and remaining balance.
- */
 export function CreditsDisplay() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
   const router = useRouter();
   const [credits, setCredits] = useState<CreditData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSyncing, setIsSyncing] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
 
   const loadCredits = useCallback(async () => {
     try {
@@ -81,68 +61,49 @@ export function CreditsDisplay() {
       setCredits(data);
     } catch (error) {
       const e = error as { isAuthError?: boolean; isNetworkError?: boolean };
-      if (e.isAuthError || e.isNetworkError) return; // Clerk loading or worker unreachable
+      if (e.isAuthError || e.isNetworkError) return;
       console.error("Failed to load credits:", error);
     } finally {
       setIsLoading(false);
     }
   }, [getToken]);
 
-  /** Fetch credit data only once Clerk is fully loaded and user is signed in */
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
     loadCredits();
   }, [loadCredits, isLoaded, isSignedIn]);
 
   /**
-   * Polls for the new pro plan to appear in the credits API.
-   * Clerk webhooks can take a few seconds to propagate, so we retry
-   * up to ~15 s before giving up and doing a hard reload.
+   * Redirect to Stripe Checkout for Pro subscription.
+   * Passes the user's email so Stripe can pre-fill it.
    */
-  const pollForProPlan = useCallback(
-    async (attempts = 0): Promise<void> => {
+  const handleUpgradeClick = useCallback(async () => {
+    setIsRedirecting(true);
+    try {
       const client = createApiClient(getToken);
-      try {
-        // Force-skip the in-memory cache each time
-        bustCreditsCache();
-        const data = await client.credits.get();
-        if (data.plan === "pro") {
-          setCredits(data);
-          setIsSyncing(false);
-          router.refresh();
-          return;
-        }
-      } catch {
-        // ignore fetch errors during polling
-      }
-      if (attempts < 10) {
-        setTimeout(() => pollForProPlan(attempts + 1), 1500);
-      } else {
-        // Fallback: hard reload so the user sees the updated state
-        window.location.reload();
-      }
-    },
-    [getToken, router]
-  );
+      const email = user?.primaryEmailAddress?.emailAddress;
+      const { url } = await client.billing.createCheckout(email);
+      if (url) window.location.href = url;
+    } catch (err) {
+      console.error("Failed to start checkout:", err);
+      setIsRedirecting(false);
+    }
+  }, [getToken, user]);
 
   /**
-   * Called when Clerk checkout completes successfully.
-   * Syncs the plan to KV, then polls the credits API until the pro plan
-   * is reflected — no manual page reload needed.
+   * Redirect to Stripe Customer Portal to manage/cancel subscription.
    */
-  const handleCheckoutSuccess = useCallback(async () => {
-    setIsSyncing(true);
+  const handleManageClick = useCallback(async () => {
+    setIsRedirecting(true);
     try {
-      // Force a fresh Clerk token so the new subscription is included
-      await getToken({ skipCache: true });
       const client = createApiClient(getToken);
-      await client.credits.sync();
+      const { url } = await client.billing.createPortal();
+      if (url) window.location.href = url;
     } catch (err) {
-      console.error("Failed to sync plan after checkout:", err);
+      console.error("Failed to open billing portal:", err);
+      setIsRedirecting(false);
     }
-    // Start polling — will update state and call router.refresh() when pro is confirmed
-    pollForProPlan();
-  }, [getToken, pollForProPlan]);
+  }, [getToken]);
 
   // Loading skeleton
   if (isLoading) {
@@ -157,7 +118,6 @@ export function CreditsDisplay() {
     );
   }
 
-  // Fallback if credits failed to load
   if (!credits) {
     return (
       <div className="px-3 pb-2">
@@ -225,25 +185,21 @@ export function CreditsDisplay() {
             variant="ghost"
             size="sm"
             className="mt-2 h-7 w-full text-xs text-muted-foreground"
-            asChild
+            onClick={handleManageClick}
+            disabled={isRedirecting}
           >
-            <Link href="/settings">Manage subscription</Link>
+            {isRedirecting ? "Opening…" : "Manage subscription"}
           </Button>
         ) : (
-          <CheckoutButton
-            planId={PRO_PLAN_ID}
-            planPeriod="month"
-            onSubscriptionComplete={handleCheckoutSuccess}
+          <Button
+            size="sm"
+            className="mt-2 h-7 w-full gap-1 text-xs"
+            onClick={handleUpgradeClick}
+            disabled={isRedirecting}
           >
-            <Button
-              size="sm"
-              className="mt-2 h-7 w-full gap-1 text-xs"
-              disabled={isSyncing}
-            >
-              <Zap className="size-3" />
-              {isSyncing ? "Activating…" : "Upgrade to Pro"}
-            </Button>
-          </CheckoutButton>
+            <Zap className="size-3" />
+            {isRedirecting ? "Redirecting…" : "Upgrade to Pro"}
+          </Button>
         )}
       </div>
     </div>

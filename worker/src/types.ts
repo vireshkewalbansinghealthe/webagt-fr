@@ -47,8 +47,14 @@ export interface Env {
   STRIPE_WEBHOOK_SECRET_LIVE?: string;
   STRIPE_CLIENT_ID?: string;
   PLATFORM_COMMISSION_PERCENT?: string;
-  /** Svix signing secret for verifying Clerk billing webhooks */
+  /** Svix signing secret for verifying Clerk billing webhooks (legacy) */
   CLERK_WEBHOOK_SECRET: string;
+
+  /** Native Stripe subscription billing */
+  /** Price ID for the Pro monthly subscription (price_...) */
+  STRIPE_BILLING_PRICE_ID?: string;
+  /** Webhook signing secret for the /webhooks/stripe-billing endpoint */
+  STRIPE_BILLING_WEBHOOK_SECRET?: string;
   /** Frontend URL for CORS — defaults to localhost:3000 in dev */
   FRONTEND_URL?: string;
   

@@ -4,10 +4,11 @@
  * components/dashboard/upgrade-modal.tsx
  *
  * Full-screen modal shown when a free user hits the project limit.
- * Embeds Clerk's <PricingTable /> so the user can upgrade without leaving
- * the dashboard.
+ * Uses native Stripe Checkout (with iDEAL, SEPA, card) instead of Clerk Billing.
  */
 
+import { useState } from "react";
+import { useAuth, useUser } from "@clerk/nextjs";
 import {
   Dialog,
   DialogContent,
@@ -17,7 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { PricingTable } from "@clerk/nextjs";
+import { createApiClient } from "@/lib/api-client";
 import {
   Zap,
   Rocket,
@@ -25,6 +26,7 @@ import {
   LayoutDashboard,
   Shield,
   X,
+  Check,
 } from "lucide-react";
 
 interface UpgradeModalProps {
@@ -40,13 +42,13 @@ const PRO_HIGHLIGHTS = [
   },
   {
     icon: Zap,
-    title: "More AI credits",
+    title: "Unlimited AI credits",
     description: "Generate more, iterate faster",
   },
   {
     icon: Rocket,
     title: "Premium models",
-    description: "Access Claude Opus, GPT-4o, and more",
+    description: "Access Claude Sonnet, Haiku, DeepSeek and more",
   },
   {
     icon: LayoutDashboard,
@@ -55,15 +57,32 @@ const PRO_HIGHLIGHTS = [
   },
   {
     icon: Shield,
-    title: "No limits on collaborators",
-    description: "Invite your whole team",
+    title: "Full webshop backend",
+    description: "iDEAL, orders, inventory — all included",
   },
 ];
 
 export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
+  const { getToken } = useAuth();
+  const { user } = useUser();
+  const [isRedirecting, setIsRedirecting] = useState(false);
+
+  const handleUpgrade = async () => {
+    setIsRedirecting(true);
+    try {
+      const client = createApiClient(getToken);
+      const email = user?.primaryEmailAddress?.emailAddress;
+      const { url } = await client.billing.createCheckout(email);
+      if (url) window.location.href = url;
+    } catch (err) {
+      console.error("Failed to start checkout:", err);
+      setIsRedirecting(false);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[95vw] sm:max-w-[820px] max-h-[90vh] overflow-y-auto p-0 gap-0">
+      <DialogContent className="w-[95vw] sm:max-w-[700px] max-h-[90vh] overflow-y-auto p-0 gap-0">
         {/* Header */}
         <div className="relative bg-gradient-to-br from-primary/10 via-primary/5 to-background px-6 pt-8 pb-6 border-b border-border">
           <button
@@ -85,8 +104,8 @@ export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
               You&apos;ve reached the free plan limit
             </DialogTitle>
             <DialogDescription className="text-base text-muted-foreground">
-              Free plan is limited to 3 projects. Upgrade to Pro to unlock unlimited
-              projects, more AI credits, and premium models.
+              Free plan is limited to 3 projects. Upgrade to Pro to unlock
+              unlimited projects, AI credits, and premium models.
             </DialogDescription>
           </DialogHeader>
 
@@ -113,15 +132,59 @@ export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
           </div>
         </div>
 
-        {/* Clerk Pricing Table */}
-        <div className="px-6 py-6">
-          <PricingTable newSubscriptionRedirectUrl="/dashboard" />
+        {/* Pricing section */}
+        <div className="px-6 py-8 flex flex-col items-center gap-6">
+          {/* Price card */}
+          <div className="w-full max-w-sm rounded-2xl border-2 border-primary/40 bg-primary/5 px-8 py-6 text-center relative">
+            <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+              <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-full">
+                Pro Plan
+              </span>
+            </div>
+            <div className="mt-2">
+              <span className="text-4xl font-bold">€9</span>
+              <span className="text-muted-foreground text-sm">/maand</span>
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Maandelijks opzegbaar
+            </p>
+
+            <ul className="mt-5 space-y-2 text-sm text-left">
+              {[
+                "Onbeperkte projecten",
+                "Onbeperkte AI credits",
+                "iDEAL & kaartbetalingen",
+                "Premium AI modellen",
+                "Volledige webshop backend",
+                "Prioriteit support",
+              ].map((item) => (
+                <li key={item} className="flex items-center gap-2">
+                  <Check className="size-4 text-primary shrink-0" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+
+            <Button
+              className="mt-6 w-full gap-2"
+              size="lg"
+              onClick={handleUpgrade}
+              disabled={isRedirecting}
+            >
+              <Zap className="size-4" />
+              {isRedirecting ? "Naar Stripe…" : "Nu upgraden"}
+            </Button>
+          </div>
+
+          <p className="text-xs text-muted-foreground text-center">
+            Veilige betaling via Stripe · iDEAL · Kaart · SEPA
+          </p>
         </div>
 
         {/* Footer */}
         <div className="flex items-center justify-between px-6 py-4 border-t border-border bg-muted/20">
           <p className="text-xs text-muted-foreground">
-            Cancel anytime · Instant activation · Secure payments via Stripe
+            Opzeggen kan altijd · Direct actief · Veilig betalen via Stripe
           </p>
           <Button
             variant="ghost"
@@ -129,7 +192,7 @@ export function UpgradeModal({ open, onOpenChange }: UpgradeModalProps) {
             className="text-xs text-muted-foreground hover:text-foreground"
             onClick={() => onOpenChange(false)}
           >
-            Stay on free plan
+            Gratis blijven
           </Button>
         </div>
       </DialogContent>

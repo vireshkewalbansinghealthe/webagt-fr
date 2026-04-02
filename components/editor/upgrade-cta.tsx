@@ -75,7 +75,7 @@ export function UpgradeCTA({ reason, resetDays }: UpgradeCTAProps) {
       <Button size="sm" className="w-full gap-1.5 text-xs" asChild>
         <Link href="/pricing">
           <Zap className="size-3" />
-          Upgrade for $25/mo
+          Upgrade voor €9/maand
         </Link>
       </Button>
 

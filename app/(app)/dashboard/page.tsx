@@ -64,7 +64,7 @@ import { UpgradeModal } from "@/components/dashboard/upgrade-modal";
 import { SpotlightTour } from "@/components/dashboard/spotlight-tour";
 import type { CreateProjectData } from "@/components/dashboard";
 import type { Project } from "@/types/project";
-import { createApiClient } from "@/lib/api-client";
+import { createApiClient, bustCreditsCache } from "@/lib/api-client";
 
 type ViewMode = "grid" | "table";
 type SortBy = "updated" | "created" | "name";
@@ -102,6 +102,50 @@ export default function DashboardPage() {
 
   /** Ref for auto-focusing the rename input */
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * After Stripe checkout, the user lands on /dashboard?billing=success.
+   * Poll the credits API until plan === "pro", then show a success toast.
+   * Using window.location.search directly (client-only) avoids needing
+   * useSearchParams() which requires a Suspense boundary for SSG.
+   */
+  useEffect(() => {
+    if (!isLoaded) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("billing") !== "success") return;
+
+    // Remove the query param from URL immediately (cosmetic)
+    router.replace("/dashboard", { scroll: false });
+
+    toast.loading("Abonnement activeren…", { id: "billing-sync" });
+
+    let attempts = 0;
+    const poll = async () => {
+      try {
+        bustCreditsCache();
+        const client = createApiClient(getToken);
+        const credits = await client.credits.get();
+        if (credits.plan === "pro") {
+          toast.success("Pro actief! Onbeperkte credits.", {
+            id: "billing-sync",
+            duration: 5000,
+          });
+          router.refresh();
+          return;
+        }
+      } catch {
+        // ignore transient errors
+      }
+      attempts++;
+      if (attempts < 15) {
+        setTimeout(poll, 2000);
+      } else {
+        toast.dismiss("billing-sync");
+      }
+    };
+    poll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded]);
 
   /** Derived filtered + sorted list */
   const filteredProjects = useMemo(() => {

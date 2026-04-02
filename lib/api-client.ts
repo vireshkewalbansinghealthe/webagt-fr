@@ -462,6 +462,33 @@ export function createApiClient(getToken: GetTokenFunction) {
         }),
     },
 
+    billing: {
+      /**
+       * Create a Stripe Checkout Session for the Pro subscription.
+       * Returns a Stripe-hosted checkout URL — redirect the user to it.
+       *
+       * @param email - Optional email to pre-fill in Stripe checkout
+       * @returns { url: string } — redirect to this URL
+       */
+      createCheckout: (email?: string) =>
+        authenticatedFetch<{ url: string }>(getToken, "/api/billing/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        }),
+
+      /**
+       * Create a Stripe Customer Portal session.
+       * Lets Pro users manage/cancel their subscription.
+       *
+       * @returns { url: string } — redirect to this URL
+       */
+      createPortal: () =>
+        authenticatedFetch<{ url: string }>(getToken, "/api/billing/portal", {
+          method: "POST",
+        }),
+    },
+
     versions: {
       /**
        * List all versions for a project with metadata (no file contents).

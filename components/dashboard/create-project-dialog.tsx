@@ -352,11 +352,9 @@ export function CreateProjectDialog({
               </div>
 
               {/* ── AI Tier selection ── */}
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
-                  AI Model
-                </p>
-                <div className="grid grid-cols-2 gap-2">
+              <div className="flex items-center gap-2">
+                <p className="text-xs text-muted-foreground/50 shrink-0">Model</p>
+                <div className="flex items-center gap-1 rounded-lg border border-border/50 bg-muted/30 p-0.5">
                   {(["premium", "lite"] as ModelTier[]).map((t) => {
                     const cfg = TIER_CONFIG[t];
                     const selected = tier === t;
@@ -367,27 +365,17 @@ export function CreateProjectDialog({
                         disabled={isLoading}
                         onClick={() => setTier(t)}
                         className={cn(
-                          "flex flex-col items-start gap-1 px-3 py-2.5 rounded-xl border text-left transition-all disabled:pointer-events-none disabled:opacity-50",
+                          "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs transition-all disabled:pointer-events-none",
                           selected
-                            ? cn(cfg.bgColor, cfg.borderColor, "ring-1", cfg.borderColor.replace("border-", "ring-"))
-                            : "border-border hover:border-primary/30"
+                            ? "bg-background shadow-sm text-foreground font-medium"
+                            : "text-muted-foreground/60 hover:text-muted-foreground"
                         )}
                       >
-                        <div className="flex items-center gap-1.5 w-full">
-                          <Zap className={cn("size-3.5 shrink-0", selected ? cfg.color : "text-muted-foreground")} />
-                          <span className={cn("text-sm font-semibold", selected ? cfg.color : "text-foreground")}>
-                            {cfg.label}
-                          </span>
-                          {t === "premium" && (
-                            <span className="ml-auto text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600">
-                              Default
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-muted-foreground leading-snug">{cfg.sub}</p>
-                        <p className={cn("text-[10px] font-mono font-medium", selected ? cfg.color : "text-muted-foreground/60")}>
-                          {cfg.modelLabel}
-                        </p>
+                        <Zap className="size-3 shrink-0" />
+                        {cfg.label}
+                        <span className="text-[10px] text-muted-foreground/40 font-normal">
+                          {cfg.modelLabel.split(" ")[0]}
+                        </span>
                       </button>
                     );
                   })}

@@ -7,10 +7,11 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e": "npx playwright test",
-    "test:e2e:smoke": "npx playwright test smoke",
-    "test:e2e:concurrent": "npx playwright test concurrent-users",
-    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=0 npx playwright test",
+    "test:e2e:smoke": "PLAYWRIGHT_BROWSERS_PATH=0 npx playwright test smoke",
+    "test:e2e:generate": "PLAYWRIGHT_BROWSERS_PATH=0 npx playwright test generate-projects",
+    "test:e2e:concurrent": "PLAYWRIGHT_BROWSERS_PATH=0 npx playwright test concurrent-users",
+    "test:e2e:ui": "PLAYWRIGHT_BROWSERS_PATH=0 npx playwright test --ui",
     "test:e2e:report": "npx playwright show-report"
   },
   "dependencies": {

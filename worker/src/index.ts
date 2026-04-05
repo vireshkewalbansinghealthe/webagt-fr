@@ -123,6 +123,9 @@ app.use("/api/*", async (c, next) => {
   if (
     c.req.path === "/api/stripe/checkout_sessions" ||
     c.req.path === "/api/stripe/webhook" ||
+    c.req.path === "/api/testing/bot-run" ||
+    c.req.path === "/api/testing/ensure-credits" ||
+    c.req.path === "/api/testing/sign-in-token" ||
     c.req.path.match(/\/api\/projects\/.*\/public-files/) ||
     c.req.method === "GET" && c.req.path.match(/^\/api\/invites\/[^/]+$/)
   ) {
@@ -203,17 +206,18 @@ app.route("/api/stripe", stripeRoutes);
 app.route("/", collabRoutes);
 
 /**
+ * Mount testing routes (Feedback & Bug reporting).
+ * POST /api/testing/submit, POST /api/testing/feedback
+ * POST /api/testing/bot-run (public — no auth)
+ * GET /api/testing/admin/results (Admin only)
+ */
+app.route("/api/testing", testingRoutes);
+
+/**
  * Mount admin routes at root (routes are prefixed /api/admin/*).
  * All handlers are gated by adminMiddleware (requires role=admin in JWT).
  * See worker/src/routes/admin.ts for individual route handlers.
  */
 app.route("/", adminRoutes);
-
-/**
- * Mount testing routes (Feedback & Bug reporting).
- * POST /api/testing/submit, POST /api/testing/feedback
- * GET /api/testing/admin/results (Admin only)
- */
-app.route("/api/testing", testingRoutes);
 
 export default app;

@@ -760,7 +760,7 @@ export function createApiClient(getToken: GetTokenFunction) {
         }),
 
       getAdminResults: () =>
-        authenticatedFetch<{ submissions: any[]; feedback: any[] }>(getToken, "/api/testing/admin/results"),
+        authenticatedFetch<{ submissions: any[]; feedback: any[]; botRuns: any[] }>(getToken, "/api/testing/admin/results"),
 
       updateFeedbackStatus: (id: string, status: string) =>
         authenticatedFetch<{ success: boolean; feedback: any }>(getToken, `/api/testing/admin/feedback/${id}`, {

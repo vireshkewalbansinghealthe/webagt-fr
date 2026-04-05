@@ -1,9 +1,13 @@
 import { defineConfig, devices } from "@playwright/test";
+import { config } from "dotenv";
+
+config({ path: ".env.test" });
 
 const BASE_URL = process.env.TEST_BASE_URL || "https://webagt.ai";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  testIgnore: ["**/*.setup.ts"],
   timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: true,
@@ -14,6 +18,7 @@ export default defineConfig({
   reporter: [["html", { open: "never" }], ["list"]],
   use: {
     baseURL: BASE_URL,
+    headless: !!process.env.CI,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "on-first-retry",
@@ -21,16 +26,8 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "setup",
-      testMatch: /.*\.setup\.ts/,
-    },
-    {
       name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        storageState: "./tests/e2e/.auth/user.json",
-      },
-      dependencies: ["setup"],
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
 });

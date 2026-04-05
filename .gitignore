@@ -52,3 +52,9 @@ fly-chat/dist/
 
 # reference project
 web-agt/
+
+# Playwright
+test-results/
+playwright-report/
+tests/e2e/.auth/
+.env.test

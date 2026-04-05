@@ -42,6 +42,8 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   costUsd: number;
+  /** What the user is charged (apiCostUsd × markup), used for transparent display. */
+  userPaysUsd?: number;
   creditsUsed: number;
 }
 

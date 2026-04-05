@@ -456,10 +456,29 @@ const products: Product[] = [
 ];
 
 ═══════════════════════════════════════
+USER-UPLOADED IMAGES — HIGHEST PRIORITY
+═══════════════════════════════════════
+
+⚠️ CRITICAL — MOST IMPORTANT RULE FOR IMAGES:
+When the user's message contains "UPLOADED IMAGE ASSETS" with URLs starting with https://webagt-chat.fly.dev/api/assets/, these are real images the user has uploaded to our CDN.
+
+You MUST:
+1. Copy the FULL URL exactly as provided (e.g. https://webagt-chat.fly.dev/api/assets/xxx/yyy.png)
+2. Use it directly as the src attribute: <img src="https://webagt-chat.fly.dev/api/assets/xxx/yyy.png" />
+3. If the user says "use this as the logo", replace ALL logo elements (in Header, Footer, and anywhere else) with: <img src="THE_EXACT_URL" alt="Logo" className="h-8 w-auto" />
+4. Remove any existing SVG icon, Lucide icon, or text-based logo and replace with the uploaded image
+
+You MUST NOT:
+- Replace the URL with picsum.photos, unsplash.com, placehold.co, or any other URL
+- Use the image only visually/descriptively — you must use the EXACT URL string
+- Generate a new icon or SVG based on what the image looks like
+
+═══════════════════════════════════════
 PLACEHOLDER IMAGES
 ═══════════════════════════════════════
 
-Always use real placeholder image services — never use broken URLs or empty src attributes.
+Only use placeholder image services for NEW content where the user has NOT provided an image.
+Never use them to replace a user-uploaded image URL.
 
 Primary — Unsplash (High quality, contextual photography):
   Use specific, high-quality Unsplash image URLs instead of random generic ones.
@@ -665,9 +684,74 @@ ${fileBlocks}
  * @returns Formatted string for the AI prompt
  */
 export function buildSystemPrompt(project: Project, existingFiles: ProjectFile[], backendUrl: string): string {
-  const fileBlocks = existingFiles
-    .map((file) => `<file path="${file.path}">\n${file.content}\n</file>`)
-    .join("\n\n");
+  const { basePrompt, projectContext } = buildSystemPromptParts(project, existingFiles, backendUrl);
+  return `${basePrompt}${projectContext}`;
+}
+
+/**
+ * Returns the system prompt split into two cacheable parts for Anthropic prompt caching.
+ *
+ * - basePrompt: The static BASE_SYSTEM_PROMPT (never changes — ideal for long-TTL cache)
+ * - projectContext: Project metadata + existing files (changes after each generation — short TTL cache)
+ *
+ * Usage: pass each part as a separate system message with providerOptions.anthropic.cacheControl
+ * so Anthropic caches the heavy prefix and only re-processes the user message on follow-up requests.
+ *
+ * Cost impact: first request ~same cost (cache write surcharge 1.25x), follow-up requests
+ * drop 90%+ because the cached tokens are billed at 0.1x price.
+ */
+export function buildSystemPromptParts(
+  project: Project,
+  existingFiles: ProjectFile[],
+  backendUrl: string,
+  options?: {
+    /** If provided, only include content for these files; list-only for the rest */
+    selectedFilePaths?: string[];
+    /** All file paths in the project (used when selectedFilePaths is set) */
+    allFilePaths?: string[];
+  }
+): { basePrompt: string; projectContext: string } {
+  const { selectedFilePaths, allFilePaths } = options ?? {};
+
+  let fileSection: string;
+
+  if (selectedFilePaths && allFilePaths && selectedFilePaths.length < allFilePaths.length) {
+    // Smart mode: full content only for selected files, path-list for the rest
+    const selectedSet = new Set(selectedFilePaths);
+    const selectedFileBlocks = existingFiles
+      .filter((f) => selectedSet.has(f.path))
+      .map((f) => `<file path="${f.path}">\n${f.content}\n</file>`)
+      .join("\n\n");
+
+    const skippedPaths = allFilePaths
+      .filter((p) => !selectedSet.has(p))
+      .map((p) => `  - ${p}`)
+      .join("\n");
+
+    fileSection = `
+The project has ${allFilePaths.length} files total. Full content is provided for the ${selectedFilePaths.length} files relevant to this request.
+When modifying the project, only output files that need to change. Do NOT re-output files that stay the same.
+
+<existing-files>
+${selectedFileBlocks}
+</existing-files>
+
+Other files in the project (not included — do not re-output these unless changing them):
+${skippedPaths}`;
+  } else {
+    // Full mode: send all file contents
+    const fileBlocks = existingFiles
+      .map((file) => `<file path="${file.path}">\n${file.content}\n</file>`)
+      .join("\n\n");
+
+    fileSection = `
+The user's project currently contains these files. When modifying the project,
+only output files that need to change. Do NOT re-output files that stay the same.
+
+<existing-files>
+${fileBlocks}
+</existing-files>`;
+  }
 
   const projectContext = `
 ═══════════════════════════════════════
@@ -679,20 +763,13 @@ Project Type: ${project.type || "website"}
 Published: ${project.deployment_uuid ? "YES" : "NO"}
 Payment Mode: ${project.paymentMode || "off"}
 Platform Backend URL: ${backendUrl}
-`;
-
-  return `${BASE_SYSTEM_PROMPT}${projectContext}
 
 ═══════════════════════════════════════
 EXISTING PROJECT FILES
 ═══════════════════════════════════════
+${fileSection}`;
 
-The user's project currently contains these files. When modifying the project,
-only output files that need to change. Do NOT re-output files that stay the same.
-
-<existing-files>
-${fileBlocks}
-</existing-files>`;
+  return { basePrompt: BASE_SYSTEM_PROMPT, projectContext };
 }
 
 // ---------------------------------------------------------------------------

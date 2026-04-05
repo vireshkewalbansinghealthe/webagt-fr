@@ -133,7 +133,7 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
   },
 };
 
-export const DEFAULT_MODEL = "gpt-4o-mini";
+export const DEFAULT_MODEL = "claude-sonnet-4-6";
 
 export function getModel(model: string, env: Env): LanguageModel {
   const config = MODEL_REGISTRY[model];
@@ -141,7 +141,12 @@ export function getModel(model: string, env: Env): LanguageModel {
 
   switch (config.provider) {
     case "anthropic":
-      return createAnthropic({ apiKey: env.ANTHROPIC_API_KEY })(config.apiModelId);
+      // Force the prompt-caching beta header on every request so that cache_control
+      // breakpoints in system messages are honoured by the Anthropic API.
+      return createAnthropic({
+        apiKey: env.ANTHROPIC_API_KEY,
+        headers: { "anthropic-beta": "prompt-caching-2024-07-31" },
+      })(config.apiModelId);
     case "openai":
       return createOpenAI({ apiKey: env.OPENAI_API_KEY })(config.apiModelId);
     case "google":

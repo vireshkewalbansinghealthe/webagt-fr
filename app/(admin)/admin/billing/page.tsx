@@ -11,11 +11,75 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { CreditCard, Package, Save, RefreshCw, CheckCircle2, AlertCircle, Euro, TrendingUp, Zap, BarChart3 } from "lucide-react";
+import { CreditCard, Package, Save, RefreshCw, CheckCircle2, AlertCircle, Euro, TrendingUp, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 function formatEur(cents: number) {
   return `€${(cents / 100).toFixed(2)}`;
+}
+
+// ── Slider component ──────────────────────────────────────────────────────────
+const COLOR_MAP = {
+  blue:    { track: "bg-blue-500",    thumb: "accent-blue-500" },
+  violet:  { track: "bg-violet-500",  thumb: "accent-violet-500" },
+  emerald: { track: "bg-emerald-500", thumb: "accent-emerald-500" },
+  orange:  { track: "bg-orange-500",  thumb: "accent-orange-500" },
+} as const;
+
+interface PriceSliderProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  onChange: (v: number) => void;
+  hint: string;
+  format: (v: number) => string;
+  color: keyof typeof COLOR_MAP;
+}
+
+function PriceSlider({ label, value, min, max, step, onChange, hint, format, color }: PriceSliderProps) {
+  const pct = ((value - min) / (max - min)) * 100;
+  const { track, thumb } = COLOR_MAP[color];
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">{label}</span>
+        <span className={cn("text-lg font-bold tabular-nums", `text-${color}-500`)}>{format(value)}</span>
+      </div>
+
+      <div className="relative h-5 flex items-center">
+        {/* Track background */}
+        <div className="absolute inset-x-0 h-1.5 rounded-full bg-muted" />
+        {/* Filled portion */}
+        <div
+          className={cn("absolute left-0 h-1.5 rounded-full transition-all", track)}
+          style={{ width: `${pct}%` }}
+        />
+        {/* Range input */}
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className={cn("relative w-full h-1.5 appearance-none bg-transparent cursor-pointer", thumb)}
+          style={{
+            // Override thumb styling via inline style for cross-browser
+            WebkitAppearance: "none",
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between text-[10px] text-muted-foreground/60">
+        <span>{format(min)}</span>
+        <span className="text-center opacity-80">{hint}</span>
+        <span>{format(max)}</span>
+      </div>
+    </div>
+  );
 }
 
 export default function AdminBillingPage() {
@@ -276,120 +340,90 @@ export default function AdminBillingPage() {
           <section>
             <div className="mb-4 flex items-center gap-2">
               <TrendingUp className="size-4 text-primary" />
-              <h2 className="text-base font-semibold">Prijsformule & marge</h2>
-              <Badge variant="secondary">Claude Sonnet 4.6</Badge>
+              <h2 className="text-base font-semibold">Winstmarge instellen</h2>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-6 space-y-6">
-              {/* API pricing */}
-              <div>
-                <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Anthropic API kosten</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Input prijs ($ / 1M tokens)</Label>
-                    <Input
-                      type="number"
-                      step="0.5"
-                      value={config.pricingFormula.inputPricePerMillion}
-                      onChange={(e) => updateFormula("inputPricePerMillion", parseFloat(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">Claude Sonnet = $3.00</p>
+            <div className="rounded-xl border border-border bg-card p-6 space-y-8">
+
+              {/* ── BIG margin slider ── */}
+              <div className="space-y-3">
+                <div className="flex items-end justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Winstmarge</p>
+                    <p className="text-xs text-muted-foreground">Sleep om je marge in te stellen — alle andere waarden passen zich automatisch aan</p>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Output prijs ($ / 1M tokens)</Label>
-                    <Input
-                      type="number"
-                      step="0.5"
-                      value={config.pricingFormula.outputPricePerMillion}
-                      onChange={(e) => updateFormula("outputPricePerMillion", parseFloat(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">Claude Sonnet = $15.00</p>
+                  <div className="text-right">
+                    <span className={cn(
+                      "text-4xl font-black tabular-nums",
+                      config.pricingFormula.markup >= 4 ? "text-green-500"
+                      : config.pricingFormula.markup >= 2 ? "text-emerald-500"
+                      : "text-amber-500"
+                    )}>
+                      {config.pricingFormula.markup.toFixed(1)}×
+                    </span>
+                    <p className="text-xs text-muted-foreground">marge</p>
                   </div>
+                </div>
+
+                {/* Big track */}
+                <div className="relative h-8 flex items-center">
+                  <div className="absolute inset-x-0 h-3 rounded-full bg-muted" />
+                  <div
+                    className={cn(
+                      "absolute left-0 h-3 rounded-full transition-all",
+                      config.pricingFormula.markup >= 4 ? "bg-green-500"
+                      : config.pricingFormula.markup >= 2 ? "bg-emerald-500"
+                      : "bg-amber-500"
+                    )}
+                    style={{ width: `${((config.pricingFormula.markup - 1) / 9) * 100}%` }}
+                  />
+                  <input
+                    type="range" min={1} max={10} step={0.5}
+                    value={config.pricingFormula.markup}
+                    onChange={(e) => updateFormula("markup", parseFloat(e.target.value))}
+                    className="relative w-full h-3 appearance-none bg-transparent cursor-pointer"
+                    style={{ WebkitAppearance: "none" }}
+                  />
+                </div>
+
+                <div className="flex justify-between text-[10px] text-muted-foreground/60">
+                  <span>1× (break-even)</span>
+                  <span>5× (goed)</span>
+                  <span>10× (max)</span>
                 </div>
               </div>
 
-              {/* Credit pricing */}
-              <div>
-                <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Credit pricing</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">API-kosten per credit ($)</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={config.pricingFormula.creditUnitCostUsd}
-                      onChange={(e) => updateFormula("creditUnitCostUsd", parseFloat(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">Hoeveel API-tokens = 1 credit</p>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">Markup (×)</Label>
-                    <Input
-                      type="number"
-                      step="0.5"
-                      min="1"
-                      value={config.pricingFormula.markup}
-                      onChange={(e) => updateFormula("markup", parseFloat(e.target.value))}
-                    />
-                    <p className="text-xs text-muted-foreground">Hoe veel meer we rekenen vs API-kosten</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Live metrics */}
+              {/* ── Live outcome cards ── */}
               {metrics && (
-                <div>
-                  <p className="mb-3 text-xs font-medium text-muted-foreground uppercase tracking-wider">Live berekening</p>
+                <div className="space-y-3">
+                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Wat dit betekent</p>
+
+                  {/* Top row: user price + margin health */}
                   <div className="grid grid-cols-2 gap-3">
-
-                    <div className="rounded-lg bg-muted/50 px-4 py-3">
-                      <p className="text-xs text-muted-foreground">Revenue per credit</p>
-                      <p className="mt-0.5 text-xl font-bold tabular-nums">
-                        ${metrics.revenuePerCreditUsd.toFixed(3)}
-                      </p>
-                      <p className="text-xs text-muted-foreground">{config.pricingFormula.markup}× markup op API-kosten</p>
-                    </div>
-
-                    <div className="rounded-lg bg-muted/50 px-4 py-3">
-                      <p className="text-xs text-muted-foreground">Pro credits / maand</p>
-                      <p className="mt-0.5 text-xl font-bold tabular-nums">
-                        {metrics.proCreditsPerMonth} cr
-                      </p>
-                      <p className="text-xs text-muted-foreground">Bij {formatEur(config.subscription.amount)} abonnement</p>
-                    </div>
-
-                    <div className="rounded-lg bg-muted/50 px-4 py-3">
-                      <p className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Zap className="size-3" />
-                        Gem. generatie (~15K↑ 5K↓)
-                      </p>
-                      <p className="mt-0.5 text-xl font-bold tabular-nums">
-                        {metrics.avgGenCredits} cr
+                    <div className="rounded-lg bg-muted/40 px-4 py-3 space-y-0.5">
+                      <p className="text-xs text-muted-foreground">Prijs per credit voor gebruiker</p>
+                      <p className="text-2xl font-black tabular-nums">
+                        €{(metrics.revenuePerCreditUsd * 0.92).toFixed(3)}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        ${metrics.avgGenApiCostUsd.toFixed(3)} API · ${metrics.avgGenRevenueUsd.toFixed(3)} opbrengst
+                        jij betaalt ${config.pricingFormula.creditUnitCostUsd.toFixed(2)} aan API
                       </p>
                     </div>
 
                     <div className={cn(
-                      "rounded-lg px-4 py-3",
-                      metrics.marginAtUtil >= 3
-                        ? "bg-green-500/10 border border-green-500/20"
-                        : metrics.marginAtUtil >= 1.5
-                        ? "bg-amber-500/10 border border-amber-500/20"
-                        : "bg-destructive/10 border border-destructive/20"
+                      "rounded-lg px-4 py-3 space-y-0.5",
+                      metrics.marginAtUtil >= 3 ? "bg-green-500/10 border border-green-500/20"
+                      : metrics.marginAtUtil >= 1.5 ? "bg-amber-500/10 border border-amber-500/20"
+                      : "bg-destructive/10 border border-destructive/20"
                     )}>
-                      <p className={cn(
-                        "text-xs flex items-center gap-1",
+                      <p className={cn("text-xs flex items-center gap-1",
                         metrics.marginAtUtil >= 3 ? "text-green-600 dark:text-green-400"
                         : metrics.marginAtUtil >= 1.5 ? "text-amber-600 dark:text-amber-400"
                         : "text-destructive"
                       )}>
-                        <BarChart3 className="size-3" />
-                        Marge @ 30% gebruik
+                        <BarChart3 className="size-3" /> Nettowinst @ 30% gebruik
                       </p>
-                      <p className={cn(
-                        "mt-0.5 text-xl font-bold tabular-nums",
+                      <p className={cn("text-2xl font-black tabular-nums",
                         metrics.marginAtUtil >= 3 ? "text-green-600 dark:text-green-400"
                         : metrics.marginAtUtil >= 1.5 ? "text-amber-600 dark:text-amber-400"
                         : "text-destructive"
@@ -397,13 +431,88 @@ export default function AdminBillingPage() {
                         {metrics.marginAtUtil.toFixed(1)}×
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        API-kosten: ${metrics.monthlyApiCostAtUtil.toFixed(2)}/maand
+                        API kost €{(metrics.monthlyApiCostAtUtil * 0.92).toFixed(2)}/maand/user
                       </p>
                     </div>
+                  </div>
 
+                  {/* Message cost breakdown */}
+                  <div className="rounded-lg border border-border/50 divide-y divide-border/50">
+                    {[
+                      { label: "Haiku 4.5 bericht", apiIn: 1, apiOut: 5, icon: "⚡" },
+                      { label: "Sonnet 4.6 bericht", apiIn: 3, apiOut: 15, icon: "✦" },
+                    ].map(({ label, apiIn, apiOut, icon }) => {
+                      const apiCost = (800 * apiIn / 1_000_000) + (45_000 * 0.1 * apiIn / 1_000_000) + (500 * apiOut / 1_000_000);
+                      const credits = Math.max(1, Math.ceil(apiCost / config.pricingFormula.creditUnitCostUsd));
+                      const userPaysUsd = credits * metrics.revenuePerCreditUsd;
+                      const userPaysEur = userPaysUsd * 0.92;
+                      return (
+                        <div key={label} className="flex items-center justify-between px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">{icon}</span>
+                            <span className="text-sm text-muted-foreground">{label}</span>
+                          </div>
+                          <div className="flex items-center gap-4 text-sm">
+                            <span className="text-muted-foreground/60 text-xs">${apiCost.toFixed(3)} API</span>
+                            <span className="font-medium">{credits} cr</span>
+                            <span className="font-bold text-primary">€{userPaysEur.toFixed(3)}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Pro plan summary */}
+                  <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Pro plan {formatEur(config.subscription.amount)}/maand</p>
+                      <p className="text-xs text-muted-foreground">geeft gebruiker {metrics.proCreditsPerMonth} credits</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold">~{Math.round(metrics.proCreditsPerMonth / Math.max(1, Math.ceil(((800 * config.pricingFormula.inputPricePerMillion / 1_000_000) + (45_000 * 0.1 * config.pricingFormula.inputPricePerMillion / 1_000_000) + (500 * config.pricingFormula.outputPricePerMillion / 1_000_000)) / config.pricingFormula.creditUnitCostUsd)))} berichten</p>
+                      <p className="text-xs text-muted-foreground">gemiddeld per maand</p>
+                    </div>
                   </div>
                 </div>
               )}
+
+              {/* ── Advanced (collapsed) ── */}
+              <details className="group">
+                <summary className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground hover:text-foreground list-none">
+                  <span className="group-open:rotate-90 transition-transform inline-block">▶</span>
+                  Geavanceerd — API prijzen & credit drempelwaarde
+                </summary>
+                <div className="mt-4 space-y-5 pt-4 border-t border-border/50">
+                  <PriceSlider
+                    label="Input tokens ($ / 1M)"
+                    value={config.pricingFormula.inputPricePerMillion}
+                    min={0.25} max={15} step={0.25}
+                    onChange={(v) => updateFormula("inputPricePerMillion", v)}
+                    hint="Haiku=$1 · Sonnet=$3 · Opus=$5"
+                    format={(v) => `$${v.toFixed(2)}`}
+                    color="blue"
+                  />
+                  <PriceSlider
+                    label="Output tokens ($ / 1M)"
+                    value={config.pricingFormula.outputPricePerMillion}
+                    min={1.25} max={75} step={0.25}
+                    onChange={(v) => updateFormula("outputPricePerMillion", v)}
+                    hint="Haiku=$5 · Sonnet=$15 · Opus=$25"
+                    format={(v) => `$${v.toFixed(2)}`}
+                    color="violet"
+                  />
+                  <PriceSlider
+                    label="API-kosten per credit ($)"
+                    value={config.pricingFormula.creditUnitCostUsd}
+                    min={0.01} max={0.20} step={0.01}
+                    onChange={(v) => updateFormula("creditUnitCostUsd", v)}
+                    hint="Drempel: hoeveel API-kosten = 1 credit"
+                    format={(v) => `$${v.toFixed(2)}`}
+                    color="emerald"
+                  />
+                </div>
+              </details>
+
             </div>
           </section>
 

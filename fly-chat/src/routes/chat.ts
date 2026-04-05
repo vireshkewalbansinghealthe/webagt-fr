@@ -12,7 +12,7 @@ import { streamSSE } from "hono/streaming";
 import type { AppVariables } from "../types.js";
 import type { Project, ProjectFile, Version } from "../types/project.js";
 import type { ChatMessage, ChatSession, ImageAttachment } from "../types/chat.js";
-import { buildSystemPrompt, prepareChatHistory } from "../ai/system-prompt";
+import { buildSystemPromptParts, prepareChatHistory } from "../ai/system-prompt";
 import { rewriteAtAliasImportsForSandbox } from "../ai/default-project";
 import {
   parseFilesFromResponse,
@@ -193,8 +193,8 @@ chatRoutes.post("/:projectId", async (c) => {
   // --- 6. Build AI prompt ---
   const backendUrl = env.PUBLIC_WORKER_URL?.replace(/\/+$/, "") || "https://webagt-worker-v2.webagt.workers.dev";
 
-  const systemPrompt = buildSystemPrompt(project, existingFiles, backendUrl);
-  plog.debug("chat", `System prompt built — ${systemPrompt.length} chars`);
+  const { basePrompt, projectContext } = buildSystemPromptParts(project, existingFiles, backendUrl);
+  plog.debug("chat", `System prompt built — base=${basePrompt.length} chars, context=${projectContext.length} chars`);
 
   // --- 6a. Upload images to R2 ---
   const enrichedImages: ImageAttachment[] = [];
@@ -212,8 +212,10 @@ chatRoutes.post("/:projectId", async (c) => {
         bytes[j] = binaryStr.charCodeAt(j);
       }
 
-      await r2.put(storagePath, Buffer.from(bytes));
-      url = `${backendUrl}/api/assets/${projectId}/${filename}`;
+      await r2.put(storagePath, Buffer.from(bytes), img.mediaType);
+      // Assets are served from this fly-chat service, not the worker
+      const chatServiceUrl = env.PUBLIC_CHAT_URL?.replace(/\/+$/, "") || "https://webagt-chat.fly.dev";
+      url = `${chatServiceUrl}/api/assets/${projectId}/${filename}`;
       console.log(`[chat] Uploaded image to R2 ${i + 1}/${images.length}: ${storagePath}`);
     } catch (uploadError) {
       console.error(`[chat] Failed to upload image ${i}:`, uploadError);
@@ -256,13 +258,20 @@ chatRoutes.post("/:projectId", async (c) => {
     .join("\n");
 
   const finalUserMessage = imageUrlLines
-    ? `${userMessage}\n\nUploaded image asset URL${enrichedImages.length > 1 ? "s" : ""} — use these directly as src attributes in <img> tags in your generated code:\n${imageUrlLines}`
+    ? `${userMessage}\n\n` +
+      `═══ UPLOADED IMAGE ASSETS ═══\n` +
+      `The user has uploaded ${enrichedImages.length} image(s) to our CDN. Each image has a permanent public URL.\n` +
+      `You MUST use these EXACT URLs as the src attribute in <img> tags. NEVER replace them with picsum.photos, unsplash, placehold.co, or any other URL.\n\n` +
+      `${imageUrlLines}\n\n` +
+      `Example usage: <img src="${enrichedImages[0]?.url}" alt="User uploaded image" />\n` +
+      `═══════════════════════════════`
     : userMessage;
 
   if (enrichedImages.length > 0 && modelConfig.supportsVision) {
     if (lastMsg && lastMsg.role === "user") {
       sdkMessages.push({ role: "assistant", content: "Understood. Please provide the images." });
     }
+    console.log(`[${projectId}] [images] Sending ${enrichedImages.length} images to AI with URLs: ${enrichedImages.map(i => i.url).join(", ")}`);
     sdkMessages.push({
       role: "user" as const,
       content: [
@@ -325,10 +334,34 @@ chatRoutes.post("/:projectId", async (c) => {
       const model = getModel(modelId, env);
       plog.info("chat", `Calling ${modelConfig.displayName} API — maxOutputTokens=${modelConfig.maxOutputTokens}`);
 
+      // Anthropic prompt caching via explicit cache_control on system message blocks.
+      // The @ai-sdk/anthropic SDK translates providerOptions.anthropic.cacheControl on
+      // role:'system' messages into cache_control fields in the Anthropic API system array.
+      // We also force the anthropic-beta header via a custom fetch wrapper to guarantee
+      // the prompt-caching feature is active on every request.
+      const isAnthropicModel = modelId.includes("claude");
+      const systemMessages: ModelMessage[] = isAnthropicModel
+        ? [
+            {
+              role: "system" as const,
+              content: basePrompt,
+              providerOptions: {
+                anthropic: { cacheControl: { type: "ephemeral" } },
+              },
+            },
+            {
+              role: "system" as const,
+              content: projectContext,
+              providerOptions: {
+                anthropic: { cacheControl: { type: "ephemeral" } },
+              },
+            },
+          ]
+        : [{ role: "system" as const, content: `${basePrompt}${projectContext}` }];
+
       const result = streamText({
         model,
-        system: systemPrompt,
-        messages: sdkMessages,
+        messages: [...systemMessages, ...sdkMessages],
         maxOutputTokens: modelConfig.maxOutputTokens,
         abortSignal: undefined, // never abort — we want generation to complete even if client disconnects
       });
@@ -338,6 +371,8 @@ chatRoutes.post("/:projectId", async (c) => {
       let stopped = false;
       let inputTokens = 0;
       let outputTokens = 0;
+      let cacheReadTokens = 0;
+      let cacheWriteTokens = 0;
 
       // Use textStream for reliable chunk delivery.
       // Token usage is captured via onFinish callback on the streamText call above.
@@ -388,14 +423,41 @@ chatRoutes.post("/:projectId", async (c) => {
         return;
       }
 
-      // Get real token usage — try result.usage (resolves after textStream is drained)
-      // AI SDK v6 may use promptTokens or inputTokens depending on version
+      // Get real token usage from AI SDK v6.
+      // result.usage.inputTokens = TOTAL (regular + cacheWrite + cacheRead)
+      // result.usage.inputTokenDetails.cacheReadTokens / cacheWriteTokens = per-tier breakdown
       try {
         const usage = await result.usage;
         inputTokens = (usage as any).inputTokens ?? (usage as any).promptTokens ?? 0;
         outputTokens = (usage as any).outputTokens ?? (usage as any).completionTokens ?? 0;
+        // AI SDK v6: cache breakdown lives in inputTokenDetails
+        const det = (usage as any).inputTokenDetails;
+        if (det) {
+          cacheReadTokens = det.cacheReadTokens ?? 0;
+          cacheWriteTokens = det.cacheWriteTokens ?? 0;
+        }
       } catch {
         // fallback below
+      }
+
+      // Also check providerMetadata (Anthropic SDK directly exposes cacheCreationInputTokens)
+      try {
+        const meta = await result.providerMetadata;
+        const anthropicMeta = (meta as any)?.anthropic;
+        if (anthropicMeta) {
+          // cacheCreationInputTokens is a direct property on anthropic metadata
+          const metaWrite = anthropicMeta.cacheCreationInputTokens ?? 0;
+          if (metaWrite > 0) cacheWriteTokens = metaWrite;
+          // cacheReadInputTokens is in anthropicMeta.usage (raw Anthropic API response)
+          const metaRead = anthropicMeta.usage?.cache_read_input_tokens ?? 0;
+          if (metaRead > 0) cacheReadTokens = metaRead;
+        }
+      } catch {
+        // provider metadata not available
+      }
+
+      if (cacheReadTokens > 0 || cacheWriteTokens > 0) {
+        console.log(`[${projectId}] [cache] write=${cacheWriteTokens} read=${cacheReadTokens} tokens`);
       }
 
       // Fallback: estimate from character count when API doesn't return usage
@@ -406,7 +468,6 @@ chatRoutes.post("/:projectId", async (c) => {
       }
 
       const streamDuration = Date.now() - streamStart;
-      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${inputTokens} in / ${outputTokens} out tokens, ${(streamDuration / 1000).toFixed(1)}s`);
       console.log(`[${projectId}] [memory] After AI stream: ${mem()}`);
 
       // --- 8. Parse files ---
@@ -454,16 +515,58 @@ chatRoutes.post("/:projectId", async (c) => {
       }
 
       // --- 10. Deduct credits based on real token usage ---
+      // Anthropic prompt caching pricing (relative to base input price):
+      //   cache write tokens: 1.25x  (storing the prefix)
+      //   cache read tokens:  0.10x  (reading from cache — 90% cheaper)
+      //   regular input tokens: 1.0x
+      //   output tokens: billed at output rate
+
+      // Per-model actual API prices ($/million tokens).
+      // These reflect real provider costs so Haiku is billed cheaper than Sonnet.
+      const MODEL_PRICES: Record<string, { input: number; output: number }> = {
+        "claude-haiku-4-5":   { input: 1.00,  output: 5.00  },
+        "claude-sonnet-4-6":  { input: 3.00,  output: 15.00 },
+        "claude-opus-4-6":    { input: 15.00, output: 75.00 },
+        "gpt-4o":             { input: 2.50,  output: 10.00 },
+        "gpt-4o-mini":        { input: 0.15,  output: 0.60  },
+        "gemini-2-flash":     { input: 0.10,  output: 0.40  },
+        "gemini-2-pro":       { input: 1.25,  output: 5.00  },
+        "deepseek-v3":        { input: 0.27,  output: 1.10  },
+        "deepseek-r1":        { input: 0.55,  output: 2.19  },
+      };
+      const modelPrices = MODEL_PRICES[modelId] ?? { input: 3.00, output: 15.00 };
+
       const BILLING_CONFIG_KEY = "billing_config";
-      const billingCfg = await kv.get<{ pricingFormula?: { inputPricePerMillion: number; outputPricePerMillion: number; creditUnitCostUsd: number } }>(BILLING_CONFIG_KEY, "json");
-      const inputPrice = (billingCfg?.pricingFormula?.inputPricePerMillion ?? 3) / 1_000_000;
-      const outputPrice = (billingCfg?.pricingFormula?.outputPricePerMillion ?? 15) / 1_000_000;
-      const creditUnit = billingCfg?.pricingFormula?.creditUnitCostUsd ?? 0.08;
-      const apiCostUsd = (inputTokens * inputPrice) + (outputTokens * outputPrice);
-      const creditsToDeduct = Math.max(1, Math.ceil(apiCostUsd / creditUnit));
+      const billingCfg = await kv.get<{ pricingFormula?: { creditUnitCostUsd: number; markup: number } }>(BILLING_CONFIG_KEY, "json");
+      // creditUnitCostUsd = what 1 credit costs US in API calls (e.g. $0.06)
+      // markup = what the user pays per credit relative to our API cost (e.g. 3 = user pays $0.18/credit)
+      const creditUnitCostUsd = billingCfg?.pricingFormula?.creditUnitCostUsd ?? 0.06;
+      const markup = billingCfg?.pricingFormula?.markup ?? 3;
+
+      const inputPricePerToken  = modelPrices.input  / 1_000_000;
+      const outputPricePerToken = modelPrices.output / 1_000_000;
+
+      // inputTokens from AI SDK v6 = total (regular + cacheWrite + cacheRead)
+      // Subtract cache tokens to get the non-cached portion billed at full rate.
+      const regularInputTokens = Math.max(0, inputTokens - cacheWriteTokens - cacheReadTokens);
+      const regularInputCost = regularInputTokens * inputPricePerToken;
+
+      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${inputTokens} total in (${regularInputTokens} reg / ${cacheWriteTokens} write / ${cacheReadTokens} read) / ${outputTokens} out, ${(streamDuration / 1000).toFixed(1)}s`);
+      // Cache write billed at 0.20× input rate (not 1.25×).
+      // We absorb most of the caching overhead so credits track output tokens, not Anthropic infra.
+      const cacheWriteCost = cacheWriteTokens * inputPricePerToken * 0.20;
+      const cacheReadCost  = cacheReadTokens  * inputPricePerToken * 0.1;
+      const outputCost     = outputTokens     * outputPricePerToken;
+      const apiCostUsd = regularInputCost + cacheWriteCost + cacheReadCost + outputCost;
+
+      // credits = ceil(apiCostUsd / creditUnitCostUsd)
+      // revenue = credits × (creditUnitCostUsd × markup) ≈ apiCostUsd × markup
+      const creditsToDeduct = Math.max(1, Math.ceil(apiCostUsd / creditUnitCostUsd));
+      const userPaysUsd = creditsToDeduct * creditUnitCostUsd * markup;
+      const actualMargin = userPaysUsd / apiCostUsd;
 
       const updatedCredits = await deductCredits(userId, creditsToDeduct, kv);
-      console.log(`[${projectId}] [credits] ${inputTokens} in / ${outputTokens} out — $${apiCostUsd.toFixed(4)} — deducted ${creditsToDeduct} credits, remaining: ${updatedCredits.remaining}`);
+      console.log(`[${projectId}] [credits] ${regularInputTokens} reg / ${cacheWriteTokens} cacheWrite / ${cacheReadTokens} cacheRead / ${outputTokens} out — API $${apiCostUsd.toFixed(4)} / user pays $${userPaysUsd.toFixed(4)} (${actualMargin.toFixed(2)}× margin) — deducted ${creditsToDeduct} credits, remaining: ${updatedCredits.remaining}`);
 
       // --- 11. Save chat messages to KV ---
       const blockedChangeNote = rejectedFiles.length > 0
@@ -496,7 +599,7 @@ chatRoutes.post("/:projectId", async (c) => {
         model: modelId,
         changedFiles: acceptedFiles.length > 0 ? changedFilePaths : undefined,
         suggestions: suggestions.length > 0 ? suggestions : undefined,
-        tokenUsage: { inputTokens, outputTokens, costUsd: apiCostUsd, creditsUsed: creditsToDeduct },
+        tokenUsage: { inputTokens, outputTokens, costUsd: apiCostUsd, userPaysUsd, creditsUsed: creditsToDeduct },
       };
 
       const updatedChatSession: ChatSession = {
@@ -526,7 +629,7 @@ chatRoutes.post("/:projectId", async (c) => {
               model: modelId,
               changedFiles: changedFilePaths,
               creditsRemaining: updatedCredits.remaining,
-              tokenUsage: { inputTokens, outputTokens, costUsd: apiCostUsd, creditsUsed: creditsToDeduct },
+              tokenUsage: { inputTokens, outputTokens, costUsd: apiCostUsd, userPaysUsd, creditsUsed: creditsToDeduct },
             }),
             id: String(eventId++),
           });

@@ -18,6 +18,7 @@ import { Hono } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { Env, AppVariables } from "../types";
 import { computeUserAnalytics } from "../services/analytics-engine";
+import { getBillingConfig, DEFAULT_PRICING_FORMULA } from "./billing";
 
 const adminRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
@@ -772,10 +773,8 @@ adminRoutes.get("/api/admin/credits/report", async (c) => {
 // GET /api/admin/billing-config — Get billing config from KV
 // ---------------------------------------------------------------------------
 
-adminRoutes.get("/billing-config", adminMiddleware, async (c) => {
-  const { getBillingConfig, DEFAULT_PRICING_FORMULA } = await import("./billing");
+adminRoutes.get("/api/admin/billing-config", adminMiddleware, async (c) => {
   const config = await getBillingConfig(c.env);
-  // If no config in KV yet, return shape with defaults so the UI renders
   return c.json(config ?? {
     subscription: { priceId: "", amount: 2900, currency: "eur", name: "Pro Plan", description: "" },
     creditPacks: [],
@@ -787,7 +786,7 @@ adminRoutes.get("/billing-config", adminMiddleware, async (c) => {
 // PUT /api/admin/billing-config — Save billing config to KV
 // ---------------------------------------------------------------------------
 
-adminRoutes.put("/billing-config", adminMiddleware, async (c) => {
+adminRoutes.put("/api/admin/billing-config", adminMiddleware, async (c) => {
   const body = await c.req.json();
   await c.env.METADATA.put("billing_config", JSON.stringify(body));
   return c.json({ ok: true });

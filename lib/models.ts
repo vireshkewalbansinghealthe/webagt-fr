@@ -17,6 +17,8 @@ export interface ModelInfo {
   creditCost: number;
   description: string;
   supportsVision: boolean;
+  /** Short badge shown in the model picker, e.g. "3× cheaper" */
+  savingLabel?: string;
 }
 
 export const MODELS: ModelInfo[] = [
@@ -55,6 +57,7 @@ export const MODELS: ModelInfo[] = [
     creditCost: 1,
     description: "Fast and capable. Great for quick iterations and simple changes.",
     supportsVision: true,
+    savingLabel: "3× cheaper",
   },
   {
     id: "claude-sonnet-4-6",
@@ -80,7 +83,7 @@ export const MODELS: ModelInfo[] = [
   },
 ];
 
-export const DEFAULT_MODEL_ID = "deepseek-v3";
+export const DEFAULT_MODEL_ID = "claude-sonnet-4-6";
 
 export const TIER_LABELS: Record<string, string> = {
   lite: "Lite",

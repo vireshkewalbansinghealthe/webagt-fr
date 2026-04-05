@@ -28,6 +28,8 @@ app.use("*", cors({
     if (allowedOrigins.some(o => origin.startsWith(o))) return origin;
     if (origin.endsWith(".webagt.ai")) return origin;
     if (origin.endsWith(".vercel.app")) return origin;
+    if (origin.endsWith(".csb.app")) return origin;
+    if (origin.endsWith(".codesandbox.io")) return origin;
     return allowedOrigins[0];
   },
   allowHeaders: ["Content-Type", "Authorization"],
@@ -54,7 +56,29 @@ app.get("/health", (c) => {
   });
 });
 
-// Auth middleware for /api/*
+// Public asset serving — user-uploaded images (logos, photos) stored in R2.
+// No auth required: assets are namespaced by projectId and serve as <img src> in generated previews.
+app.get("/api/assets/:projectId/:filename", async (c) => {
+  const { projectId, filename } = c.req.param();
+  const r2 = c.get("r2" as any) as CloudflareR2;
+  const storagePath = `assets/${projectId}/${filename}`;
+  const obj = await r2.getBytes(storagePath);
+  if (!obj) return c.notFound();
+  const ext = filename.split(".").pop()?.toLowerCase() ?? "png";
+  const mimeMap: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+  };
+  const contentType = obj.contentType ?? mimeMap[ext] ?? "application/octet-stream";
+  return new Response(obj.buffer, {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+});
+
+// Auth middleware for /api/* (excluding /api/assets which is public above)
 app.use("/api/*", authMiddleware);
 
 // Mount chat routes

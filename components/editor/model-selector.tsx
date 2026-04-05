@@ -11,7 +11,7 @@
 "use client";
 
 import { useState } from "react";
-import { Zap, Sparkles, Lock, Check } from "lucide-react";
+import { Zap, Sparkles, Lock, Check, ChevronDown } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -61,23 +61,30 @@ export function ModelSelector({
       <PopoverTrigger asChild>
         <button
           disabled={disabled}
-          title={selectedModel?.name ?? "Select model"}
           className={cn(
-            "flex size-6 items-center justify-center rounded transition-colors",
-            "text-muted-foreground/40 hover:text-muted-foreground/80 hover:bg-accent/50",
-            open && "text-muted-foreground/80 bg-accent/50",
+            "flex items-center gap-1.5 rounded-md px-2 py-1 transition-colors",
+            "text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/50",
+            open && "text-muted-foreground bg-accent/50",
             "disabled:pointer-events-none disabled:opacity-30"
           )}
         >
-          <TierIcon tier={tier} className="size-3.5" />
+          <TierIcon tier={tier} className="size-3 shrink-0" />
+          <span className="text-[11px] leading-none">
+            {selectedModel?.name ?? "Choose AI model"}
+          </span>
+          <ChevronDown className="size-3 shrink-0 opacity-50" />
         </button>
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[200px] p-1 shadow-lg"
+        className="w-[220px] p-1 shadow-lg"
         align="start"
         sideOffset={6}
       >
+        <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/40">
+          Choose AI model
+        </p>
+        <div className="mx-1 mb-1 border-t border-border/30" />
         {groupedTiers.map((group, gIdx) => (
           <div key={group.tier}>
             {gIdx > 0 && (
@@ -118,6 +125,12 @@ export function ModelSelector({
                   >
                     {model.name}
                   </span>
+
+                  {model.savingLabel && !isLocked && (
+                    <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium bg-emerald-500/15 text-emerald-500">
+                      {model.savingLabel}
+                    </span>
+                  )}
 
                   {isSelected && (
                     <Check className="size-3 shrink-0 text-foreground/50" />

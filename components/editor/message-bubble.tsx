@@ -109,16 +109,17 @@ function fmtTokens(n: number): string {
  * Always visible but very low-contrast so it doesn't distract.
  */
 function TokenBadge({ usage }: { usage: TokenUsage }) {
-  const cost = typeof usage.costUsd === "number" && isFinite(usage.costUsd) ? usage.costUsd : 0;
+  const userPays = typeof usage.userPaysUsd === "number" && isFinite(usage.userPaysUsd) ? usage.userPaysUsd : null;
+  const apiCost  = typeof usage.costUsd === "number" && isFinite(usage.costUsd) ? usage.costUsd : 0;
   return (
     <span className="flex items-center gap-1 px-1 text-[10px] text-muted-foreground/40 select-none">
       <span title="Input tokens">↑{fmtTokens(usage.inputTokens ?? 0)}</span>
       <span className="text-muted-foreground/20">·</span>
       <span title="Output tokens">↓{fmtTokens(usage.outputTokens ?? 0)}</span>
       <span className="text-muted-foreground/20">·</span>
-      <span title="Anthropic API cost" className="tabular-nums">${cost.toFixed(3)}</span>
-      <span className="text-muted-foreground/20">·</span>
-      <span title="Credits deducted" className="tabular-nums">{usage.creditsUsed ?? 0} cr</span>
+      <span title={`Credits deducted · API cost $${apiCost.toFixed(4)}`} className="tabular-nums">
+        {usage.creditsUsed ?? 0} cr{userPays !== null ? ` · $${userPays.toFixed(3)}` : ""}
+      </span>
     </span>
   );
 }

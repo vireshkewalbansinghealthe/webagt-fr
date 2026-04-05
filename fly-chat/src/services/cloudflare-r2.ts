@@ -44,12 +44,34 @@ export class CloudflareR2 {
     }
   }
 
-  async put(key: string, value: string | Buffer): Promise<void> {
+  async getBytes(key: string): Promise<{ buffer: Buffer; contentType?: string } | null> {
+    try {
+      const res = await this.client.send(new GetObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }));
+
+      if (!res.Body) return null;
+
+      const bytes = await res.Body.transformToByteArray();
+      return {
+        buffer: Buffer.from(bytes),
+        contentType: res.ContentType,
+      };
+    } catch (err: any) {
+      if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+        return null;
+      }
+      throw err;
+    }
+  }
+
+  async put(key: string, value: string | Buffer, contentType?: string): Promise<void> {
     await this.client.send(new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
       Body: typeof value === "string" ? value : value,
-      ContentType: "application/json",
+      ContentType: contentType ?? (typeof value === "string" ? "application/json" : "application/octet-stream"),
     }));
   }
 

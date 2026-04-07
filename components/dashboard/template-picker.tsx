@@ -42,7 +42,7 @@ export const AVAILABLE_TEMPLATES: TemplateDefinition[] = [
     tags: ["Fragrance", "Luxury", "Vite", "Cart", "React Router"],
     previewUrl: "https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl",
     thumbnailUrl:
-      "https://image.thum.io/get/width/1200/noanimate/https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl",
+      "https://image.thum.io/get/width/1200/noanimate/maxAge/1/https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl",
     features: [
       "Full product catalogue with filters",
       "Category pages (Dames, Heren, Unisex, Niche…)",

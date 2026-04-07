@@ -224,7 +224,8 @@ app.route("/", adminRoutes);
 export default Sentry.withSentry(
   (env) => ({
     dsn: (env as Env).SENTRY_DSN,
-    tracesSampleRate: 0.1,
+    tracesSampleRate: 1.0,
+    sendDefaultPii: true,
     integrations: [Sentry.vercelAIIntegration()],
   }),
   app,

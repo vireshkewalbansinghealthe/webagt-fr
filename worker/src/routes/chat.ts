@@ -493,6 +493,8 @@ chatRoutes.post("/:projectId", async (c) => {
         experimental_telemetry: {
           isEnabled: true,
           functionId: "chat-generation",
+          recordInputs: true,
+          recordOutputs: true,
           metadata: { projectId, modelId, userId },
         },
       });

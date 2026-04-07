@@ -225,6 +225,7 @@ export default Sentry.withSentry(
   (env) => ({
     dsn: (env as Env).SENTRY_DSN,
     tracesSampleRate: 0.1,
+    integrations: [Sentry.vercelAIIntegration()],
   }),
   app,
 );

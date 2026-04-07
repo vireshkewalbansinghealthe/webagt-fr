@@ -490,6 +490,11 @@ chatRoutes.post("/:projectId", async (c) => {
         system: systemPrompt,
         messages: sdkMessages,
         maxOutputTokens: modelConfig.maxOutputTokens,
+        experimental_telemetry: {
+          isEnabled: true,
+          functionId: "chat-generation",
+          metadata: { projectId, modelId, userId },
+        },
       });
 
       let chunkCount = 0;

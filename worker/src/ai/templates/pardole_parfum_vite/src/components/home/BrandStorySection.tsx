@@ -13,7 +13,7 @@ export default function BrandStorySection() {
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
           <div className="relative">
             <div className="relative overflow-hidden rounded-sm" style={{ aspectRatio: '4/5' }}>
-              <img src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&q=85" alt="Pardole Parfum premium ingredients" className="w-full h-full object-cover" />
+              <img src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&q=85" alt="Maison Dorée premium ingredients" className="w-full h-full object-cover" />
               <div className="absolute inset-4 border border-[#C9A96E]/30 pointer-events-none" />
             </div>
             <div className="absolute -bottom-6 -right-4 lg:-right-8 bg-[#1A1714] text-white p-6 w-44">
@@ -29,7 +29,7 @@ export default function BrandStorySection() {
               Het premium alternatief voor designer&shy;geuren
             </h2>
             <p className="text-[#6B5E52] leading-relaxed mb-5">
-              Bij Pardole Parfum ontdek je geuren met de intensiteit en verfijning van designermerken, maar dan eerlijk geprijsd. Onze parfums worden zorgvuldig samengesteld door meesterparfumeurs, met gebruik van dezelfde hoogwaardige ingrediënten.
+              Bij Maison Dorée ontdek je geuren met de intensiteit en verfijning van designermerken, maar dan eerlijk geprijsd. Onze parfums worden zorgvuldig samengesteld door meesterparfumeurs, met gebruik van dezelfde hoogwaardige ingrediënten.
             </p>
             <p className="text-[#6B5E52] leading-relaxed mb-10">
               Elke fles bevat tot 30% pure parfumoliën — daarmee overtreffen wij veelal de concentratie van gerenommeerde designerhuizen. Dierproefvrij, langdurig en ontworpen om de hele dag indruk te maken.

@@ -199,8 +199,8 @@ async function seedTemplateCatalogIfNeeded(
 }
 
 const TEMPLATE_LABELS: Record<string, string> = {
-  "pardole-parfum": "Koning Parfum",
-  "pardole_parfum_vite": "Koning Parfum (Vite)",
+  "pardole-parfum": "Maison Dorée",
+  "pardole_parfum_vite": "Maison Dorée",
 };
 
 function buildTemplateWelcomeMessage(
@@ -2190,7 +2190,7 @@ export function stripeApiPlugin(): Plugin {
       });
     }
 
-    const COOLIFY_PROJECT_UUID = 'e4o4k0kg0cowscwkok8ogooo';
+    const COOLIFY_PROJECT_UUID = 'ukskkoc8sk4sk00oww8sg0ww';
     const COOLIFY_SERVER_UUID = 'q4kk4kssos4ws8swo00gsco8';
     const COOLIFY_DESTINATION_UUID = 'l4s8wckscw00gkg88c0ckwss';
     const COOLIFY_GITHUB_APP_UUID = 'lwo0cg4kswsg0k8wsk8k4ok0'; // From web-agt settings

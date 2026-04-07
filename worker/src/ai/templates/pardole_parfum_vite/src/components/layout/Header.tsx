@@ -36,7 +36,7 @@ export default function Header() {
             </button>
 
             <Link to="/" className="flex flex-col items-center lg:items-start">
-              <span className="text-[22px] lg:text-[26px] font-bold tracking-[0.3em] text-[#1A1714] uppercase" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>PARDOLE</span>
+              <span className="text-[22px] lg:text-[26px] font-bold tracking-[0.3em] text-[#1A1714] uppercase" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>MAISON DORÉE</span>
               <span className="text-[9px] tracking-[0.4em] text-[#C9A96E] uppercase -mt-0.5">PARFUM</span>
             </Link>
 
@@ -74,7 +74,7 @@ export default function Header() {
           <div className="absolute inset-0 bg-black/40" onClick={() => setMobileOpen(false)} />
           <div className="absolute inset-y-0 left-0 w-80 bg-white shadow-2xl mobile-menu-enter flex flex-col">
             <div className="flex items-center justify-between px-6 h-16 border-b border-[#E8E2DA]">
-              <span className="text-xl font-bold tracking-[0.3em] text-[#1A1714] uppercase" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>PARDOLE</span>
+              <span className="text-xl font-bold tracking-[0.3em] text-[#1A1714] uppercase" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>MAISON DORÉE</span>
               <button onClick={() => setMobileOpen(false)}><X size={20} /></button>
             </div>
             <div className="flex-1 overflow-y-auto py-6">

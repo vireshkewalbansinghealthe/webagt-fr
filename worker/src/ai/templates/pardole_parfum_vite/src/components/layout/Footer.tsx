@@ -22,7 +22,7 @@ export default function Footer() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
           <div>
             <div className="mb-6">
-              <div className="text-2xl font-bold tracking-[0.3em] uppercase mb-1" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>PARDOLE</div>
+              <div className="text-2xl font-bold tracking-[0.3em] uppercase mb-1" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>MAISON DORÉE</div>
               <div className="text-[9px] tracking-[0.4em] text-[#C9A96E] uppercase">PARFUM</div>
             </div>
             <p className="text-sm text-white/60 leading-relaxed mb-6">Premium geïnspireerde parfums. Dierproefvrij, langdurig en eerlijk geprijsd.</p>
@@ -38,7 +38,7 @@ export default function Footer() {
           <div>
             <h3 className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#C9A96E] mb-5">Contact</h3>
             <div className="space-y-2 text-sm text-white/60">
-              <p>info@pardole-parfum.nl</p>
+              <p>info@maisondoree.nl</p>
               <p>Reactietijd: binnen 24 uur</p>
             </div>
             <div className="mt-6">
@@ -79,7 +79,7 @@ export default function Footer() {
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 py-5 flex flex-col lg:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-6">
-            <p className="text-xs text-white/40">© Pardole Parfum 2026</p>
+            <p className="text-xs text-white/40">© Maison Dorée 2026</p>
             <div className="flex items-center gap-2">
               <span className="text-white/40 text-xs">🇳🇱 Nederlands</span>
               <span className="text-white/20">|</span>

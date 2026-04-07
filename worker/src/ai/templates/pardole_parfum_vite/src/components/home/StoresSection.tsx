@@ -3,12 +3,12 @@ import { MapPin, ArrowRight } from 'lucide-react';
 
 const stores = [
   {
-    city: 'Amsterdam', title: 'Pardole Parfum Amsterdam', type: 'Flagship Store',
+    city: 'Amsterdam', title: 'Maison Dorée Amsterdam', type: 'Flagship Store',
     description: 'Bezoek onze flagship store in hartje Amsterdam. Hier kun je al onze geuren ruiken, persoonlijk advies krijgen en exclusieve in-store bundles ontdekken.',
     image: '/images/store-amsterdam.png', href: '/winkels/amsterdam',
   },
   {
-    city: 'Haarlem', title: 'Pardole Parfum Haarlem', type: 'Boutique',
+    city: 'Haarlem', title: 'Maison Dorée Haarlem', type: 'Boutique',
     description: 'In onze Haarlemse boutique combineren we elegantie met een warme, persoonlijke sfeer. Laat je verrassen door onze bestsellers en proefmonsters.',
     image: '/images/store-haarlem-2.png', href: '/winkels/haarlem',
   },
@@ -24,7 +24,7 @@ export default function StoresSection() {
             <span className="text-[10px] font-semibold tracking-[0.25em] uppercase text-[#C9A96E]">Onze winkels</span>
             <div className="h-[1px] w-8 bg-[#C9A96E]" />
           </div>
-          <h2 className="text-3xl lg:text-4xl xl:text-5xl font-bold text-[#1A1714]" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>Ervaar Pardole in het echt</h2>
+          <h2 className="text-3xl lg:text-4xl xl:text-5xl font-bold text-[#1A1714]" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>Ervaar Maison Dorée</h2>
         </div>
         <div className="grid lg:grid-cols-2 gap-6 lg:gap-8">
           {stores.map(store => (

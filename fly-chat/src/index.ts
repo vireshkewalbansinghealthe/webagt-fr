@@ -1,12 +1,4 @@
 import * as Sentry from "@sentry/node";
-
-Sentry.init({
-  dsn: process.env.SENTRY_DSN,
-  tracesSampleRate: 1.0,
-  sendDefaultPii: true,
-  integrations: [Sentry.vercelAIIntegration()],
-});
-
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { serve } from "@hono/node-server";
@@ -45,6 +37,24 @@ app.use("*", cors({
   allowMethods: ["GET", "POST", "OPTIONS"],
   credentials: true,
 }));
+
+// Sentry tracing for every request
+app.use("*", async (c, next) => {
+  await Sentry.startSpan(
+    {
+      op: "http.server",
+      name: `${c.req.method} ${c.req.path}`,
+    },
+    async () => {
+      try {
+        await next();
+      } catch (e) {
+        Sentry.captureException(e);
+        throw e;
+      }
+    },
+  );
+});
 
 // Inject env, kv, r2 into context for all routes
 app.use("*", async (c, next) => {

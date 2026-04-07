@@ -35,14 +35,14 @@ export const AVAILABLE_TEMPLATES: TemplateDefinition[] = [
   },
   {
     id: "pardole_parfum_vite",
-    name: "Koning Parfum (Vite)",
+    name: "Maison Dorée — Parfumerie",
     description:
-      "Luxury parfum storefront template with category routing, cart drawer, reviews, newsletter, and popup flows.",
+      "Luxe parfumerie storefront met routing, winkelwagen, reviews, nieuwsbrief en popup-flows.",
     category: "Fashion & Luxury",
     tags: ["Fragrance", "Luxury", "Vite", "Cart", "React Router"],
-    previewUrl: "https://pardole-064724.dock.4esh.nl",
+    previewUrl: "https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl",
     thumbnailUrl:
-      "https://image.thum.io/get/width/1200/noanimate/https://pardole-064724.dock.4esh.nl",
+      "https://image.thum.io/get/width/1200/noanimate/https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl",
     features: [
       "Full product catalogue with filters",
       "Category pages (Dames, Heren, Unisex, Niche…)",

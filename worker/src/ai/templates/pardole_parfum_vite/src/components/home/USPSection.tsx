@@ -16,7 +16,7 @@ export default function USPSection() {
         <div className="text-center mb-16">
           <div className="flex items-center justify-center gap-3 mb-3">
             <div className="h-[1px] w-8 bg-[#C9A96E]" />
-            <span className="text-[10px] font-semibold tracking-[0.25em] uppercase text-[#C9A96E]">Waarom Pardole</span>
+            <span className="text-[10px] font-semibold tracking-[0.25em] uppercase text-[#C9A96E]">Pourquoi Maison Dorée</span>
             <div className="h-[1px] w-8 bg-[#C9A96E]" />
           </div>
           <h2 className="text-3xl lg:text-4xl xl:text-5xl font-bold text-[#1A1714]" style={{ fontFamily: 'Playfair Display, Georgia, serif' }}>Kwaliteit zonder concessies</h2>

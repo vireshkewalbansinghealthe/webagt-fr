@@ -1,7 +1,7 @@
 import type { ProjectFile, Version } from "../../types/project";
 
 /**
- * Koning Parfum template — luxury fragrance store with full routing,
+ * Maison Dorée template — luxury fragrance store with full routing,
  * cart, product pages, categories, reviews, and newsletter.
  * Source: https://github.com/Mobyte-27/pardole_parfum_vite
  */
@@ -13,7 +13,7 @@ export function getPardoleParfumFiles(): ProjectFile[] {
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Koning Parfum</title>
+    <title>Maison Dorée</title>
     <script src="https://cdn.tailwindcss.com"></script>
   </head>
   <body>
@@ -732,7 +732,7 @@ export default function ExitIntentPopup() {
       <div className="relative bg-white w-full max-w-lg shadow-2xl overflow-hidden animate-fade-in-up">
         <button onClick={() => { setVisible(false); setDismissed(true); }} className="absolute top-4 right-4 text-[#8C7B72] hover:text-[#1A1714] z-10 transition-colors"><X size={20} /></button>
         <div className="bg-[#1A1714] px-8 py-10 text-center relative overflow-hidden">
-          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: \`url('https://pardole-064724.dock.4esh.nl/images/hero-bg.png')\`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
+          <div className="absolute inset-0 opacity-20" style={{ backgroundImage: \`url('https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl/images/hero-bg.png')\`, backgroundSize: 'cover', backgroundPosition: 'center' }} />
           <div className="relative">
             <div className="inline-flex w-12 h-12 rounded-full bg-[#C9A96E] items-center justify-center mb-4"><Gift size={20} className="text-white" /></div>
             <p className="text-[10px] font-semibold tracking-[0.25em] uppercase text-[#C9A96E] mb-2">Exclusief aanbod</p>
@@ -832,7 +832,7 @@ export default function BrandStorySection() {
         <div className="grid lg:grid-cols-2 gap-12 lg:gap-20 items-center">
           <div className="relative">
             <div className="relative overflow-hidden rounded-sm" style={{ aspectRatio: '4/5' }}>
-              <img src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&q=85" alt="Koning Parfum premium ingredients" className="w-full h-full object-cover" />
+              <img src="https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&q=85" alt="Maison Dorée premium ingredients" className="w-full h-full object-cover" />
               <div className="absolute inset-4 border border-[#C9A96E]/30 pointer-events-none" />
             </div>
             <div className="absolute -bottom-6 -right-4 lg:-right-8 bg-[#1A1714] text-white p-6 w-44">
@@ -848,7 +848,7 @@ export default function BrandStorySection() {
               Het premium alternatief voor designer&shy;geuren
             </h2>
             <p className="text-[#6B5E52] leading-relaxed mb-5">
-              Bij Koning Parfum ontdek je geuren met de intensiteit en verfijning van designermerken, maar dan eerlijk geprijsd. Onze parfums worden zorgvuldig samengesteld door meesterparfumeurs, met gebruik van dezelfde hoogwaardige ingrediënten.
+              Bij Maison Dorée ontdek je geuren met de intensiteit en verfijning van designermerken, maar dan eerlijk geprijsd. Onze parfums worden zorgvuldig samengesteld door meesterparfumeurs, met gebruik van dezelfde hoogwaardige ingrediënten.
             </p>
             <p className="text-[#6B5E52] leading-relaxed mb-10">
               Elke fles bevat tot 30% pure parfumoliën — daarmee overtreffen wij veelal de concentratie van gerenommeerde designerhuizen. Dierproefvrij, langdurig en ontworpen om de hele dag indruk te maken.
@@ -932,7 +932,7 @@ const trustBadges = [
 export default function HeroSection() {
   return (
     <section className="relative flex items-center overflow-hidden bg-[#1A1714]" style={{ minHeight: '92vh' }}>
-      <div className="absolute inset-0 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: \`url('https://pardole-064724.dock.4esh.nl/images/hero-bg.png')\` }}>
+      <div className="absolute inset-0 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: \`url('https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl/images/hero-bg.png')\` }}>
         <div className="absolute inset-0 bg-gradient-to-r from-[#1A1714]/85 via-[#1A1714]/50 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-t from-[#1A1714]/40 via-transparent to-transparent" />
       </div>
@@ -1115,14 +1115,14 @@ import { MapPin, ArrowRight } from 'lucide-react';
 
 const stores = [
   {
-    city: 'Amsterdam', title: 'Koning Parfum Amsterdam', type: 'Flagship Store',
+    city: 'Amsterdam', title: 'Maison Dorée Amsterdam', type: 'Flagship Store',
     description: 'Bezoek onze flagship store in hartje Amsterdam. Hier kun je al onze geuren ruiken, persoonlijk advies krijgen en exclusieve in-store bundles ontdekken.',
-    image: 'https://pardole-064724.dock.4esh.nl/images/store-amsterdam.png', href: '/winkels/amsterdam',
+    image: 'https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl/images/store-amsterdam.png', href: '/winkels/amsterdam',
   },
   {
-    city: 'Haarlem', title: 'Koning Parfum Haarlem', type: 'Boutique',
+    city: 'Haarlem', title: 'Maison Dorée Haarlem', type: 'Boutique',
     description: 'In onze Haarlemse boutique combineren we elegantie met een warme, persoonlijke sfeer. Laat je verrassen door onze bestsellers en proefmonsters.',
-    image: 'https://pardole-064724.dock.4esh.nl/images/store-haarlem-2.png', href: '/winkels/haarlem',
+    image: 'https://xkcsc4owskokcw8gkgok08kg.dock.4esh.nl/images/store-haarlem-2.png', href: '/winkels/haarlem',
   },
 ];
 
@@ -1280,7 +1280,7 @@ export default function Footer() {
           <div>
             <h3 className="text-[10px] font-semibold tracking-[0.2em] uppercase text-[#C9A96E] mb-5">Contact</h3>
             <div className="space-y-2 text-sm text-white/60">
-              <p>info@koning-parfum.nl</p>
+              <p>info@maisondoree.nl</p>
               <p>Reactietijd: binnen 24 uur</p>
             </div>
             <div className="mt-6">
@@ -1321,7 +1321,7 @@ export default function Footer() {
       <div className="border-t border-white/10">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 py-5 flex flex-col lg:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-6">
-            <p className="text-xs text-white/40">© Koning Parfum 2026</p>
+            <p className="text-xs text-white/40">© Maison Dorée 2026</p>
             <div className="flex items-center gap-2">
               <span className="text-white/40 text-xs">🇳🇱 Nederlands</span>
               <span className="text-white/20">|</span>

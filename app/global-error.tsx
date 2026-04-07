@@ -13,15 +13,8 @@
 "use client";
 
 import { useEffect } from "react";
+import * as Sentry from "@sentry/nextjs";
 
-/**
- * GlobalError renders a full-page error screen when the app crashes.
- * Includes a "Try again" button that calls the reset function
- * provided by Next.js to attempt re-rendering the failed component.
- *
- * @param error - The error that was thrown
- * @param reset - Function to re-render the failed component tree
- */
 export default function GlobalError({
   error,
   reset,
@@ -30,7 +23,7 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error("Global error:", error);
+    Sentry.captureException(error);
   }, [error]);
 
   return (

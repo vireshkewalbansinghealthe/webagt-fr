@@ -1,8 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, Fragment } from "react";
-import { useAuth } from "@clerk/nextjs";
-import { createApiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -16,8 +14,6 @@ import {
   Globe,
   AlertTriangle,
   Copy,
-  LogIn,
-  Loader2,
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { toast } from "sonner";
@@ -78,53 +74,13 @@ function CopyButton({ value, label, onCopy }: { value: string; label: string; on
   );
 }
 
-function LoginButton({ userId, email }: { userId: string; email: string }) {
-  const [loading, setLoading] = useState(false);
-
-  const handleLogin = async () => {
-    setLoading(true);
-    try {
-      const workerUrl = process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:8787";
-      const res = await fetch(`${workerUrl}/api/testing/sign-in-token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      const data = await res.json() as { url?: string; error?: string };
-      if (data.url) {
-        window.open(data.url, "_blank", "noopener,noreferrer");
-      } else {
-        toast.error(data.error || "Failed to create sign-in token");
-      }
-    } catch {
-      toast.error("Failed to create sign-in link");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <button
-      onClick={handleLogin}
-      disabled={loading}
-      className={cn(
-        "inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-mono transition-colors",
-        "bg-muted hover:bg-primary/10 text-muted-foreground hover:text-primary",
-      )}
-      title={`Login as ${email}`}
-    >
-      {loading ? <Loader2 className="size-2.5 animate-spin" /> : <LogIn className="size-2.5" />}
-      {email}
-    </button>
-  );
-}
-
 function getAccountForEmail(email: string) {
   return TEST_ACCOUNTS.find((a) => a.email === email);
 }
 
+const WORKER_URL = process.env.NEXT_PUBLIC_WORKER_URL || "http://localhost:8787";
+
 export default function BotTestingPage() {
-  const { getToken } = useAuth();
   const [botRuns, setBotRuns] = useState<BotRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -132,15 +88,15 @@ export default function BotTestingPage() {
   const fetchResults = useCallback(async () => {
     setLoading(true);
     try {
-      const client = createApiClient(getToken);
-      const results = await client.testing.getAdminResults();
+      const res = await fetch(`${WORKER_URL}/api/testing/admin/results`);
+      const results = await res.json() as { botRuns?: BotRun[] };
       setBotRuns(results.botRuns || []);
     } catch {
       toast.error("Failed to fetch bot runs");
     } finally {
       setLoading(false);
     }
-  }, [getToken]);
+  }, []);
 
   useEffect(() => {
     fetchResults();
@@ -268,12 +224,7 @@ export default function BotTestingPage() {
                             {formatDistanceToNow(new Date(run.startedAt), { addSuffix: true })}
                           </td>
                           <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
-                            {(() => {
-                              const acc = getAccountForEmail(run.userEmail);
-                              return acc
-                                ? <LoginButton userId={acc.userId} email={acc.email} />
-                                : <span className="text-muted-foreground text-[11px] font-mono">{run.userEmail}</span>;
-                            })()}
+                            <CopyButton value={run.userEmail} label="Username" />
                           </td>
                           <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
                             {(() => {

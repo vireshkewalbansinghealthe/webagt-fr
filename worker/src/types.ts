@@ -74,6 +74,10 @@ export interface Env {
   SUPABASE_SERVICE_KEY?: string;
   /** Clerk secret key — used server-side to look up user profiles */
   CLERK_SECRET_KEY?: string;
+  /** Clerk live/production secret key — for production-only operations like sign-in tokens */
+  CLERK_LIVE_SECRET_KEY?: string;
+  /** Sentry DSN for error tracking */
+  SENTRY_DSN?: string;
   /**
    * Anthropic Admin API key (starts with sk-ant-admin-...).
    * Required for the Usage & Cost API endpoints. Generate in the

@@ -214,8 +214,8 @@ testingRoutes.post("/sign-in-token", async (c) => {
     return c.json({ error: "Not a test account" }, 403);
   }
 
-  const secretKey = c.env.CLERK_SECRET_KEY;
-  if (!secretKey) return c.json({ error: "CLERK_SECRET_KEY not configured" }, 500);
+  const secretKey = c.env.CLERK_LIVE_SECRET_KEY || c.env.CLERK_SECRET_KEY;
+  if (!secretKey) return c.json({ error: "Clerk secret key not configured" }, 500);
 
   const res = await fetch("https://api.clerk.com/v1/sign_in_tokens", {
     method: "POST",

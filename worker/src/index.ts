@@ -17,6 +17,7 @@
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
+import * as Sentry from "@sentry/cloudflare";
 import type { Env, AppVariables } from "./types";
 import { authMiddleware } from "./middleware/auth";
 import { rateLimitMiddleware } from "./middleware/rate-limit";
@@ -220,4 +221,10 @@ app.route("/api/testing", testingRoutes);
  */
 app.route("/", adminRoutes);
 
-export default app;
+export default Sentry.withSentry(
+  (env) => ({
+    dsn: (env as Env).SENTRY_DSN,
+    tracesSampleRate: 0.1,
+  }),
+  app,
+);

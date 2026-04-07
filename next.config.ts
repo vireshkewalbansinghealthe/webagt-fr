@@ -9,6 +9,7 @@
  */
 
 import type { NextConfig } from "next";
+import { withSentryConfig } from "@sentry/nextjs";
 
 /**
  * Security headers applied to all routes.
@@ -43,4 +44,7 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default withSentryConfig(nextConfig, {
+  silent: !process.env.CI,
+  telemetry: false,
+});

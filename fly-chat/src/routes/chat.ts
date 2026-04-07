@@ -363,7 +363,14 @@ chatRoutes.post("/:projectId", async (c) => {
         model,
         messages: [...systemMessages, ...sdkMessages],
         maxOutputTokens: modelConfig.maxOutputTokens,
-        abortSignal: undefined, // never abort — we want generation to complete even if client disconnects
+        abortSignal: undefined,
+        experimental_telemetry: {
+          isEnabled: true,
+          functionId: "chat-generation",
+          recordInputs: true,
+          recordOutputs: true,
+          metadata: { projectId, modelId, userId },
+        },
       });
 
       let chunkCount = 0;

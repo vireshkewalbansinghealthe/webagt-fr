@@ -4152,18 +4152,24 @@ function PublishTab({
     }, 5 * 60 * 1000);
   }, [getToken, project.id, onProjectChange]);
 
-  // Resume polling if deployment is still in progress when the tab mounts
+  // Resume polling when we detect an in-progress deployment (on mount or when
+  // fresh project data arrives from the parent after a tab switch)
   useEffect(() => {
     if (project.lastDeployStatus === "deploying" && project.lastDeploymentUuid && !pollRef.current) {
-      const url = `https://agt-${project.id.substring(0,8)}.dock.4esh.nl`;
+      const url = project.customDomain
+        ? `https://${project.customDomain}`
+        : `https://agt-${project.id.substring(0,8)}.dock.4esh.nl`;
       setLogs(["Resuming deployment progress..."]);
       startPolling(project.lastDeploymentUuid, url);
     }
+  }, [project.lastDeployStatus, project.lastDeploymentUuid, project.id, project.customDomain, startPolling]);
+
+  // Cleanup intervals on unmount
+  useEffect(() => {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handlePublish = async () => {

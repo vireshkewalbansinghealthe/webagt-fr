@@ -110,6 +110,14 @@ export function parseFilesFromResponse(response: string): ProjectFile[] {
     // E.g., ```typescript\n...\n``` → just the inner code.
     content = stripMarkdownFences(content);
 
+    // Strip duplicate/nested <file path="..."> markers that occasionally appear
+    // when the AI model produces corrupted output (e.g. fallback models).
+    // Remove the stray opening tag and any duplicate content after it.
+    const strayFileTag = content.indexOf('<file path="');
+    if (strayFileTag !== -1) {
+      content = content.substring(0, strayFileTag).trimEnd();
+    }
+
     // Strip stray HTML tags from CSS files — the AI frequently adds </style> at the end
     if (/\.css$/i.test(path)) {
       content = content.replace(/<\/?style\b[^>]*>/gi, "").trimEnd() + "\n";

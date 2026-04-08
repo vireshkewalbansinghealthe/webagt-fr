@@ -215,9 +215,11 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
   const { sandpack, listen } = useSandpack();
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastErrorRef = useRef<string>("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleError = useCallback(
     (message: string) => {
+      if (!message) return;
       // Dedup: skip if same error message as last reported
       if (message === lastErrorRef.current) return;
 
@@ -235,15 +237,36 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
 
   /**
    * Watch the sandpack.error state for bundler/compile errors.
-   * These include dependency resolution failures ("Could not find dependency")
-   * and syntax errors that Sandpack surfaces via its error overlay.
-   * The message listener below does NOT catch these — they only appear in state.
+   * Wrapped in try-catch because some Sandpack errors involve
+   * frozen objects that throw when accessed.
    */
   useEffect(() => {
-    if (sandpack.error?.message) {
-      handleError(sandpack.error.message);
+    try {
+      if (sandpack.error?.message) {
+        handleError(sandpack.error.message);
+      }
+    } catch (e: any) {
+      handleError(e?.message || "Build error");
     }
   }, [sandpack.error, handleError]);
+
+  /**
+   * Poll sandpack status as a fallback. Some errors (e.g. "Cannot assign to
+   * read only property 'message'") crash Sandpack's internal error handling
+   * before it can surface the error via state or message bus.
+   */
+  useEffect(() => {
+    pollRef.current = setInterval(() => {
+      try {
+        if (sandpack.error?.message && sandpack.error.message !== lastErrorRef.current) {
+          handleError(sandpack.error.message);
+        }
+      } catch (e: any) {
+        handleError(e?.message || "Build error");
+      }
+    }, 2000);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
+  }, [sandpack, handleError]);
 
   /**
    * Listen to the message bus for runtime errors (console.error)
@@ -251,10 +274,8 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
    */
   useEffect(() => {
     const unsubscribe = listen((msg) => {
-      // Cast to unknown first to safely access additional properties
       const raw = msg as unknown as Record<string, unknown>;
 
-      // Detect "show-error" action messages (build errors)
       if (msg.type === "action" && raw.action === "show-error") {
         const errorMessage =
           (raw.message as string) ||
@@ -263,7 +284,6 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
         handleError(errorMessage);
       }
 
-      // Detect console.error messages (runtime errors)
       if (msg.type === "console" && raw.log) {
         const logs = raw.log as Array<{ method?: string; data?: string[] }>;
         for (const log of Array.isArray(logs) ? logs : [logs]) {

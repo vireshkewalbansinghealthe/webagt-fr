@@ -381,17 +381,18 @@ chatRoutes.post("/:projectId", async (c) => {
         const r = makeStreamCall(mid, cfg);
         const reader = r.textStream[Symbol.asyncIterator]();
         const firstChunk = await reader.next();
-        if (!firstChunk.done && firstChunk.value) {
-          fullResponse += firstChunk.value;
-          if (clientConnected) {
-            try {
-              await stream.writeSSE({
-                event: "chunk",
-                data: JSON.stringify({ text: firstChunk.value }),
-                id: String(eventId++),
-              });
-            } catch { clientConnected = false; }
-          }
+        if (firstChunk.done || !firstChunk.value) {
+          throw new Error("Overloaded — stream returned empty (model may be at capacity)");
+        }
+        fullResponse += firstChunk.value;
+        if (clientConnected) {
+          try {
+            await stream.writeSSE({
+              event: "chunk",
+              data: JSON.stringify({ text: firstChunk.value }),
+              id: String(eventId++),
+            });
+          } catch { clientConnected = false; }
         }
         return r;
       };
@@ -558,6 +559,24 @@ chatRoutes.post("/:projectId", async (c) => {
       const changedFilePaths = acceptedFiles.map((f) => f.path);
 
       plog.info("chat", `Parsed ${parsedFiles.length} files (${acceptedFiles.length} accepted, ${rejectedFiles.length} rejected)`);
+
+      if (parsedFiles.length === 0 && fullResponse.trim().length === 0) {
+        plog.error("chat", "ZERO FILES AND EMPTY RESPONSE — sending error to client");
+        if (clientConnected) {
+          try {
+            await stream.writeSSE({
+              event: "error",
+              data: JSON.stringify({
+                message: "The AI service is temporarily unavailable. Please try again in a moment.",
+                code: "EMPTY_RESPONSE",
+              }),
+              id: String(eventId++),
+            });
+          } catch { /* client gone */ }
+        }
+        await stream.writeSSE({ event: "done", data: JSON.stringify({ version: project.currentVersion, files: [] }), id: String(eventId++) });
+        return;
+      }
 
       if (parsedFiles.length === 0) {
         plog.error("chat", "ZERO FILES PARSED — user will see default template");

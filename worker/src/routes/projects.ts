@@ -2337,7 +2337,7 @@ export function stripeApiPlugin(): Plugin {
       path: "Dockerfile",
       mode: "100644",
       type: "blob",
-      content: `FROM node:22-bullseye-slim\nWORKDIR /app\nCOPY . .\nENV PRISMA_SKIP_POSTINSTALL_GENERATE=true\nRUN npm install --no-audit --no-fund --legacy-peer-deps\nEXPOSE 3000\nCMD ["/bin/sh", "-c", "ulimit -n 65535 && npm run dev"]`
+      content: `FROM node:22-bookworm-slim\nWORKDIR /app\nCOPY package.json ./\nENV PRISMA_SKIP_POSTINSTALL_GENERATE=true\nENV NODE_OPTIONS=--max-old-space-size=512\nRUN npm install --no-audit --no-fund --legacy-peer-deps || npm install --no-audit --no-fund --legacy-peer-deps\nCOPY . .\nEXPOSE 3000\nCMD ["/bin/sh", "-c", "ulimit -n 65535 && npm run dev"]`
     });
 
     const treeRes = await fetch(`https://api.github.com/repos/${repo}/git/trees`, {

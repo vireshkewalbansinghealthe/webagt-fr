@@ -273,6 +273,7 @@ export function createApiClient(getToken: GetTokenFunction) {
           disconnectStripeMode?: "test" | "live" | "all";
           manualStripeAccountId?: string;
           manualStripeMode?: "test" | "live";
+          lastDeployStatus?: "success" | "failed" | "deploying";
         },
       ) =>
         authenticatedFetch<{ project: Project }>(

@@ -48,6 +48,7 @@ export interface Project {
   stripePaymentMethods?: string[];
   paymentMode?: "off" | "test" | "live";
   deployment_uuid?: string;
+  lastDeployStatus?: "success" | "failed" | "deploying";
   customDomain?: string;
   customDomainVerified?: boolean;
   deployToken?: string;

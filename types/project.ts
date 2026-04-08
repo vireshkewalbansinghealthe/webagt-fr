@@ -43,6 +43,7 @@ export interface Project {
   stripePaymentMethods?: string[]; // Array of enabled payment method types
   paymentMode?: "off" | "test" | "live"; // Payment availability on published shops
   deployment_uuid?: string; // Coolify App UUID
+  lastDeployStatus?: "success" | "failed" | "deploying"; // Tracks latest deployment outcome
   customDomain?: string; // Custom domain (without protocol), e.g. "shop.mybrand.com"
   customDomainVerified?: boolean; // Whether DNS has been verified
   deployToken?: string; // Token for public file access during deployment

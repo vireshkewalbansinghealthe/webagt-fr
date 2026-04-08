@@ -4156,12 +4156,14 @@ function PublishTab({
             setLogs(prev => [...prev, "✨ Deployment completed successfully!", `URL: ${data.url}`]);
             fireConfetti();
             toast.success("Project published successfully!");
+            client.projects.update(project.id, { lastDeployStatus: "success" }).then(({ project: p }) => onProjectChange(p)).catch(() => {});
           } else if (statusData.status === "failed") {
             isFinished = true;
             clearInterval(pollInterval);
             setLoading(false);
             setLogs(prev => [...prev, "❌ Deployment failed. Please check the logs above."]);
             toast.error("Deployment failed");
+            client.projects.update(project.id, { lastDeployStatus: "failed" }).then(({ project: p }) => onProjectChange(p)).catch(() => {});
           }
         } catch (e) {
            console.error("Polling error:", e);
@@ -4256,7 +4258,8 @@ function PublishTab({
     }
   };
 
-  if ((isAlreadyDeployed && !isDeploying && logs.length === 0) || isDeploySuccess) {
+  const isLive = isAlreadyDeployed && project.lastDeployStatus !== "failed" && project.lastDeployStatus !== "deploying";
+  if ((isLive && !isDeploying && logs.length === 0) || isDeploySuccess) {
     const savedDomain = project.customDomain;
     const isVerified = project.customDomainVerified;
     const activeSiteUrl = savedDomain ? `https://${savedDomain}` : siteUrl;
@@ -4483,6 +4486,20 @@ function PublishTab({
           Put your shop live in one click after payments are ready.
         </p>
       </div>
+
+      {project.lastDeployStatus === "failed" && isAlreadyDeployed && (
+        <div className="rounded-2xl border border-red-200 bg-red-50 dark:bg-red-950/30 dark:border-red-800 p-6 space-y-2">
+          <div className="flex items-start gap-3">
+            <XCircle className="size-5 text-red-600 mt-0.5" />
+            <div className="space-y-1">
+              <h4 className="font-semibold text-red-900 dark:text-red-400">Last deployment failed</h4>
+              <p className="text-sm text-red-800/90 dark:text-red-400/80">
+                The most recent deployment did not complete successfully. Try publishing again — if the issue persists, check deployment logs for details.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!isAlreadyDeployed && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-6 space-y-4">

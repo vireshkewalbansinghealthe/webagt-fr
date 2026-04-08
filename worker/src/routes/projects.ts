@@ -1343,6 +1343,7 @@ projectRoutes.patch("/:id", async (c) => {
     disconnectStripeMode?: "test" | "live" | "all";
     manualStripeAccountId?: string;
     manualStripeMode?: "test" | "live";
+    lastDeployStatus?: "success" | "failed" | "deploying";
   }>();
   const normalizedManualStripeAccountId = body.manualStripeAccountId?.trim();
   if (body.manualStripeAccountId !== undefined) {
@@ -1416,6 +1417,9 @@ projectRoutes.patch("/:id", async (c) => {
       project.paymentMode = "off";
       project.stripeAccountId = project.stripeTestAccountId;
     }
+  }
+  if (body.lastDeployStatus) {
+    project.lastDeployStatus = body.lastDeployStatus;
   }
   project.updatedAt = new Date().toISOString();
 
@@ -2451,6 +2455,7 @@ export function stripeApiPlugin(): Plugin {
       });
 
       project.deployment_uuid = appUuid;
+      project.lastDeployStatus = "deploying";
       await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
     } else {
       await fetch(`${COOLIFY_URL}/api/v1/applications/${appUuid}`, {
@@ -2464,6 +2469,9 @@ export function stripeApiPlugin(): Plugin {
         })
       });
     }
+
+    project.lastDeployStatus = "deploying";
+    await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
 
     const deploymentUuid = await syncCoolifyStripeConfiguration(c.env, project);
 

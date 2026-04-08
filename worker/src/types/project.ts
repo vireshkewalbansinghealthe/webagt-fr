@@ -60,6 +60,9 @@ export interface Project {
   emailDomainStatus?: "unverified" | "pending" | "verified" | "failed";
   emailLastVerificationAt?: string;
   emailLastError?: string;
+  gaMeasurementId?: string;
+  abandonedCartEmailEnabled?: boolean;
+  abandonedCartDelayMinutes?: number;
   collaborators?: Collaborator[];
   currentVersion: number;
   createdAt: string;

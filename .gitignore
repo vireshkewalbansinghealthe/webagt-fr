@@ -53,6 +53,9 @@ fly-chat/dist/
 # reference project
 web-agt/
 
+# Google OAuth credentials
+scripts/client_secret_*.json
+
 # Playwright
 test-results/
 playwright-report/

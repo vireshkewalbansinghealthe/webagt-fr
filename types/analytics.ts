@@ -77,3 +77,31 @@ export interface AnalyticsData {
   recentActivity: ActivityItem[];
   projectStats: ProjectStat[];
 }
+
+/**
+ * Response from GET /api/sa/site/:projectId — website visitor analytics.
+ */
+export interface SiteAnalyticsResponse {
+  projectId: string;
+  projectName: string;
+  deploymentUrl: string | null;
+  summary: {
+    totalPageviews: number;
+    totalUniqueVisitors: number;
+    firstSeen: string | null;
+    lastSeen: string | null;
+  };
+  last30Days: {
+    pageviews: number;
+    uniqueVisitors: number;
+    topPages: Record<string, number>;
+    topReferrers: Record<string, number>;
+    countries: Record<string, number>;
+    devices: Record<string, number>;
+  };
+  daily: Array<{
+    date: string;
+    pageviews: number;
+    uniqueVisitors: number;
+  }>;
+}

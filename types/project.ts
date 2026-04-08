@@ -55,6 +55,9 @@ export interface Project {
   emailDomainStatus?: "unverified" | "pending" | "verified" | "failed";
   emailLastVerificationAt?: string;
   emailLastError?: string;
+  gaMeasurementId?: string; // Google Analytics 4 measurement ID (e.g. G-XXXXXXXXXX)
+  abandonedCartEmailEnabled?: boolean; // Whether abandoned cart recovery emails are enabled
+  abandonedCartDelayMinutes?: number; // Delay before sending recovery email (default 60)
   collaborators?: Collaborator[];
   currentVersion: number;
   createdAt: string;

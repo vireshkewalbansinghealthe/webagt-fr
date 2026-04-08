@@ -429,6 +429,25 @@ stripeRoutes.post("/checkout_sessions", async (c) => {
       },
     });
 
+    // Track checkout start for abandoned cart detection
+    try {
+      const abandonedKey = `abandoned:${projectId}`;
+      const existing = await c.env.METADATA.get<any[]>(abandonedKey, "json") || [];
+      existing.push({
+        sessionId: session.id,
+        email: session.customer_email || undefined,
+        items: checkoutItems.map((i: any) => ({ name: i.name, quantity: i.quantity, price: i.price })),
+        total: checkoutItems.reduce((s: number, i: any) => s + i.price * i.quantity, 0) / 100,
+        currency: currency || "eur",
+        createdAt: new Date().toISOString(),
+      });
+      // Keep last 200 entries, prune old ones
+      const pruned = existing.slice(-200);
+      await c.env.METADATA.put(abandonedKey, JSON.stringify(pruned), { expirationTtl: 90 * 86400 });
+    } catch (e) {
+      console.error("Failed to track checkout start:", e);
+    }
+
     if (uiMode === "embedded") {
       return c.json({ clientSecret: session.client_secret, sessionId: session.id });
     } else {
@@ -751,6 +770,16 @@ stripeRoutes.post("/webhook", async (c) => {
           const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
 
           if (project) {
+            // Remove from abandoned cart list
+            try {
+              const abandonedKey = `abandoned:${projectId}`;
+              const abandoned = await c.env.METADATA.get<any[]>(abandonedKey, "json");
+              if (abandoned) {
+                const filtered = abandoned.filter((a: any) => a.sessionId !== session.id);
+                await c.env.METADATA.put(abandonedKey, JSON.stringify(filtered), { expirationTtl: 90 * 86400 });
+              }
+            } catch { /* non-critical */ }
+
             const stored = await c.env.METADATA.get<StoredCheckoutPayload>(
               `checkout:${projectId}:${session.id}`,
               "json",

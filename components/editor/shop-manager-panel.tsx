@@ -59,7 +59,7 @@ import { toast } from "sonner";
 import { createClient } from "@libsql/client/web";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { createApiClient, type ProjectEmailSettings } from "@/lib/api-client";
-import { AlertCircle, RefreshCw, XCircle, DollarSign, MoreHorizontal, ChevronUp } from "lucide-react";
+import { AlertCircle, RefreshCw, XCircle, DollarSign, MoreHorizontal, ChevronUp, LineChart, TrendingUp, ShoppingCart, Mail, Eye } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -72,7 +72,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ProductSheet, type ProductFormData } from "./product-sheet";
 
-type Tab = "dashboard" | "products" | "inventory" | "shipping" | "taxes" | "orders" | "payments" | "publish" | "notifications" | "settings" | "logs";
+type Tab = "dashboard" | "products" | "inventory" | "shipping" | "taxes" | "orders" | "payments" | "analytics" | "publish" | "notifications" | "settings" | "logs";
 type StripeMode = "test" | "live";
 
 const TABS = [
@@ -83,6 +83,7 @@ const TABS = [
   { id: "taxes" as const, label: "Taxes", icon: Percent },
   { id: "orders" as const, label: "Orders", icon: ShoppingBag },
   { id: "payments" as const, label: "Payments", icon: Wallet },
+  { id: "analytics" as const, label: "Analytics", icon: LineChart },
   { id: "publish" as const, label: "Publish", icon: ExternalLink },
   { id: "notifications" as const, label: "Notifications", icon: Bell },
   { id: "settings" as const, label: "Settings", icon: Settings2 },
@@ -245,7 +246,7 @@ export function ShopManagerPanel({ project }: { project: Project }) {
         
         {/* Content Area */}
         <div className="flex-1 overflow-auto bg-background/50">
-          {!turso && activeTab !== "settings" ? (
+          {!turso && activeTab !== "settings" && activeTab !== "analytics" ? (
             <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 text-muted-foreground">
               <div className="relative mb-4">
                 <Database className="size-12 text-muted-foreground/30" />
@@ -280,6 +281,9 @@ export function ShopManagerPanel({ project }: { project: Project }) {
                   onNavigate={setActiveTab}
                   onProjectChange={setProjectState}
                 />
+              )}
+              {activeTab === "analytics" && (
+                <AnalyticsTab project={projectState} turso={turso} />
               )}
               {activeTab === "publish" && (
                 <PublishTab
@@ -3405,6 +3409,582 @@ function NotificationSettingsSection({
             ))}
           </div>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Analytics Tab — GA4 OAuth, conversion funnel, abandoned carts (coming soon)
+// ---------------------------------------------------------------------------
+
+function AnalyticsTab({ project, turso }: { project: Project; turso: any }) {
+  const { getToken } = useAuth();
+  const [section, setSection] = useState<"overview" | "ga" | "abandoned" | "recovery">("overview");
+  const [loading, setLoading] = useState(true);
+  const [ecomData, setEcomData] = useState<any>(null);
+
+  const loadEcomData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const client = createApiClient(getToken);
+      const data = await client.projects.getEcommerceAnalytics(project.id);
+      setEcomData(data);
+    } catch { /* ignore */ }
+    setLoading(false);
+  }, [getToken, project.id]);
+
+  useEffect(() => { loadEcomData(); }, [loadEcomData]);
+
+  const sections = [
+    { id: "overview" as const, label: "Overview", icon: TrendingUp },
+    { id: "ga" as const, label: "Google Analytics", icon: LineChart },
+    { id: "abandoned" as const, label: "Abandoned Carts", icon: ShoppingCart },
+    { id: "recovery" as const, label: "Cart Recovery", icon: Mail },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-lg font-medium">Analytics</h3>
+        <p className="text-sm text-muted-foreground">
+          Track conversions, connect Google Analytics, and monitor abandoned carts.
+        </p>
+      </div>
+
+      <div className="flex gap-2 flex-wrap">
+        {sections.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setSection(s.id)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-full transition-colors",
+              section === s.id
+                ? "bg-primary text-primary-foreground font-medium"
+                : "bg-muted/50 text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <s.icon className="size-3.5" />
+            {s.label}
+            {(s.id === "abandoned" || s.id === "recovery") && (
+              <span className="ml-1 text-[10px] font-medium bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 px-1.5 py-0.5 rounded-full leading-none">Soon</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {section === "overview" && (
+        <AnalyticsOverview data={ecomData} loading={loading} onRefresh={loadEcomData} />
+      )}
+      {section === "ga" && (
+        <GAOAuthSection project={project} />
+      )}
+      {section === "abandoned" && <ComingSoonSection feature="Abandoned Cart Tracking" icon={ShoppingCart} description="See which customers started checkout but didn't complete their purchase. Track cart values, items, and recovery opportunities." />}
+      {section === "recovery" && <ComingSoonSection feature="Cart Recovery Emails" icon={Mail} description="Automatically send recovery emails to customers who abandon their cart. Configure delay, email templates, and track recovery conversions." />}
+    </div>
+  );
+}
+
+function AnalyticsOverview({ data, loading, onRefresh }: { data: any; loading: boolean; onRefresh: () => void }) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="text-center py-12 text-muted-foreground">
+        <LineChart className="size-8 mx-auto mb-2 opacity-50" />
+        <p className="text-sm">No analytics data available yet.</p>
+        <p className="text-xs mt-1">Publish your shop and data will appear here.</p>
+      </div>
+    );
+  }
+
+  const stats = [
+    { label: "Visitors", value: data.visitors.toLocaleString(), icon: Eye, color: "text-blue-500" },
+    { label: "Pageviews", value: data.pageviews.toLocaleString(), icon: Globe, color: "text-green-500" },
+    { label: "Orders", value: data.orders.toLocaleString(), icon: ShoppingBag, color: "text-purple-500" },
+    { label: "Revenue", value: `€${Number(data.revenue).toFixed(2)}`, icon: DollarSign, color: "text-emerald-500" },
+    { label: "Conversion Rate", value: `${data.conversionRate}%`, icon: TrendingUp, color: "text-orange-500" },
+    { label: "Abandoned Carts", value: data.abandonedCarts.toString(), icon: ShoppingCart, color: "text-red-500" },
+  ];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-muted-foreground">Last 30 days</span>
+        <Button variant="ghost" size="sm" onClick={onRefresh}>
+          <RefreshCw className="size-3.5 mr-1" /> Refresh
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        {stats.map((s) => (
+          <div key={s.label} className="border rounded-xl p-4 bg-card space-y-1">
+            <div className="flex items-center gap-2">
+              <s.icon className={cn("size-4", s.color)} />
+              <span className="text-xs text-muted-foreground">{s.label}</span>
+            </div>
+            <p className="text-xl font-semibold">{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="border rounded-xl p-5 bg-card space-y-4">
+        <h4 className="font-medium text-sm">Conversion Funnel</h4>
+        <div className="space-y-3">
+          <FunnelBar label="Visitors" value={data.visitors} max={data.visitors} color="bg-blue-500" />
+          <FunnelBar label="Checkout Started" value={data.visitors > 0 ? data.orders + data.abandonedCarts : 0} max={data.visitors} color="bg-yellow-500" />
+          <FunnelBar label="Completed Purchase" value={data.orders} max={data.visitors} color="bg-green-500" />
+        </div>
+      </div>
+
+      {data.recentOrders && data.recentOrders.length > 0 && (
+        <div className="border rounded-xl p-5 bg-card space-y-3">
+          <h4 className="font-medium text-sm">Recent Orders (7 days)</h4>
+          <div className="divide-y">
+            {data.recentOrders.map((o: any) => (
+              <div key={o.id} className="flex items-center justify-between py-2">
+                <div className="space-y-0.5">
+                  <p className="text-sm font-medium">{o.orderNumber}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {o.email || `${o.firstName || ""} ${o.lastName || ""}`.trim() || "Guest"}
+                  </p>
+                </div>
+                <div className="text-right space-y-0.5">
+                  <p className="text-sm font-medium">€{Number(o.totalAmount).toFixed(2)}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(o.createdAt).toLocaleDateString()}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FunnelBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+  const pct = max > 0 ? (value / max) * 100 : 0;
+  return (
+    <div className="space-y-1">
+      <div className="flex justify-between text-xs">
+        <span className="text-muted-foreground">{label}</span>
+        <span className="font-medium">{value.toLocaleString()} ({pct.toFixed(1)}%)</span>
+      </div>
+      <div className="h-3 rounded-full bg-muted overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${Math.max(pct, 1)}%` }} />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Google Analytics OAuth Section — full connect-via-Google flow
+// ---------------------------------------------------------------------------
+
+function GAOAuthSection({ project }: { project: Project }) {
+  const { getToken } = useAuth();
+  const [step, setStep] = useState<"idle" | "authenticating" | "selecting" | "connected" | "manual">("idle");
+  const [properties, setProperties] = useState<Array<{ name: string; displayName: string; accountName: string; measurementId: string }>>([]);
+  const [loadingProps, setLoadingProps] = useState(false);
+  const [connectedId, setConnectedId] = useState(project.gaMeasurementId || "");
+  const [manualId, setManualId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (project.gaMeasurementId) {
+      setConnectedId(project.gaMeasurementId);
+      setStep("connected");
+    }
+  }, [project.gaMeasurementId]);
+
+  const startOAuth = async () => {
+    setError("");
+    setStep("authenticating");
+    try {
+      const client = createApiClient(getToken);
+      const { url } = await client.ga.getAuthUrl(project.id);
+
+      const w = 500, h = 600;
+      const left = window.screenX + (window.outerWidth - w) / 2;
+      const top = window.screenY + (window.outerHeight - h) / 2;
+      const popup = window.open(url, "ga-oauth", `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no`);
+
+      const handler = async (e: MessageEvent) => {
+        if (e.data?.type !== "ga-oauth-callback") return;
+        window.removeEventListener("message", handler);
+        if (e.data.success) {
+          await loadProperties();
+        } else {
+          setError(e.data.error || "Authorization failed");
+          setStep("idle");
+        }
+      };
+      window.addEventListener("message", handler);
+
+      const checkClosed = setInterval(() => {
+        if (popup?.closed) {
+          clearInterval(checkClosed);
+          setTimeout(() => {
+            if (step === "authenticating") {
+              // popup closed without callback — might still work if message arrived
+            }
+          }, 1000);
+        }
+      }, 500);
+    } catch (e: any) {
+      if (e.message?.includes("not configured") || e.message?.includes("501")) {
+        setStep("manual");
+      } else {
+        setError(e.message || "Failed to start Google sign-in");
+        setStep("idle");
+      }
+    }
+  };
+
+  const loadProperties = async () => {
+    setLoadingProps(true);
+    setStep("selecting");
+    try {
+      const client = createApiClient(getToken);
+      const { properties: props } = await client.ga.getProperties(project.id);
+      setProperties(props);
+      if (props.length === 0) {
+        setError("No GA4 properties found in your Google account. Create one at analytics.google.com first.");
+      }
+    } catch (e: any) {
+      if (e.message?.includes("expired") || e.message?.includes("401")) {
+        setError("Session expired. Please sign in again.");
+        setStep("idle");
+      } else {
+        setError(e.message || "Failed to load properties");
+      }
+    }
+    setLoadingProps(false);
+  };
+
+  const selectProperty = async (prop: typeof properties[0]) => {
+    setSaving(true);
+    try {
+      const client = createApiClient(getToken);
+      await client.ga.connect(project.id, prop.measurementId, prop.displayName);
+      setConnectedId(prop.measurementId);
+      setStep("connected");
+      toast.success(`Connected to ${prop.displayName}`);
+    } catch (e: any) {
+      toast.error(e.message || "Failed to connect");
+    }
+    setSaving(false);
+  };
+
+  const handleDisconnect = async () => {
+    setSaving(true);
+    try {
+      const client = createApiClient(getToken);
+      await client.ga.disconnect(project.id);
+      setConnectedId("");
+      setStep("idle");
+      toast.success("Google Analytics disconnected");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to disconnect");
+    }
+    setSaving(false);
+  };
+
+  const handleManualSave = async () => {
+    if (!manualId.trim()) return;
+    setSaving(true);
+    try {
+      const client = createApiClient(getToken);
+      await client.projects.updateAnalyticsSettings(project.id, { gaMeasurementId: manualId.trim() });
+      setConnectedId(manualId.trim());
+      setStep("connected");
+      toast.success("Measurement ID saved");
+    } catch (e: any) {
+      toast.error(e.message || "Failed to save");
+    }
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-5 max-w-xl">
+      {/* Connected state */}
+      {step === "connected" && (
+        <div className="border rounded-xl p-6 bg-card space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-lg bg-green-500/10 flex items-center justify-center">
+              <CheckCircle2 className="size-5 text-green-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="font-medium">Google Analytics Connected</h4>
+              <p className="text-sm text-muted-foreground font-mono">{connectedId}</p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-green-500/10 text-green-700 dark:text-green-400 text-xs">
+            <CheckCircle2 className="size-4 mt-0.5 shrink-0" />
+            <span>
+              {project.deployment_uuid
+                ? "GA4 tracking is active. Re-publish to apply any changes."
+                : "GA4 will be injected automatically when you publish your shop."}
+            </span>
+          </div>
+
+          <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={saving}>
+            {saving ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Link2Off className="size-3.5 mr-1.5" />}
+            Disconnect
+          </Button>
+        </div>
+      )}
+
+      {/* Idle state — connect button */}
+      {step === "idle" && (
+        <div className="border rounded-xl p-6 bg-card space-y-5">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-lg bg-[#4285f4]/10 flex items-center justify-center">
+              <svg className="size-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09a7.18 7.18 0 010-4.17V7.07H2.18A11.97 11.97 0 001 12c0 1.94.46 3.77 1.18 5.43l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.82 14.97.75 12 .75 7.7.75 3.99 3.22 2.18 6.57l3.66 2.84c.87-2.6 3.3-4.03 6.16-4.03z"/></svg>
+            </div>
+            <div>
+              <h4 className="font-medium">Connect Google Analytics</h4>
+              <p className="text-xs text-muted-foreground">
+                Sign in with Google to automatically link your GA4 property.
+              </p>
+            </div>
+          </div>
+
+          <Button onClick={startOAuth} className="w-full gap-2" variant="outline">
+            <svg className="size-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09a7.18 7.18 0 010-4.17V7.07H2.18A11.97 11.97 0 001 12c0 1.94.46 3.77 1.18 5.43l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.82 14.97.75 12 .75 7.7.75 3.99 3.22 2.18 6.57l3.66 2.84c.87-2.6 3.3-4.03 6.16-4.03z"/></svg>
+            Sign in with Google
+          </Button>
+
+          {error && (
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-xs">
+              <AlertCircle className="size-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+            <div className="relative flex justify-center text-xs"><span className="bg-card px-2 text-muted-foreground">or enter manually</span></div>
+          </div>
+
+          <div className="flex gap-2">
+            <Input
+              placeholder="G-XXXXXXXXXX"
+              value={manualId}
+              onChange={(e) => setManualId(e.target.value)}
+              className="font-mono flex-1"
+            />
+            <Button
+              size="sm"
+              onClick={handleManualSave}
+              disabled={!manualId.trim() || saving}
+            >
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Find your Measurement ID in{" "}
+            <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="underline text-primary">
+              Google Analytics
+            </a>
+            {" "}→ Admin → Data Streams.
+          </p>
+        </div>
+      )}
+
+      {/* Authenticating state */}
+      {step === "authenticating" && (
+        <div className="border rounded-xl p-8 bg-card flex flex-col items-center gap-3">
+          <Loader2 className="size-8 animate-spin text-[#4285f4]" />
+          <p className="text-sm font-medium">Waiting for Google sign-in…</p>
+          <p className="text-xs text-muted-foreground">Complete the sign-in in the popup window.</p>
+          <Button variant="ghost" size="sm" onClick={() => setStep("idle")} className="mt-2">
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {/* Property selection state */}
+      {step === "selecting" && (
+        <div className="border rounded-xl p-6 bg-card space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-lg bg-[#4285f4]/10 flex items-center justify-center">
+              <CheckCircle2 className="size-5 text-[#4285f4]" />
+            </div>
+            <div>
+              <h4 className="font-medium">Select a GA4 Property</h4>
+              <p className="text-xs text-muted-foreground">
+                Choose which property to track on your shop.
+              </p>
+            </div>
+          </div>
+
+          {loadingProps ? (
+            <div className="flex items-center justify-center py-6 gap-2">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Loading your GA4 properties…</span>
+            </div>
+          ) : error ? (
+            <div className="space-y-3">
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 text-xs">
+                <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={() => { setError(""); setStep("idle"); }}>Back</Button>
+                <Button variant="outline" size="sm" onClick={loadProperties}>Retry</Button>
+              </div>
+            </div>
+          ) : properties.length === 0 ? (
+            <div className="text-center py-6 space-y-2">
+              <p className="text-sm text-muted-foreground">No GA4 web properties found.</p>
+              <div className="flex gap-2 justify-center">
+                <Button variant="outline" size="sm" onClick={() => setStep("idle")}>Back</Button>
+                <Button variant="outline" size="sm" asChild>
+                  <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer">
+                    Create in Google Analytics <ArrowUpRight className="size-3 ml-1" />
+                  </a>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y rounded-lg border overflow-hidden">
+              {properties.map((prop) => (
+                <button
+                  key={prop.name}
+                  onClick={() => selectProperty(prop)}
+                  disabled={saving}
+                  className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/50 transition-colors disabled:opacity-50"
+                >
+                  <div className="size-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                    <LineChart className="size-4 text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{prop.displayName}</p>
+                    <p className="text-xs text-muted-foreground truncate">{prop.accountName}</p>
+                  </div>
+                  <div className="shrink-0">
+                    <Badge variant="secondary" className="font-mono text-xs">{prop.measurementId}</Badge>
+                  </div>
+                  <ChevronRight className="size-4 text-muted-foreground shrink-0" />
+                </button>
+              ))}
+            </div>
+          )}
+
+          {properties.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={() => { setStep("idle"); setError(""); }}>
+              Cancel
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Manual fallback state */}
+      {step === "manual" && (
+        <div className="border rounded-xl p-6 bg-card space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="size-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+              <LineChart className="size-5 text-blue-500" />
+            </div>
+            <div>
+              <h4 className="font-medium">Google Analytics 4</h4>
+              <p className="text-xs text-muted-foreground">
+                Enter your GA4 Measurement ID to enable tracking.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 text-blue-700 dark:text-blue-400 text-xs">
+            <AlertCircle className="size-4 mt-0.5 shrink-0" />
+            <span>Google OAuth is not configured on this server. You can enter your measurement ID manually below.</span>
+          </div>
+
+          <div className="flex gap-2">
+            <Input
+              placeholder="G-XXXXXXXXXX"
+              value={manualId}
+              onChange={(e) => setManualId(e.target.value)}
+              className="font-mono flex-1"
+            />
+            <Button size="sm" onClick={handleManualSave} disabled={!manualId.trim() || saving}>
+              {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground">
+            Find this in{" "}
+            <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="underline text-primary">
+              Google Analytics
+            </a>
+            {" "}→ Admin → Data Streams.
+          </p>
+        </div>
+      )}
+
+      {/* What GA tracks */}
+      <div className="border rounded-xl p-5 bg-card space-y-3">
+        <h4 className="font-medium text-sm">What Google Analytics tracks</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {[
+            "Page views & navigation flow",
+            "Traffic sources & referrers",
+            "Device type, browser & location",
+            "Session duration & bounce rate",
+            "E-commerce events (enhanced measurement)",
+            "Real-time active users",
+          ].map((item) => (
+            <div key={item} className="flex items-center gap-2 text-xs text-muted-foreground">
+              <CheckCircle2 className="size-3.5 text-green-500 shrink-0" />
+              <span>{item}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Built-in analytics note */}
+      <div className="flex items-start gap-3 p-4 rounded-xl bg-muted/50 border">
+        <Eye className="size-5 text-blue-500 mt-0.5 shrink-0" />
+        <div>
+          <p className="text-sm font-medium">Built-in analytics included</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Your shop always tracks pageviews, visitors, referrers, and devices using our lightweight, privacy-friendly script — no cookies, no third-party services. Check the Overview tab.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Coming Soon placeholder
+// ---------------------------------------------------------------------------
+
+function ComingSoonSection({ feature, icon: Icon, description }: { feature: string; icon: any; description: string }) {
+  return (
+    <div className="max-w-xl">
+      <div className="border rounded-xl p-8 bg-card flex flex-col items-center text-center space-y-4">
+        <div className="size-16 rounded-2xl bg-muted flex items-center justify-center">
+          <Icon className="size-7 text-muted-foreground" />
+        </div>
+        <div className="space-y-1">
+          <h4 className="font-medium text-lg">{feature}</h4>
+          <Badge variant="secondary" className="text-xs font-medium">Coming Soon</Badge>
+        </div>
+        <p className="text-sm text-muted-foreground max-w-sm">{description}</p>
+        <div className="w-full border-t pt-4 mt-2">
+          <div className="flex items-center gap-3 justify-center text-xs text-muted-foreground">
+            <Bell className="size-3.5" />
+            <span>This feature is being built. Stay tuned for updates.</span>
+          </div>
+        </div>
       </div>
     </div>
   );

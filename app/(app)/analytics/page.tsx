@@ -30,9 +30,11 @@ import {
   RecentActivityCard,
   AnalyticsSkeleton,
   EmptyAnalytics,
+  SiteAnalyticsCard,
 } from "@/components/analytics";
 import type { AnalyticsData } from "@/types/analytics";
 import { createApiClient } from "@/lib/api-client";
+import type { Project } from "@/types/project";
 
 /**
  * AnalyticsPage fetches and renders usage analytics for the authenticated user.
@@ -43,16 +45,21 @@ export default function AnalyticsPage() {
   const { getToken } = useAuth();
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [publishedProjects, setPublishedProjects] = useState<Array<{ projectId: string; projectName: string }>>([]);
 
-  /**
-   * Fetches analytics data from the Worker API.
-   * Called once on mount via useEffect.
-   */
   const fetchAnalytics = useCallback(async () => {
     try {
       const client = createApiClient(getToken);
-      const analytics = await client.analytics.get();
+      const [analytics, projectsRes] = await Promise.all([
+        client.analytics.get(),
+        client.projects.list(),
+      ]);
       setData(analytics);
+
+      const published = (projectsRes.projects || [])
+        .filter((p: Project) => !!p.deployment_uuid)
+        .map((p: Project) => ({ projectId: p.id, projectName: p.name }));
+      setPublishedProjects(published);
     } catch (error) {
       console.error("Failed to fetch analytics:", error);
     } finally {
@@ -111,7 +118,12 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* Row 3: Projects + Recent activity — side by side, capped height */}
+          {/* Row 3: Website analytics for published sites */}
+          {publishedProjects.length > 0 && (
+            <SiteAnalyticsCard publishedProjects={publishedProjects} />
+          )}
+
+          {/* Row 4: Projects + Recent activity — side by side, capped height */}
           <div className="grid gap-6 md:grid-cols-2">
             <ProjectActivityCard projectStats={data.projectStats} />
             <RecentActivityCard recentActivity={data.recentActivity} />

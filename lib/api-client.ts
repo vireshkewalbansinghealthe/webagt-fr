@@ -17,7 +17,7 @@
 
 import type { Project, ProjectFile, VersionMeta } from "@/types/project";
 import type { ChatMessage } from "@/types/chat";
-import type { AnalyticsData } from "@/types/analytics";
+import type { AnalyticsData, SiteAnalyticsResponse } from "@/types/analytics";
 
 /**
  * Base URL for the Worker API.
@@ -371,6 +371,51 @@ export function createApiClient(getToken: GetTokenFunction) {
           { method: "POST" },
         ),
 
+      getAnalyticsSettings: (id: string) =>
+        authenticatedFetch<{
+          gaMeasurementId: string;
+          abandonedCartEmailEnabled: boolean;
+          abandonedCartDelayMinutes: number;
+        }>(getToken, `/api/projects/${id}/analytics-settings`),
+
+      updateAnalyticsSettings: (
+        id: string,
+        data: {
+          gaMeasurementId?: string;
+          abandonedCartEmailEnabled?: boolean;
+          abandonedCartDelayMinutes?: number;
+        },
+      ) =>
+        authenticatedFetch<{
+          gaMeasurementId: string;
+          abandonedCartEmailEnabled: boolean;
+          abandonedCartDelayMinutes: number;
+        }>(getToken, `/api/projects/${id}/analytics-settings`, {
+          method: "PATCH",
+          body: JSON.stringify(data),
+        }),
+
+      getEcommerceAnalytics: (id: string) =>
+        authenticatedFetch<{
+          period: string;
+          visitors: number;
+          pageviews: number;
+          orders: number;
+          revenue: number;
+          conversionRate: number;
+          abandonedCarts: number;
+          abandonedCartEntries: Array<{
+            sessionId: string;
+            email?: string;
+            items: Array<{ name: string; quantity: number; price: number }>;
+            total: number;
+            currency: string;
+            createdAt: string;
+            recoveryEmailSent?: boolean;
+          }>;
+          recentOrders: any[];
+        }>(getToken, `/api/projects/${id}/ecommerce-analytics`),
+
       /**
        * Delete a project and all its associated files.
        * @param id - The project ID to delete
@@ -406,14 +451,36 @@ export function createApiClient(getToken: GetTokenFunction) {
         ),
     },
 
+    ga: {
+      getAuthUrl: (projectId: string) =>
+        authenticatedFetch<{ url: string }>(getToken, `/api/ga/auth-url?projectId=${projectId}`),
+
+      getProperties: (projectId: string) =>
+        authenticatedFetch<{
+          properties: Array<{
+            name: string;
+            displayName: string;
+            accountName: string;
+            measurementId: string;
+          }>;
+        }>(getToken, `/api/ga/properties?projectId=${projectId}`),
+
+      connect: (projectId: string, measurementId: string, displayName?: string) =>
+        authenticatedFetch<{ ok: boolean; measurementId: string }>(
+          getToken,
+          `/api/ga/connect`,
+          { method: "POST", body: JSON.stringify({ projectId, measurementId, displayName }) },
+        ),
+
+      disconnect: (projectId: string) =>
+        authenticatedFetch<{ ok: boolean }>(
+          getToken,
+          `/api/ga/disconnect`,
+          { method: "POST", body: JSON.stringify({ projectId }) },
+        ),
+    },
+
     chat: {
-      /**
-       * Get chat history for a project.
-       * Returns all previous messages for restoring chat on page load.
-       *
-       * @param projectId - The project ID to fetch chat history for
-       * @returns Object with messages array
-       */
       getHistory: (projectId: string) =>
         authenticatedFetch<{ messages: ChatMessage[] }>(
           getToken,
@@ -578,6 +645,9 @@ export function createApiClient(getToken: GetTokenFunction) {
        * @returns Full analytics data for the dashboard
        */
       get: () => authenticatedFetch<AnalyticsData>(getToken, "/api/analytics"),
+
+      getSiteAnalytics: (projectId: string) =>
+        authenticatedFetch<SiteAnalyticsResponse>(getToken, `/api/sa/site/${projectId}`),
     },
     collaborators: {
       list: (projectId: string) =>

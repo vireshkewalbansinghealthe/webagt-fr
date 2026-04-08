@@ -41,6 +41,27 @@ import {
 } from "../services/resend-domain";
 import type { ChatMessage, ChatSession } from "../types/chat";
 
+interface SiteDaySerialized {
+  pageviews: number;
+  uniqueVisitors: number;
+  visitors: string[];
+  pages: Record<string, number>;
+  referrers: Record<string, number>;
+  countries: Record<string, number>;
+  devices: Record<string, number>;
+}
+
+interface AbandonedCartEntry {
+  sessionId: string;
+  email?: string;
+  items: Array<{ name: string; quantity: number; price: number }>;
+  total: number;
+  currency: string;
+  createdAt: string;
+  recoveryEmailSent?: boolean;
+  recoveryEmailSentAt?: string;
+}
+
 /**
  * Create a Hono router with typed bindings and variables.
  * The auth middleware sets `c.var.userId` before these handlers run.
@@ -59,6 +80,24 @@ function ensureTailwindCdn(indexHtml: string): string {
   }
 
   return `${TAILWIND_CDN_SNIPPET}\n${indexHtml}`;
+}
+
+function buildAnalyticsSnippet(projectId: string, workerUrl: string): string {
+  return `<script>(function(){var p="${projectId}",u="${workerUrl}/api/sa/collect";if(typeof navigator!=="undefined"&&navigator.sendBeacon){var d={pid:p,p:location.pathname,r:document.referrer};navigator.sendBeacon(u,JSON.stringify(d));var o=history.pushState;history.pushState=function(){o.apply(this,arguments);navigator.sendBeacon(u,JSON.stringify({pid:p,p:location.pathname,r:""}))}}})();</script>`;
+}
+
+function buildGASnippet(measurementId: string): string {
+  return `<script async src="https://www.googletagmanager.com/gtag/js?id=${measurementId}"></script><script>window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments)}gtag('js',new Date());gtag('config','${measurementId}')</script>`;
+}
+
+function injectAnalyticsScript(html: string, projectId: string, workerUrl: string, gaMeasurementId?: string): string {
+  const snippet = buildAnalyticsSnippet(projectId, workerUrl);
+  const gaSnippet = gaMeasurementId ? buildGASnippet(gaMeasurementId) : "";
+  const allSnippets = gaSnippet + snippet;
+  if (html.includes("</body>")) {
+    return html.replace("</body>", `${allSnippets}\n</body>`);
+  }
+  return html + "\n" + allSnippets;
 }
 
 function isValidEmail(email?: string): email is string {
@@ -820,6 +859,148 @@ projectRoutes.post("/:id/email-domain/verify", async (c) => {
       400,
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:id/analytics-settings — Read analytics settings
+// ---------------------------------------------------------------------------
+projectRoutes.get("/:id/analytics-settings", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found" }, 404);
+  if (project.userId !== userId && !project.collaborators?.some((col) => col.userId === userId)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  return c.json({
+    gaMeasurementId: project.gaMeasurementId || "",
+    abandonedCartEmailEnabled: project.abandonedCartEmailEnabled || false,
+    abandonedCartDelayMinutes: project.abandonedCartDelayMinutes || 60,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/projects/:id/analytics-settings — Update analytics settings
+// ---------------------------------------------------------------------------
+projectRoutes.patch("/:id/analytics-settings", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found" }, 404);
+  if (project.userId !== userId) return c.json({ error: "Access denied" }, 403);
+
+  const body = await c.req.json<{
+    gaMeasurementId?: string;
+    abandonedCartEmailEnabled?: boolean;
+    abandonedCartDelayMinutes?: number;
+  }>();
+
+  if (body.gaMeasurementId !== undefined) {
+    const id = body.gaMeasurementId.trim();
+    if (id && !/^G-[A-Z0-9]+$/i.test(id)) {
+      return c.json({ error: "Invalid GA4 measurement ID (expected G-XXXXXXXXXX)" }, 400);
+    }
+    project.gaMeasurementId = id || undefined;
+  }
+
+  if (body.abandonedCartEmailEnabled !== undefined) {
+    project.abandonedCartEmailEnabled = body.abandonedCartEmailEnabled;
+  }
+
+  if (body.abandonedCartDelayMinutes !== undefined) {
+    const mins = Math.max(15, Math.min(1440, body.abandonedCartDelayMinutes));
+    project.abandonedCartDelayMinutes = mins;
+  }
+
+  project.updatedAt = new Date().toISOString();
+  await c.env.METADATA.put(`project:${projectId}`, JSON.stringify(project));
+
+  return c.json({
+    gaMeasurementId: project.gaMeasurementId || "",
+    abandonedCartEmailEnabled: project.abandonedCartEmailEnabled || false,
+    abandonedCartDelayMinutes: project.abandonedCartDelayMinutes || 60,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/projects/:id/ecommerce-analytics — Conversion + abandoned carts
+// ---------------------------------------------------------------------------
+projectRoutes.get("/:id/ecommerce-analytics", async (c) => {
+  const userId = c.var.userId;
+  const projectId = c.req.param("id");
+
+  const project = await c.env.METADATA.get<Project>(`project:${projectId}`, "json");
+  if (!project) return c.json({ error: "Project not found" }, 404);
+  if (project.userId !== userId && !project.collaborators?.some((col) => col.userId === userId)) {
+    return c.json({ error: "Access denied" }, 403);
+  }
+
+  const kv = c.env.METADATA;
+
+  // Get site analytics totals (last 30 days)
+  let totalVisitors = 0;
+  let totalPageviews = 0;
+  const now = new Date();
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    const dayData = await kv.get<SiteDaySerialized>(`sa:${projectId}:${dateStr}`, "json");
+    if (dayData) {
+      totalVisitors += dayData.uniqueVisitors;
+      totalPageviews += dayData.pageviews;
+    }
+  }
+
+  // Get order data from Turso (if DB exists)
+  let totalOrders = 0;
+  let totalRevenue = 0;
+  let recentOrders: any[] = [];
+  if (project.databaseUrl && project.databaseToken) {
+    try {
+      const { createClient } = await import("@libsql/client");
+      const turso = createClient({ url: project.databaseUrl, authToken: project.databaseToken });
+      const [ordersRes, revRes, recentRes] = await Promise.all([
+        turso.execute("SELECT count(*) as c FROM [Order] WHERE createdAt >= datetime('now','-30 days')"),
+        turso.execute("SELECT sum(totalAmount) as s FROM [Order] WHERE status != 'CANCELLED' AND createdAt >= datetime('now','-30 days')"),
+        turso.execute(`
+          SELECT o.id, o.orderNumber, o.status, o.totalAmount, o.createdAt,
+                 c.email, c.firstName, c.lastName
+          FROM [Order] o LEFT JOIN Customer c ON o.customerId = c.id
+          WHERE o.createdAt >= datetime('now','-7 days')
+          ORDER BY o.createdAt DESC LIMIT 10
+        `),
+      ]);
+      totalOrders = Number(ordersRes.rows[0]?.c) || 0;
+      totalRevenue = Number(revRes.rows[0]?.s) || 0;
+      recentOrders = recentRes.rows;
+    } catch (e) {
+      console.error("Turso ecommerce analytics error:", e);
+    }
+  }
+
+  // Get abandoned checkout data from KV
+  const abandonedKey = `abandoned:${projectId}`;
+  const abandonedData = await kv.get<AbandonedCartEntry[]>(abandonedKey, "json") || [];
+  const now30 = Date.now() - 30 * 86400_000;
+  const recentAbandoned = abandonedData.filter((a) => new Date(a.createdAt).getTime() > now30);
+
+  const conversionRate = totalVisitors > 0 ? ((totalOrders / totalVisitors) * 100) : 0;
+
+  return c.json({
+    period: "last_30_days",
+    visitors: totalVisitors,
+    pageviews: totalPageviews,
+    orders: totalOrders,
+    revenue: totalRevenue,
+    conversionRate: Number(conversionRate.toFixed(2)),
+    abandonedCarts: recentAbandoned.length,
+    abandonedCartEntries: recentAbandoned.slice(0, 20),
+    recentOrders,
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1837,6 +2018,8 @@ projectRoutes.post("/:id/publish", async (c) => {
 
       if (f.path === "index.html") {
         content = ensureTailwindCdn(content);
+        const workerUrl = c.env.PUBLIC_WORKER_URL || "https://webagt-worker-prod.webagt.workers.dev";
+        content = injectAnalyticsScript(content, projectId, workerUrl, project.gaMeasurementId);
       }
 
       tree.push({
@@ -1848,11 +2031,17 @@ projectRoutes.post("/:id/publish", async (c) => {
     }
 
     if (!hasIndexHtml) {
+      const workerUrl = c.env.PUBLIC_WORKER_URL || "https://webagt-worker-prod.webagt.workers.dev";
       tree.push({
         path: "index.html",
         mode: "100644",
         type: "blob",
-        content: ensureTailwindCdn(`<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n<title>Web AGT App</title>\n</head>\n<body>\n<div id="root"></div>\n<script type="module" src="/src/index.tsx"></script>\n</body>\n</html>`)
+        content: injectAnalyticsScript(
+          ensureTailwindCdn(`<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8" />\n<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n<title>Web AGT App</title>\n</head>\n<body>\n<div id="root"></div>\n<script type="module" src="/src/index.tsx"></script>\n</body>\n</html>`),
+          projectId,
+          workerUrl,
+          project.gaMeasurementId,
+        ),
       });
     }
 

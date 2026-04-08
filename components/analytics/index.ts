@@ -14,3 +14,4 @@ export { ProjectActivityCard } from "./project-activity-card";
 export { RecentActivityCard } from "./recent-activity-card";
 export { AnalyticsSkeleton } from "./analytics-skeleton";
 export { EmptyAnalytics } from "./empty-analytics";
+export { SiteAnalyticsCard } from "./site-analytics-card";

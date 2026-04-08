@@ -89,6 +89,10 @@ export interface Env {
   FLY_API_TOKEN?: string;
   /** Fly.io app name (defaults to "webagt-chat") */
   FLY_APP_NAME?: string;
+
+  /** Google OAuth 2.0 credentials for GA4 integration */
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
 }
 
 /**

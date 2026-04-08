@@ -49,6 +49,7 @@ export interface Project {
   paymentMode?: "off" | "test" | "live";
   deployment_uuid?: string;
   lastDeployStatus?: "success" | "failed" | "deploying";
+  lastDeploymentUuid?: string;
   customDomain?: string;
   customDomainVerified?: boolean;
   deployToken?: string;

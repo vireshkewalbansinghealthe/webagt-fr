@@ -274,6 +274,7 @@ export function createApiClient(getToken: GetTokenFunction) {
           manualStripeAccountId?: string;
           manualStripeMode?: "test" | "live";
           lastDeployStatus?: "success" | "failed" | "deploying";
+          lastDeploymentUuid?: string;
         },
       ) =>
         authenticatedFetch<{ project: Project }>(

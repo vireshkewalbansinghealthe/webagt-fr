@@ -4018,7 +4018,6 @@ function PublishTab({
   const [customDomain, setCustomDomain] = useState("");
   const [deployedUrl, setDeployedUrl] = useState<string | null>(null);
 
-  // Custom domain management state
   const [domainInput, setDomainInput] = useState(project.customDomain ?? "");
   const [domainSaving, setDomainSaving] = useState(false);
   const [domainRemoving, setDomainRemoving] = useState(false);
@@ -4026,7 +4025,9 @@ function PublishTab({
   const [verifyResult, setVerifyResult] = useState<{ verified: boolean; serverIp: string | null; domainIp: string | null; cname: string | null; serverHostname: string } | null>(null);
   const [serverIp, setServerIp] = useState<string | null>(null);
 
-  // Resolve Coolify server IP on mount so the A-record instruction is ready immediately
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     fetch("https://cloudflare-dns.com/dns-query?name=dock.4esh.nl&type=A", {
       headers: { Accept: "application/dns-json" },
@@ -4082,7 +4083,89 @@ function PublishTab({
     };
     document.head.appendChild(script);
   };
-  
+
+  const startPolling = useCallback((deploymentUuid: string, url: string) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+
+    setLoading(true);
+    let isFinished = false;
+    let lastLogsHash = "";
+    const client = createApiClient(getToken);
+
+    pollRef.current = setInterval(async () => {
+      try {
+        const statusData = await client.projects.getDeploymentStatus(project.id, deploymentUuid);
+
+        if (statusData.logs) {
+          try {
+            const currentLogsHash = statusData.logs.length.toString();
+            if (currentLogsHash !== lastLogsHash) {
+              lastLogsHash = currentLogsHash;
+              const parsedLogs = JSON.parse(statusData.logs);
+              const outputLogs = parsedLogs
+                .map((l: any) => l.output || "")
+                .filter(Boolean)
+                .map((log: string) => log.trim())
+                .filter((log: string) => log.length > 0);
+              if (outputLogs.length > 0) {
+                const uniqueLogs = outputLogs.filter((log: string, index: number, arr: string[]) =>
+                  index === 0 || log !== arr[index - 1]
+                );
+                setLogs(["Deployment in progress...", ...uniqueLogs]);
+              }
+            }
+          } catch {
+            // Ignore parse errors
+          }
+        }
+
+        if (statusData.status === "finished") {
+          isFinished = true;
+          if (pollRef.current) clearInterval(pollRef.current);
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+          setLoading(false);
+          setLogs(prev => [...prev, "✨ Deployment completed successfully!", `URL: ${url}`]);
+          fireConfetti();
+          toast.success("Project published successfully!");
+          client.projects.update(project.id, { lastDeployStatus: "success" }).then(({ project: p }) => onProjectChange(p)).catch(() => {});
+        } else if (statusData.status === "failed") {
+          isFinished = true;
+          if (pollRef.current) clearInterval(pollRef.current);
+          if (timeoutRef.current) clearTimeout(timeoutRef.current);
+          setLoading(false);
+          setLogs(prev => [...prev, "❌ Deployment failed. Please check the logs above."]);
+          toast.error("Deployment failed");
+          client.projects.update(project.id, { lastDeployStatus: "failed" }).then(({ project: p }) => onProjectChange(p)).catch(() => {});
+        }
+      } catch (e) {
+        console.error("Polling error:", e);
+      }
+    }, 3000);
+
+    timeoutRef.current = setTimeout(() => {
+      if (!isFinished && pollRef.current) {
+        clearInterval(pollRef.current);
+        setLoading(false);
+        setLogs(prev => [...prev, "Deployment is taking a long time. It might still be running in the background."]);
+      }
+    }, 5 * 60 * 1000);
+  }, [getToken, project.id, onProjectChange]);
+
+  // Resume polling if deployment is still in progress when the tab mounts
+  useEffect(() => {
+    if (project.lastDeployStatus === "deploying" && project.lastDeploymentUuid && !pollRef.current) {
+      const url = `https://agt-${project.id.substring(0,8)}.dock.4esh.nl`;
+      setLogs(["Resuming deployment progress..."]);
+      startPolling(project.lastDeploymentUuid, url);
+    }
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handlePublish = async () => {
     if (!isPaymentsReadyForPublish) {
       toast.info("Set up payments first in the Payments tab before publishing.");
@@ -4100,7 +4183,7 @@ function PublishTab({
       const data = await client.projects.publish(project.id, payload.customDomain);
       const refreshedProject = await client.projects.get(project.id);
       onProjectChange(refreshedProject.project);
-      
+
       if (data.url) setDeployedUrl(data.url);
 
       if (!data.deploymentUuid) {
@@ -4109,74 +4192,12 @@ function PublishTab({
         setLoading(false);
         return;
       }
-      
+
+      // Persist the deployment UUID so we can resume polling if the user navigates away
+      client.projects.update(project.id, { lastDeploymentUuid: data.deploymentUuid }).catch(() => {});
+
       setLogs(prev => [...prev, "Deployment started. Fetching real-time logs..."]);
-      
-      let isFinished = false;
-      let lastLogsHash = "";
-      
-      const pollInterval = setInterval(async () => {
-        try {
-          const statusData = await client.projects.getDeploymentStatus(project.id, data.deploymentUuid);
-          
-          if (statusData.logs) {
-            try {
-              const currentLogsHash = statusData.logs.length.toString();
-              
-              if (currentLogsHash !== lastLogsHash) {
-                lastLogsHash = currentLogsHash;
-                const parsedLogs = JSON.parse(statusData.logs);
-                const outputLogs = parsedLogs
-                  .map((l: any) => l.output || "")
-                  .filter(Boolean)
-                  .map((log: string) => log.trim())
-                  .filter((log: string) => log.length > 0);
-                  
-                if (outputLogs.length > 0) {
-                   const uniqueLogs = outputLogs.filter((log: string, index: number, arr: string[]) => 
-                     index === 0 || log !== arr[index - 1]
-                   );
-                   
-                   setLogs([
-                     "Pushing code to GitHub and initiating deployment on Coolify...", 
-                     "Deployment started. Fetching real-time logs...", 
-                     ...uniqueLogs
-                   ]);
-                }
-              }
-            } catch (e) {
-              // Ignore parse errors
-            }
-          }
-          
-          if (statusData.status === "finished") {
-            isFinished = true;
-            clearInterval(pollInterval);
-            setLoading(false);
-            setLogs(prev => [...prev, "✨ Deployment completed successfully!", `URL: ${data.url}`]);
-            fireConfetti();
-            toast.success("Project published successfully!");
-            client.projects.update(project.id, { lastDeployStatus: "success" }).then(({ project: p }) => onProjectChange(p)).catch(() => {});
-          } else if (statusData.status === "failed") {
-            isFinished = true;
-            clearInterval(pollInterval);
-            setLoading(false);
-            setLogs(prev => [...prev, "❌ Deployment failed. Please check the logs above."]);
-            toast.error("Deployment failed");
-            client.projects.update(project.id, { lastDeployStatus: "failed" }).then(({ project: p }) => onProjectChange(p)).catch(() => {});
-          }
-        } catch (e) {
-           console.error("Polling error:", e);
-        }
-      }, 3000);
-      
-      setTimeout(() => {
-        if (!isFinished) {
-          clearInterval(pollInterval);
-          setLoading(false);
-          setLogs(prev => [...prev, "Deployment is taking a long time. It might still be running in the background."]);
-        }
-      }, 5 * 60 * 1000);
+      startPolling(data.deploymentUuid, data.url);
 
     } catch (err: any) {
       console.error(err);

@@ -1344,6 +1344,7 @@ projectRoutes.patch("/:id", async (c) => {
     manualStripeAccountId?: string;
     manualStripeMode?: "test" | "live";
     lastDeployStatus?: "success" | "failed" | "deploying";
+    lastDeploymentUuid?: string;
   }>();
   const normalizedManualStripeAccountId = body.manualStripeAccountId?.trim();
   if (body.manualStripeAccountId !== undefined) {
@@ -1420,6 +1421,9 @@ projectRoutes.patch("/:id", async (c) => {
   }
   if (body.lastDeployStatus) {
     project.lastDeployStatus = body.lastDeployStatus;
+  }
+  if (body.lastDeploymentUuid) {
+    project.lastDeploymentUuid = body.lastDeploymentUuid;
   }
   project.updatedAt = new Date().toISOString();
 

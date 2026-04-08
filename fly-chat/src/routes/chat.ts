@@ -95,7 +95,7 @@ chatRoutes.post("/:projectId", async (c) => {
   if (!userMessage) {
     return c.json({ error: "Message is required", code: "VALIDATION_ERROR" }, 400);
   }
-  const modelId = body.model || DEFAULT_MODEL;
+  let modelId = body.model || DEFAULT_MODEL;
 
   const images = body.images || [];
   if (images.length > 5) {
@@ -108,7 +108,7 @@ chatRoutes.post("/:projectId", async (c) => {
     }
   }
 
-  const modelConfig = MODEL_REGISTRY[modelId];
+  let modelConfig = MODEL_REGISTRY[modelId];
   if (!modelConfig) {
     return c.json({ error: `Unknown model: ${modelId}`, code: "INVALID_MODEL" }, 400);
   }
@@ -331,49 +331,154 @@ chatRoutes.post("/:projectId", async (c) => {
     });
 
     try {
-      const model = getModel(modelId, env);
-      plog.info("chat", `Calling ${modelConfig.displayName} API — maxOutputTokens=${modelConfig.maxOutputTokens}`);
-
-      // Anthropic prompt caching via explicit cache_control on system message blocks.
-      // The @ai-sdk/anthropic SDK translates providerOptions.anthropic.cacheControl on
-      // role:'system' messages into cache_control fields in the Anthropic API system array.
-      // We also force the anthropic-beta header via a custom fetch wrapper to guarantee
-      // the prompt-caching feature is active on every request.
-      const isAnthropicModel = modelId.includes("claude");
-      const systemMessages: ModelMessage[] = isAnthropicModel
-        ? [
-            {
-              role: "system" as const,
-              content: basePrompt,
-              providerOptions: {
-                anthropic: { cacheControl: { type: "ephemeral" } },
+      const buildSystemMessages = (mid: string): ModelMessage[] => {
+        const isAnthropic = mid.includes("claude");
+        return isAnthropic
+          ? [
+              {
+                role: "system" as const,
+                content: basePrompt,
+                providerOptions: {
+                  anthropic: { cacheControl: { type: "ephemeral" } },
+                },
               },
-            },
-            {
-              role: "system" as const,
-              content: projectContext,
-              providerOptions: {
-                anthropic: { cacheControl: { type: "ephemeral" } },
+              {
+                role: "system" as const,
+                content: projectContext,
+                providerOptions: {
+                  anthropic: { cacheControl: { type: "ephemeral" } },
+                },
               },
+            ]
+          : [{ role: "system" as const, content: `${basePrompt}${projectContext}` }];
+      };
+
+      // Fallback chain: if the primary model is overloaded (529), try alternatives
+      const FALLBACK_MAP: Record<string, string> = {
+        "claude-sonnet-4-6": "claude-sonnet-4-5",
+        "claude-opus-4-6": "claude-sonnet-4-6",
+      };
+      const MAX_RETRIES = 3;
+      const RETRY_DELAYS = [1000, 2000, 4000];
+
+      let activeModelId = modelId;
+      let activeModelConfig = modelConfig;
+      let result: ReturnType<typeof streamText> | null = null;
+      let usedFallback = false;
+
+      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          const model = getModel(activeModelId, env);
+          plog.info("chat", `Attempt ${attempt}/${MAX_RETRIES}: ${activeModelConfig.displayName} — maxOutputTokens=${activeModelConfig.maxOutputTokens}`);
+
+          const systemMessages = buildSystemMessages(activeModelId);
+          const streamResult = streamText({
+            model,
+            messages: [...systemMessages, ...sdkMessages],
+            maxOutputTokens: activeModelConfig.maxOutputTokens,
+            abortSignal: undefined,
+            experimental_telemetry: {
+              isEnabled: true,
+              functionId: "chat-generation",
+              recordInputs: true,
+              recordOutputs: true,
+              metadata: { projectId, modelId: activeModelId, userId },
             },
-          ]
-        : [{ role: "system" as const, content: `${basePrompt}${projectContext}` }];
+          });
 
-      const result = streamText({
-        model,
-        messages: [...systemMessages, ...sdkMessages],
-        maxOutputTokens: modelConfig.maxOutputTokens,
-        abortSignal: undefined,
-        experimental_telemetry: {
-          isEnabled: true,
-          functionId: "chat-generation",
-          recordInputs: true,
-          recordOutputs: true,
-          metadata: { projectId, modelId, userId },
-        },
-      });
+          // Read the first chunk to verify the stream actually works
+          const reader = streamResult.textStream[Symbol.asyncIterator]();
+          const firstChunk = await reader.next();
+          if (!firstChunk.done && firstChunk.value) {
+            // Stream is working — reconstruct a usable stream
+            fullResponse += firstChunk.value;
+            if (clientConnected) {
+              try {
+                await stream.writeSSE({
+                  event: "chunk",
+                  data: JSON.stringify({ text: firstChunk.value }),
+                  id: String(eventId++),
+                });
+              } catch { clientConnected = false; }
+            }
+            result = streamResult;
+            break;
+          }
+        } catch (attemptError: any) {
+          const msg = attemptError?.message || String(attemptError);
+          const isOverloaded = msg.includes("529") || msg.includes("Overloaded") || msg.includes("overloaded");
+          const isRetryable = isOverloaded || msg.includes("503") || msg.includes("unavailable");
 
-      let chunkCount = 0;
+          plog.error("chat", `Attempt ${attempt}/${MAX_RETRIES} failed: ${msg.slice(0, 200)}`);
+
+          if (!isRetryable) throw attemptError;
+
+          if (attempt < MAX_RETRIES) {
+            const delay = RETRY_DELAYS[attempt - 1] || 2000;
+            plog.info("chat", `Retrying in ${delay}ms...`);
+            await new Promise((r) => setTimeout(r, delay));
+          } else {
+            // All retries exhausted — try fallback model
+            const fallbackId = FALLBACK_MAP[activeModelId];
+            if (fallbackId && MODEL_REGISTRY[fallbackId]) {
+              plog.info("chat", `Primary model exhausted, falling back to ${fallbackId}`);
+              activeModelId = fallbackId;
+              activeModelConfig = MODEL_REGISTRY[fallbackId];
+              usedFallback = true;
+
+              // Tell the user what's happening
+              if (clientConnected) {
+                try {
+                  await stream.writeSSE({
+                    event: "chunk",
+                    data: JSON.stringify({
+                      text: `> ⚠️ *The AI model (${modelConfig.displayName}) is currently experiencing high demand. Switching to ${activeModelConfig.displayName} to complete your request...*\n\n`,
+                    }),
+                    id: String(eventId++),
+                  });
+                } catch { clientConnected = false; }
+              }
+              fullResponse = "";
+
+              // Try the fallback model once
+              try {
+                const fbModel = getModel(activeModelId, env);
+                const fbSystem = buildSystemMessages(activeModelId);
+                result = streamText({
+                  model: fbModel,
+                  messages: [...fbSystem, ...sdkMessages],
+                  maxOutputTokens: activeModelConfig.maxOutputTokens,
+                  abortSignal: undefined,
+                  experimental_telemetry: {
+                    isEnabled: true,
+                    functionId: "chat-generation",
+                    recordInputs: true,
+                    recordOutputs: true,
+                    metadata: { projectId, modelId: activeModelId, userId },
+                  },
+                });
+              } catch (fbError: any) {
+                plog.error("chat", `Fallback model also failed: ${fbError?.message || fbError}`);
+                throw fbError;
+              }
+            } else {
+              throw attemptError;
+            }
+          }
+        }
+      }
+
+      if (!result) {
+        throw new Error("All model attempts failed");
+      }
+
+      if (usedFallback) {
+        plog.info("chat", `Using fallback model: ${activeModelConfig.displayName} (${activeModelId})`);
+        modelId = activeModelId;
+        modelConfig = activeModelConfig;
+      }
+
+      let chunkCount = usedFallback ? 0 : 1;
       let lastStopCheck = 0;
       let stopped = false;
       let inputTokens = 0;
@@ -532,6 +637,7 @@ chatRoutes.post("/:projectId", async (c) => {
       // These reflect real provider costs so Haiku is billed cheaper than Sonnet.
       const MODEL_PRICES: Record<string, { input: number; output: number }> = {
         "claude-haiku-4-5":   { input: 1.00,  output: 5.00  },
+        "claude-sonnet-4-5":  { input: 3.00,  output: 15.00 },
         "claude-sonnet-4-6":  { input: 3.00,  output: 15.00 },
         "claude-opus-4-6":    { input: 15.00, output: 75.00 },
         "gpt-4o":             { input: 2.50,  output: 10.00 },
@@ -675,7 +781,10 @@ chatRoutes.post("/:projectId", async (c) => {
       let userFriendlyMessage: string;
       let errorCode: string;
 
-      if (rawError.includes("429") || rawError.includes("rate limit")) {
+      if (rawError.includes("529") || rawError.includes("Overloaded") || rawError.includes("overloaded")) {
+        userFriendlyMessage = "The AI service is experiencing high demand right now. Please try again in a minute.";
+        errorCode = "SERVICE_OVERLOADED";
+      } else if (rawError.includes("429") || rawError.includes("rate limit")) {
         userFriendlyMessage = "Too many requests. Please wait a moment and try again.";
         errorCode = "RATE_LIMITED";
       } else if (rawError.includes("401") || rawError.includes("api key")) {
@@ -687,6 +796,9 @@ chatRoutes.post("/:projectId", async (c) => {
       } else if (rawError.includes("timeout") || rawError.includes("TIMEOUT") || rawError.includes("network")) {
         userFriendlyMessage = "Generation timed out. Please try a simpler request.";
         errorCode = "TIMEOUT";
+      } else if (rawError.includes("All model attempts failed")) {
+        userFriendlyMessage = "All AI models are currently unavailable. Please try again in a few minutes.";
+        errorCode = "ALL_MODELS_FAILED";
       } else {
         userFriendlyMessage = "Failed to generate code. Please try again.";
         errorCode = "GENERATION_FAILED";

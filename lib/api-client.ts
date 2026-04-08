@@ -451,35 +451,6 @@ export function createApiClient(getToken: GetTokenFunction) {
         ),
     },
 
-    ga: {
-      getAuthUrl: (projectId: string) =>
-        authenticatedFetch<{ url: string }>(getToken, `/api/ga/auth-url?projectId=${projectId}`),
-
-      getProperties: (projectId: string) =>
-        authenticatedFetch<{
-          properties: Array<{
-            name: string;
-            displayName: string;
-            accountName: string;
-            measurementId: string;
-          }>;
-        }>(getToken, `/api/ga/properties?projectId=${projectId}`),
-
-      connect: (projectId: string, measurementId: string, displayName?: string) =>
-        authenticatedFetch<{ ok: boolean; measurementId: string }>(
-          getToken,
-          `/api/ga/connect`,
-          { method: "POST", body: JSON.stringify({ projectId, measurementId, displayName }) },
-        ),
-
-      disconnect: (projectId: string) =>
-        authenticatedFetch<{ ok: boolean }>(
-          getToken,
-          `/api/ga/disconnect`,
-          { method: "POST", body: JSON.stringify({ projectId }) },
-        ),
-    },
-
     chat: {
       getHistory: (projectId: string) =>
         authenticatedFetch<{ messages: ChatMessage[] }>(

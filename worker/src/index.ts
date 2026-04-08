@@ -35,7 +35,6 @@ import { collabRoutes } from "./routes/collaborators";
 import { adminRoutes } from "./routes/admin";
 import { testingRoutes } from "./routes/testing";
 import { siteAnalyticsRoutes } from "./routes/site-analytics";
-import { gaRoutes } from "./routes/google-analytics";
 
 /**
  * Create the Hono app with typed bindings and context variables.
@@ -130,7 +129,6 @@ app.use("/api/*", async (c, next) => {
     c.req.path === "/api/testing/ensure-credits" ||
     c.req.path === "/api/testing/sign-in-token" ||
     c.req.path === "/api/sa/collect" ||
-    c.req.path === "/api/ga/callback" ||
     c.req.path.match(/\/api\/projects\/.*\/public-files/) ||
     c.req.method === "GET" && c.req.path.match(/^\/api\/invites\/[^/]+$/)
   ) {
@@ -224,16 +222,6 @@ app.route("/api/testing", testingRoutes);
  * GET /api/sa/site/:projectId — protected, returns analytics for project owner.
  */
 app.route("/api/sa", siteAnalyticsRoutes);
-
-/**
- * Mount Google Analytics OAuth routes at /api/ga.
- * GET  /api/ga/auth-url    — returns Google OAuth consent URL (authenticated)
- * GET  /api/ga/callback    — public, Google redirects here (popup)
- * GET  /api/ga/properties  — lists GA4 properties (authenticated)
- * POST /api/ga/connect     — saves measurement ID (authenticated)
- * POST /api/ga/disconnect  — removes GA connection (authenticated)
- */
-app.route("/api/ga", gaRoutes);
 
 /**
  * Mount admin routes at root (routes are prefixed /api/admin/*).

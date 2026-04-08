@@ -3477,7 +3477,7 @@ function AnalyticsTab({ project, turso }: { project: Project; turso: any }) {
         <AnalyticsOverview data={ecomData} loading={loading} onRefresh={loadEcomData} />
       )}
       {section === "ga" && (
-        <GAOAuthSection project={project} />
+        <GAManualSection project={project} />
       )}
       {section === "abandoned" && <ComingSoonSection feature="Abandoned Cart Tracking" icon={ShoppingCart} description="See which customers started checkout but didn't complete their purchase. Track cart values, items, and recovery opportunities." />}
       {section === "recovery" && <ComingSoonSection feature="Cart Recovery Emails" icon={Mail} description="Automatically send recovery emails to customers who abandon their cart. Configure delay, email templates, and track recovery conversions." />}
@@ -3584,101 +3584,24 @@ function FunnelBar({ label, value, max, color }: { label: string; value: number;
 }
 
 // ---------------------------------------------------------------------------
-// Google Analytics OAuth Section — full connect-via-Google flow
+// Google Analytics — manual measurement ID setup
 // ---------------------------------------------------------------------------
 
-function GAOAuthSection({ project }: { project: Project }) {
+function GAManualSection({ project }: { project: Project }) {
   const { getToken } = useAuth();
-  const [step, setStep] = useState<"idle" | "authenticating" | "selecting" | "connected" | "manual">("idle");
-  const [properties, setProperties] = useState<Array<{ name: string; displayName: string; accountName: string; measurementId: string }>>([]);
-  const [loadingProps, setLoadingProps] = useState(false);
-  const [connectedId, setConnectedId] = useState(project.gaMeasurementId || "");
-  const [manualId, setManualId] = useState("");
+  const [gaId, setGaId] = useState(project.gaMeasurementId || "");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const isConnected = Boolean(project.gaMeasurementId);
 
-  useEffect(() => {
-    if (project.gaMeasurementId) {
-      setConnectedId(project.gaMeasurementId);
-      setStep("connected");
-    }
-  }, [project.gaMeasurementId]);
-
-  const startOAuth = async () => {
-    setError("");
-    setStep("authenticating");
-    try {
-      const client = createApiClient(getToken);
-      const { url } = await client.ga.getAuthUrl(project.id);
-
-      const w = 500, h = 600;
-      const left = window.screenX + (window.outerWidth - w) / 2;
-      const top = window.screenY + (window.outerHeight - h) / 2;
-      const popup = window.open(url, "ga-oauth", `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no`);
-
-      const handler = async (e: MessageEvent) => {
-        if (e.data?.type !== "ga-oauth-callback") return;
-        window.removeEventListener("message", handler);
-        if (e.data.success) {
-          await loadProperties();
-        } else {
-          setError(e.data.error || "Authorization failed");
-          setStep("idle");
-        }
-      };
-      window.addEventListener("message", handler);
-
-      const checkClosed = setInterval(() => {
-        if (popup?.closed) {
-          clearInterval(checkClosed);
-          setTimeout(() => {
-            if (step === "authenticating") {
-              // popup closed without callback — might still work if message arrived
-            }
-          }, 1000);
-        }
-      }, 500);
-    } catch (e: any) {
-      if (e.message?.includes("not configured") || e.message?.includes("501")) {
-        setStep("manual");
-      } else {
-        setError(e.message || "Failed to start Google sign-in");
-        setStep("idle");
-      }
-    }
-  };
-
-  const loadProperties = async () => {
-    setLoadingProps(true);
-    setStep("selecting");
-    try {
-      const client = createApiClient(getToken);
-      const { properties: props } = await client.ga.getProperties(project.id);
-      setProperties(props);
-      if (props.length === 0) {
-        setError("No GA4 properties found in your Google account. Create one at analytics.google.com first.");
-      }
-    } catch (e: any) {
-      if (e.message?.includes("expired") || e.message?.includes("401")) {
-        setError("Session expired. Please sign in again.");
-        setStep("idle");
-      } else {
-        setError(e.message || "Failed to load properties");
-      }
-    }
-    setLoadingProps(false);
-  };
-
-  const selectProperty = async (prop: typeof properties[0]) => {
+  const handleSave = async () => {
+    if (!gaId.trim()) return;
     setSaving(true);
     try {
       const client = createApiClient(getToken);
-      await client.ga.connect(project.id, prop.measurementId, prop.displayName);
-      setConnectedId(prop.measurementId);
-      setStep("connected");
-      toast.success(`Connected to ${prop.displayName}`);
+      await client.projects.updateAnalyticsSettings(project.id, { gaMeasurementId: gaId.trim() });
+      toast.success("Google Analytics connected — re-publish to activate tracking");
     } catch (e: any) {
-      toast.error(e.message || "Failed to connect");
+      toast.error(e.message || "Failed to save");
     }
     setSaving(false);
   };
@@ -3687,9 +3610,8 @@ function GAOAuthSection({ project }: { project: Project }) {
     setSaving(true);
     try {
       const client = createApiClient(getToken);
-      await client.ga.disconnect(project.id);
-      setConnectedId("");
-      setStep("idle");
+      await client.projects.updateAnalyticsSettings(project.id, { gaMeasurementId: "" });
+      setGaId("");
       toast.success("Google Analytics disconnected");
     } catch (e: any) {
       toast.error(e.message || "Failed to disconnect");
@@ -3697,237 +3619,79 @@ function GAOAuthSection({ project }: { project: Project }) {
     setSaving(false);
   };
 
-  const handleManualSave = async () => {
-    if (!manualId.trim()) return;
-    setSaving(true);
-    try {
-      const client = createApiClient(getToken);
-      await client.projects.updateAnalyticsSettings(project.id, { gaMeasurementId: manualId.trim() });
-      setConnectedId(manualId.trim());
-      setStep("connected");
-      toast.success("Measurement ID saved");
-    } catch (e: any) {
-      toast.error(e.message || "Failed to save");
-    }
-    setSaving(false);
-  };
-
   return (
     <div className="space-y-5 max-w-xl">
-      {/* Connected state */}
-      {step === "connected" && (
-        <div className="border rounded-xl p-6 bg-card space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="size-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-              <CheckCircle2 className="size-5 text-green-500" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h4 className="font-medium">Google Analytics Connected</h4>
-              <p className="text-sm text-muted-foreground font-mono">{connectedId}</p>
-            </div>
+      <div className="border rounded-xl p-6 bg-card space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="size-10 rounded-lg bg-[#E37400]/10 flex items-center justify-center">
+            <svg className="size-5" viewBox="0 0 24 24" fill="none"><path d="M20.156 7.594c-.001-1.465-1.207-2.647-2.686-2.588a2.61 2.61 0 00-1.894.89L8.27 14.394a.756.756 0 00-.163.33l-.583 2.894a.753.753 0 00.737.908c.05 0 .101-.005.15-.016l2.718-.593a.753.753 0 00.346-.189l7.305-7.499A2.597 2.597 0 0020.156 7.594z" fill="#E37400"/><path d="M5.25 3.75a1.5 1.5 0 00-1.5 1.5v13.5a1.5 1.5 0 001.5 1.5h13.5a1.5 1.5 0 001.5-1.5V13.5" stroke="#E37400" strokeWidth="1.5" strokeLinecap="round"/></svg>
           </div>
+          <div>
+            <h4 className="font-medium">Google Analytics 4</h4>
+            <p className="text-xs text-muted-foreground">
+              Add your GA4 Measurement ID to track visitor behavior on your published shop.
+            </p>
+          </div>
+        </div>
 
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-green-500/10 text-green-700 dark:text-green-400 text-xs">
-            <CheckCircle2 className="size-4 mt-0.5 shrink-0" />
-            <span>
+        {isConnected && gaId ? (
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 p-3 rounded-lg bg-green-500/10">
+              <CheckCircle2 className="size-4 text-green-500 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-green-700 dark:text-green-400">Connected</p>
+                <p className="text-xs font-mono text-green-600 dark:text-green-500">{gaId}</p>
+              </div>
+            </div>
+            <div className="text-xs text-muted-foreground">
               {project.deployment_uuid
-                ? "GA4 tracking is active. Re-publish to apply any changes."
+                ? "GA4 tracking is active on your published shop. Re-publish to apply any changes."
                 : "GA4 will be injected automatically when you publish your shop."}
-            </span>
-          </div>
-
-          <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={saving}>
-            {saving ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Link2Off className="size-3.5 mr-1.5" />}
-            Disconnect
-          </Button>
-        </div>
-      )}
-
-      {/* Idle state — connect button */}
-      {step === "idle" && (
-        <div className="border rounded-xl p-6 bg-card space-y-5">
-          <div className="flex items-center gap-3">
-            <div className="size-10 rounded-lg bg-[#4285f4]/10 flex items-center justify-center">
-              <svg className="size-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09a7.18 7.18 0 010-4.17V7.07H2.18A11.97 11.97 0 001 12c0 1.94.46 3.77 1.18 5.43l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.82 14.97.75 12 .75 7.7.75 3.99 3.22 2.18 6.57l3.66 2.84c.87-2.6 3.3-4.03 6.16-4.03z"/></svg>
             </div>
-            <div>
-              <h4 className="font-medium">Connect Google Analytics</h4>
-              <p className="text-xs text-muted-foreground">
-                Sign in with Google to automatically link your GA4 property.
-              </p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={saving}>
+                {saving ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Link2Off className="size-3.5 mr-1.5" />}
+                Disconnect
+              </Button>
             </div>
           </div>
-
-          <Button onClick={startOAuth} className="w-full gap-2" variant="outline">
-            <svg className="size-4" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09a7.18 7.18 0 010-4.17V7.07H2.18A11.97 11.97 0 001 12c0 1.94.46 3.77 1.18 5.43l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.82 14.97.75 12 .75 7.7.75 3.99 3.22 2.18 6.57l3.66 2.84c.87-2.6 3.3-4.03 6.16-4.03z"/></svg>
-            Sign in with Google
-          </Button>
-
-          {error && (
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-red-500/10 text-red-600 dark:text-red-400 text-xs">
-              <AlertCircle className="size-4 mt-0.5 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div className="relative">
-            <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
-            <div className="relative flex justify-center text-xs"><span className="bg-card px-2 text-muted-foreground">or enter manually</span></div>
-          </div>
-
-          <div className="flex gap-2">
-            <Input
-              placeholder="G-XXXXXXXXXX"
-              value={manualId}
-              onChange={(e) => setManualId(e.target.value)}
-              className="font-mono flex-1"
-            />
-            <Button
-              size="sm"
-              onClick={handleManualSave}
-              disabled={!manualId.trim() || saving}
-            >
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save"}
-            </Button>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Find your Measurement ID in{" "}
-            <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="underline text-primary">
-              Google Analytics
-            </a>
-            {" "}→ Admin → Data Streams.
-          </p>
-        </div>
-      )}
-
-      {/* Authenticating state */}
-      {step === "authenticating" && (
-        <div className="border rounded-xl p-8 bg-card flex flex-col items-center gap-3">
-          <Loader2 className="size-8 animate-spin text-[#4285f4]" />
-          <p className="text-sm font-medium">Waiting for Google sign-in…</p>
-          <p className="text-xs text-muted-foreground">Complete the sign-in in the popup window.</p>
-          <Button variant="ghost" size="sm" onClick={() => setStep("idle")} className="mt-2">
-            Cancel
-          </Button>
-        </div>
-      )}
-
-      {/* Property selection state */}
-      {step === "selecting" && (
-        <div className="border rounded-xl p-6 bg-card space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="size-10 rounded-lg bg-[#4285f4]/10 flex items-center justify-center">
-              <CheckCircle2 className="size-5 text-[#4285f4]" />
-            </div>
-            <div>
-              <h4 className="font-medium">Select a GA4 Property</h4>
-              <p className="text-xs text-muted-foreground">
-                Choose which property to track on your shop.
-              </p>
-            </div>
-          </div>
-
-          {loadingProps ? (
-            <div className="flex items-center justify-center py-6 gap-2">
-              <Loader2 className="size-5 animate-spin text-muted-foreground" />
-              <span className="text-sm text-muted-foreground">Loading your GA4 properties…</span>
-            </div>
-          ) : error ? (
-            <div className="space-y-3">
-              <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 text-xs">
-                <AlertTriangle className="size-4 mt-0.5 shrink-0" />
-                <span>{error}</span>
-              </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Measurement ID</label>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => { setError(""); setStep("idle"); }}>Back</Button>
-                <Button variant="outline" size="sm" onClick={loadProperties}>Retry</Button>
-              </div>
-            </div>
-          ) : properties.length === 0 ? (
-            <div className="text-center py-6 space-y-2">
-              <p className="text-sm text-muted-foreground">No GA4 web properties found.</p>
-              <div className="flex gap-2 justify-center">
-                <Button variant="outline" size="sm" onClick={() => setStep("idle")}>Back</Button>
-                <Button variant="outline" size="sm" asChild>
-                  <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer">
-                    Create in Google Analytics <ArrowUpRight className="size-3 ml-1" />
-                  </a>
+                <Input
+                  placeholder="G-XXXXXXXXXX"
+                  value={gaId}
+                  onChange={(e) => setGaId(e.target.value.toUpperCase())}
+                  className="font-mono flex-1"
+                />
+                <Button onClick={handleSave} disabled={!gaId.trim() || saving} size="sm">
+                  {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Connect"}
                 </Button>
               </div>
             </div>
-          ) : (
-            <div className="divide-y rounded-lg border overflow-hidden">
-              {properties.map((prop) => (
-                <button
-                  key={prop.name}
-                  onClick={() => selectProperty(prop)}
-                  disabled={saving}
-                  className="w-full flex items-center gap-3 p-3.5 text-left hover:bg-muted/50 transition-colors disabled:opacity-50"
-                >
-                  <div className="size-9 rounded-lg bg-muted flex items-center justify-center shrink-0">
-                    <LineChart className="size-4 text-muted-foreground" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{prop.displayName}</p>
-                    <p className="text-xs text-muted-foreground truncate">{prop.accountName}</p>
-                  </div>
-                  <div className="shrink-0">
-                    <Badge variant="secondary" className="font-mono text-xs">{prop.measurementId}</Badge>
-                  </div>
-                  <ChevronRight className="size-4 text-muted-foreground shrink-0" />
-                </button>
-              ))}
+
+            <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+              <p className="text-xs font-medium">How to find your Measurement ID:</p>
+              <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                <li>Go to <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="underline text-primary">analytics.google.com</a></li>
+                <li>Click <strong>Admin</strong> (gear icon, bottom-left)</li>
+                <li>Under your property, click <strong>Data Streams</strong></li>
+                <li>Select your web stream</li>
+                <li>Copy the <strong>Measurement ID</strong> (starts with G-)</li>
+              </ol>
             </div>
-          )}
 
-          {properties.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => { setStep("idle"); setError(""); }}>
-              Cancel
-            </Button>
-          )}
-        </div>
-      )}
-
-      {/* Manual fallback state */}
-      {step === "manual" && (
-        <div className="border rounded-xl p-6 bg-card space-y-4">
-          <div className="flex items-center gap-3">
-            <div className="size-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <LineChart className="size-5 text-blue-500" />
-            </div>
-            <div>
-              <h4 className="font-medium">Google Analytics 4</h4>
-              <p className="text-xs text-muted-foreground">
-                Enter your GA4 Measurement ID to enable tracking.
-              </p>
-            </div>
+            {!project.deployment_uuid && (
+              <div className="flex items-start gap-2 p-3 rounded-lg bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 text-xs">
+                <AlertTriangle className="size-4 mt-0.5 shrink-0" />
+                <span>Publish your shop first — GA4 is injected during the publish process.</span>
+              </div>
+            )}
           </div>
-
-          <div className="flex items-start gap-2 p-3 rounded-lg bg-blue-500/10 text-blue-700 dark:text-blue-400 text-xs">
-            <AlertCircle className="size-4 mt-0.5 shrink-0" />
-            <span>Google OAuth is not configured on this server. You can enter your measurement ID manually below.</span>
-          </div>
-
-          <div className="flex gap-2">
-            <Input
-              placeholder="G-XXXXXXXXXX"
-              value={manualId}
-              onChange={(e) => setManualId(e.target.value)}
-              className="font-mono flex-1"
-            />
-            <Button size="sm" onClick={handleManualSave} disabled={!manualId.trim() || saving}>
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : "Save"}
-            </Button>
-          </div>
-          <p className="text-[11px] text-muted-foreground">
-            Find this in{" "}
-            <a href="https://analytics.google.com" target="_blank" rel="noopener noreferrer" className="underline text-primary">
-              Google Analytics
-            </a>
-            {" "}→ Admin → Data Streams.
-          </p>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* What GA tracks */}
       <div className="border rounded-xl p-5 bg-card space-y-3">

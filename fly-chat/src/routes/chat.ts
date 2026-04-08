@@ -353,132 +353,102 @@ chatRoutes.post("/:projectId", async (c) => {
           : [{ role: "system" as const, content: `${basePrompt}${projectContext}` }];
       };
 
-      // Fallback chain: if the primary model is overloaded (529), try alternatives
-      const FALLBACK_MAP: Record<string, string> = {
-        "claude-sonnet-4-6": "claude-sonnet-4-5",
-        "claude-opus-4-6": "claude-sonnet-4-6",
+      const makeStreamCall = (mid: string, cfg: typeof modelConfig) => {
+        return streamText({
+          model: getModel(mid, env),
+          messages: [...buildSystemMessages(mid), ...sdkMessages],
+          maxOutputTokens: cfg.maxOutputTokens,
+          maxRetries: 0,
+          abortSignal: undefined,
+          experimental_telemetry: {
+            isEnabled: true,
+            functionId: "chat-generation",
+            recordInputs: true,
+            recordOutputs: true,
+            metadata: { projectId, modelId: mid, userId },
+          },
+        });
       };
-      const MAX_RETRIES = 3;
-      const RETRY_DELAYS = [1000, 2000, 4000];
 
-      let activeModelId = modelId;
-      let activeModelConfig = modelConfig;
-      let result: ReturnType<typeof streamText> | null = null;
-      let usedFallback = false;
+      // Fallback chain: if the primary model is overloaded (529), try alternatives in order
+      const FALLBACK_CHAIN: Record<string, string[]> = {
+        "claude-sonnet-4-6": ["claude-sonnet-4-5", "claude-sonnet-4"],
+        "claude-opus-4-6": ["claude-sonnet-4-6", "claude-sonnet-4-5", "claude-sonnet-4"],
+        "claude-sonnet-4-5": ["claude-sonnet-4"],
+      };
 
-      for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-        try {
-          const model = getModel(activeModelId, env);
-          plog.info("chat", `Attempt ${attempt}/${MAX_RETRIES}: ${activeModelConfig.displayName} — maxOutputTokens=${activeModelConfig.maxOutputTokens}`);
+      const tryModel = async (mid: string, cfg: typeof modelConfig): Promise<ReturnType<typeof streamText>> => {
+        const r = makeStreamCall(mid, cfg);
+        const reader = r.textStream[Symbol.asyncIterator]();
+        const firstChunk = await reader.next();
+        if (!firstChunk.done && firstChunk.value) {
+          fullResponse += firstChunk.value;
+          if (clientConnected) {
+            try {
+              await stream.writeSSE({
+                event: "chunk",
+                data: JSON.stringify({ text: firstChunk.value }),
+                id: String(eventId++),
+              });
+            } catch { clientConnected = false; }
+          }
+        }
+        return r;
+      };
 
-          const systemMessages = buildSystemMessages(activeModelId);
-          const streamResult = streamText({
-            model,
-            messages: [...systemMessages, ...sdkMessages],
-            maxOutputTokens: activeModelConfig.maxOutputTokens,
-            abortSignal: undefined,
-            experimental_telemetry: {
-              isEnabled: true,
-              functionId: "chat-generation",
-              recordInputs: true,
-              recordOutputs: true,
-              metadata: { projectId, modelId: activeModelId, userId },
-            },
-          });
+      let result: ReturnType<typeof streamText>;
 
-          // Read the first chunk to verify the stream actually works
-          const reader = streamResult.textStream[Symbol.asyncIterator]();
-          const firstChunk = await reader.next();
-          if (!firstChunk.done && firstChunk.value) {
-            // Stream is working — reconstruct a usable stream
-            fullResponse += firstChunk.value;
-            if (clientConnected) {
-              try {
-                await stream.writeSSE({
-                  event: "chunk",
-                  data: JSON.stringify({ text: firstChunk.value }),
-                  id: String(eventId++),
-                });
-              } catch { clientConnected = false; }
-            }
-            result = streamResult;
+      plog.info("chat", `Calling ${modelConfig.displayName} API — maxOutputTokens=${modelConfig.maxOutputTokens}`);
+
+      try {
+        result = await tryModel(modelId, modelConfig);
+      } catch (primaryError: any) {
+        const msg = primaryError?.message || String(primaryError);
+        const isOverloaded = msg.includes("529") || msg.includes("Overloaded") || msg.includes("overloaded") || msg.includes("503");
+
+        plog.error("chat", `Primary model failed: ${msg.slice(0, 200)}`);
+        if (!isOverloaded) throw primaryError;
+
+        const chain = FALLBACK_CHAIN[modelId] ?? [];
+        let resolved = false;
+
+        for (const fallbackId of chain) {
+          const fbConfig = MODEL_REGISTRY[fallbackId];
+          if (!fbConfig) continue;
+
+          plog.info("chat", `Trying fallback: ${fbConfig.displayName} (${fallbackId})`);
+
+          if (clientConnected) {
+            try {
+              await stream.writeSSE({
+                event: "chunk",
+                data: JSON.stringify({
+                  text: `> ⚠️ *${modelConfig.displayName} is experiencing high demand. Switching to ${fbConfig.displayName}...*\n\n`,
+                }),
+                id: String(eventId++),
+              });
+            } catch { clientConnected = false; }
+          }
+
+          fullResponse = "";
+          try {
+            result = await tryModel(fallbackId, fbConfig);
+            modelId = fallbackId;
+            modelConfig = fbConfig;
+            resolved = true;
+            plog.info("chat", `Fallback stream started successfully with ${fbConfig.displayName}`);
             break;
+          } catch (fbError: any) {
+            plog.error("chat", `Fallback ${fbConfig.displayName} also failed: ${(fbError?.message || fbError).toString().slice(0, 200)}`);
           }
-        } catch (attemptError: any) {
-          const msg = attemptError?.message || String(attemptError);
-          const isOverloaded = msg.includes("529") || msg.includes("Overloaded") || msg.includes("overloaded");
-          const isRetryable = isOverloaded || msg.includes("503") || msg.includes("unavailable");
+        }
 
-          plog.error("chat", `Attempt ${attempt}/${MAX_RETRIES} failed: ${msg.slice(0, 200)}`);
-
-          if (!isRetryable) throw attemptError;
-
-          if (attempt < MAX_RETRIES) {
-            const delay = RETRY_DELAYS[attempt - 1] || 2000;
-            plog.info("chat", `Retrying in ${delay}ms...`);
-            await new Promise((r) => setTimeout(r, delay));
-          } else {
-            // All retries exhausted — try fallback model
-            const fallbackId = FALLBACK_MAP[activeModelId];
-            if (fallbackId && MODEL_REGISTRY[fallbackId]) {
-              plog.info("chat", `Primary model exhausted, falling back to ${fallbackId}`);
-              activeModelId = fallbackId;
-              activeModelConfig = MODEL_REGISTRY[fallbackId];
-              usedFallback = true;
-
-              // Tell the user what's happening
-              if (clientConnected) {
-                try {
-                  await stream.writeSSE({
-                    event: "chunk",
-                    data: JSON.stringify({
-                      text: `> ⚠️ *The AI model (${modelConfig.displayName}) is currently experiencing high demand. Switching to ${activeModelConfig.displayName} to complete your request...*\n\n`,
-                    }),
-                    id: String(eventId++),
-                  });
-                } catch { clientConnected = false; }
-              }
-              fullResponse = "";
-
-              // Try the fallback model once
-              try {
-                const fbModel = getModel(activeModelId, env);
-                const fbSystem = buildSystemMessages(activeModelId);
-                result = streamText({
-                  model: fbModel,
-                  messages: [...fbSystem, ...sdkMessages],
-                  maxOutputTokens: activeModelConfig.maxOutputTokens,
-                  abortSignal: undefined,
-                  experimental_telemetry: {
-                    isEnabled: true,
-                    functionId: "chat-generation",
-                    recordInputs: true,
-                    recordOutputs: true,
-                    metadata: { projectId, modelId: activeModelId, userId },
-                  },
-                });
-              } catch (fbError: any) {
-                plog.error("chat", `Fallback model also failed: ${fbError?.message || fbError}`);
-                throw fbError;
-              }
-            } else {
-              throw attemptError;
-            }
-          }
+        if (!resolved) {
+          throw new Error("All AI models are currently unavailable. Please try again in a few minutes.");
         }
       }
 
-      if (!result) {
-        throw new Error("All model attempts failed");
-      }
-
-      if (usedFallback) {
-        plog.info("chat", `Using fallback model: ${activeModelConfig.displayName} (${activeModelId})`);
-        modelId = activeModelId;
-        modelConfig = activeModelConfig;
-      }
-
-      let chunkCount = usedFallback ? 0 : 1;
+      let chunkCount = 1;
       let lastStopCheck = 0;
       let stopped = false;
       let inputTokens = 0;
@@ -637,6 +607,7 @@ chatRoutes.post("/:projectId", async (c) => {
       // These reflect real provider costs so Haiku is billed cheaper than Sonnet.
       const MODEL_PRICES: Record<string, { input: number; output: number }> = {
         "claude-haiku-4-5":   { input: 1.00,  output: 5.00  },
+        "claude-sonnet-4":    { input: 3.00,  output: 15.00 },
         "claude-sonnet-4-5":  { input: 3.00,  output: 15.00 },
         "claude-sonnet-4-6":  { input: 3.00,  output: 15.00 },
         "claude-opus-4-6":    { input: 15.00, output: 75.00 },
@@ -796,7 +767,7 @@ chatRoutes.post("/:projectId", async (c) => {
       } else if (rawError.includes("timeout") || rawError.includes("TIMEOUT") || rawError.includes("network")) {
         userFriendlyMessage = "Generation timed out. Please try a simpler request.";
         errorCode = "TIMEOUT";
-      } else if (rawError.includes("All model attempts failed")) {
+      } else if (rawError.includes("All AI models") || rawError.includes("All model attempts failed")) {
         userFriendlyMessage = "All AI models are currently unavailable. Please try again in a few minutes.";
         errorCode = "ALL_MODELS_FAILED";
       } else {

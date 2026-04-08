@@ -59,6 +59,18 @@ export const MODEL_REGISTRY: Record<string, ModelConfig> = {
     supportsVision: true,
     maxOutputTokens: 64000,
   },
+  "claude-sonnet-4": {
+    provider: "anthropic",
+    displayName: "Claude Sonnet 4",
+    apiModelId: "claude-sonnet-4-20250514",
+    creditCost: 2,
+    tier: "premium",
+    speed: "fast",
+    quality: "high",
+    description: "Stable Sonnet generation — reliable fallback.",
+    supportsVision: true,
+    maxOutputTokens: 64000,
+  },
   "claude-haiku-4-5": {
     provider: "anthropic",
     displayName: "Claude Haiku 4.5",

@@ -3535,12 +3535,16 @@ function AnalyticsOverview({ data, loading, onRefresh }: { data: any; loading: b
       </div>
 
       <div className="border rounded-xl p-5 bg-card space-y-4">
-        <h4 className="font-medium text-sm">Conversion Funnel</h4>
-        <div className="space-y-3">
-          <FunnelBar label="Visitors" value={data.visitors} max={data.visitors} color="bg-blue-500" />
-          <FunnelBar label="Checkout Started" value={data.visitors > 0 ? data.orders + data.abandonedCarts : 0} max={data.visitors} color="bg-yellow-500" />
-          <FunnelBar label="Completed Purchase" value={data.orders} max={data.visitors} color="bg-green-500" />
+        <div className="flex items-center gap-2">
+          <h4 className="font-medium text-sm">Conversion Funnel</h4>
+          <span className="text-[10px] font-medium bg-yellow-500/20 text-yellow-700 dark:text-yellow-400 px-1.5 py-0.5 rounded-full leading-none">Coming Soon</span>
         </div>
+        <div className="space-y-3 opacity-40 pointer-events-none select-none">
+          <FunnelBar label="Visitors" value={0} max={100} color="bg-blue-500" />
+          <FunnelBar label="Checkout Started" value={0} max={100} color="bg-yellow-500" />
+          <FunnelBar label="Completed Purchase" value={0} max={100} color="bg-green-500" />
+        </div>
+        <p className="text-xs text-muted-foreground">Track the full journey from visitor to purchase.</p>
       </div>
 
       {data.recentOrders && data.recentOrders.length > 0 && (

@@ -220,13 +220,10 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
   const handleError = useCallback(
     (message: string) => {
       if (!message) return;
-      // Dedup: skip if same error message as last reported
       if (message === lastErrorRef.current) return;
 
-      // Clear existing debounce timer
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
-      // Wait 1.5s for Sandpack to settle before reporting
       debounceRef.current = setTimeout(() => {
         lastErrorRef.current = message;
         onError({ message });
@@ -235,11 +232,6 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
     [onError]
   );
 
-  /**
-   * Watch the sandpack.error state for bundler/compile errors.
-   * Wrapped in try-catch because some Sandpack errors involve
-   * frozen objects that throw when accessed.
-   */
   useEffect(() => {
     try {
       if (sandpack.error?.message) {
@@ -251,27 +243,36 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
   }, [sandpack.error, handleError]);
 
   /**
-   * Poll sandpack status as a fallback. Some errors (e.g. "Cannot assign to
-   * read only property 'message'") crash Sandpack's internal error handling
-   * before it can surface the error via state or message bus.
+   * Poll for errors that bypass the message bus. When Sandpack's bundler
+   * crashes (e.g. "Cannot assign to read only property 'message'"), neither
+   * sandpack.error nor the message bus receive the error. In that case the
+   * error overlay is rendered in the DOM but nothing triggers auto-heal.
+   * This poll checks both sandpack.error AND the DOM for error overlays.
    */
   useEffect(() => {
     pollRef.current = setInterval(() => {
       try {
         if (sandpack.error?.message && sandpack.error.message !== lastErrorRef.current) {
           handleError(sandpack.error.message);
+          return;
         }
       } catch (e: any) {
         handleError(e?.message || "Build error");
+        return;
+      }
+
+      // DOM fallback: look for Sandpack's error overlay that bypassed normal error state
+      const overlay = document.querySelector('.sp-overlay, .sp-error, [class*="sp-error"]');
+      if (overlay) {
+        const text = overlay.textContent?.trim();
+        if (text && text.length > 10 && text !== lastErrorRef.current) {
+          handleError(text.slice(0, 1000));
+        }
       }
     }, 2000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [sandpack, handleError]);
 
-  /**
-   * Listen to the message bus for runtime errors (console.error)
-   * and action-based errors that some Sandpack versions emit.
-   */
   useEffect(() => {
     const unsubscribe = listen((msg) => {
       const raw = msg as unknown as Record<string, unknown>;
@@ -300,6 +301,30 @@ function ErrorListener({ onError }: { onError: (error: { message: string }) => v
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [listen, handleError]);
+
+  /**
+   * Raw postMessage fallback — catches error messages from Sandpack iframes
+   * that the listen() wrapper filters out or misses entirely.
+   */
+  useEffect(() => {
+    const handler = (e: MessageEvent) => {
+      if (!e.data || typeof e.data !== "object") return;
+      const d = e.data as Record<string, unknown>;
+
+      if (d.type === "action" && d.action === "show-error") {
+        handleError((d.message as string) || (d.title as string) || "Build error");
+      }
+
+      // Catch uncaught errors forwarded from the iframe
+      if (d.type === "error" || d.type === "unhandledrejection") {
+        const msg = (d.message as string) || (d.error as string) || "";
+        if (msg) handleError(msg);
+      }
+    };
+
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [handleError]);
 
   return null;
 }

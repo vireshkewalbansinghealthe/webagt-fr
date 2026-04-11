@@ -93,6 +93,10 @@ export interface Env {
   /** Google OAuth 2.0 credentials for GA4 integration */
   GOOGLE_CLIENT_ID?: string;
   GOOGLE_CLIENT_SECRET?: string;
+
+  /** Shopify OAuth credentials for product import */
+  SHOPIFY_API_KEY?: string;
+  SHOPIFY_API_SECRET?: string;
 }
 
 /**

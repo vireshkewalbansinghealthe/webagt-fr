@@ -35,6 +35,7 @@ import { collabRoutes } from "./routes/collaborators";
 import { adminRoutes } from "./routes/admin";
 import { testingRoutes } from "./routes/testing";
 import { siteAnalyticsRoutes } from "./routes/site-analytics";
+import { shopifyRoutes } from "./routes/shopify";
 
 /**
  * Create the Hono app with typed bindings and context variables.
@@ -129,6 +130,7 @@ app.use("/api/*", async (c, next) => {
     c.req.path === "/api/testing/ensure-credits" ||
     c.req.path === "/api/testing/sign-in-token" ||
     c.req.path === "/api/sa/collect" ||
+    c.req.path === "/api/shopify/callback" ||
     c.req.path.match(/\/api\/projects\/.*\/public-files/) ||
     c.req.method === "GET" && c.req.path.match(/^\/api\/invites\/[^/]+$/)
   ) {
@@ -222,6 +224,13 @@ app.route("/api/testing", testingRoutes);
  * GET /api/sa/site/:projectId — protected, returns analytics for project owner.
  */
 app.route("/api/sa", siteAnalyticsRoutes);
+
+/**
+ * Mount Shopify integration routes at /api/shopify.
+ * Handles OAuth flow and product import from connected Shopify stores.
+ * GET /api/shopify/callback is public (OAuth redirect from Shopify).
+ */
+app.route("/api/shopify", shopifyRoutes);
 
 /**
  * Mount admin routes at root (routes are prefixed /api/admin/*).

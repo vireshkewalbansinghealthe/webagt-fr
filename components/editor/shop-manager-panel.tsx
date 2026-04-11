@@ -39,6 +39,9 @@ import {
   Link2,
   Link2Off,
   RefreshCcw,
+  Store,
+  Check,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Project } from "@/types/project";
@@ -58,7 +61,13 @@ import {
 import { toast } from "sonner";
 import { createClient } from "@libsql/client/web";
 import { useAuth, useUser } from "@clerk/nextjs";
-import { createApiClient, type ProjectEmailSettings } from "@/lib/api-client";
+import { createApiClient, type ProjectEmailSettings, type ShopifyMappedProduct } from "@/lib/api-client";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { AlertCircle, RefreshCw, XCircle, DollarSign, MoreHorizontal, ChevronUp, LineChart, TrendingUp, ShoppingCart, Mail, Eye } from "lucide-react";
 import {
   AlertDialog,
@@ -537,6 +546,19 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Partial<ProductFormData> | null>(null);
 
+  // --- Shopify import state ---
+  const [shopifyDialogOpen, setShopifyDialogOpen] = useState(false);
+  const [shopifyConnected, setShopifyConnected] = useState(false);
+  const [shopifyShop, setShopifyShop] = useState("");
+  const [shopifyStoreInput, setShopifyStoreInput] = useState("");
+  const [shopifyProducts, setShopifyProducts] = useState<ShopifyMappedProduct[]>([]);
+  const [shopifyLoading, setShopifyLoading] = useState(false);
+  const [shopifySelected, setShopifySelected] = useState<Set<number>>(new Set());
+  const [shopifyImporting, setShopifyImporting] = useState(false);
+  const [shopifyConnecting, setShopifyConnecting] = useState(false);
+  const { getToken } = useAuth();
+  const shopifyClient = useMemo(() => createApiClient(getToken), [getToken]);
+
   const toggleCol = (key: ColKey) =>
     setCols((prev) => ({ ...prev, [key]: !prev[key] }));
 
@@ -692,6 +714,136 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
   const openNew = () => {
     setEditingProduct(null);
     setSheetOpen(true);
+  };
+
+  // --- Shopify import helpers ---
+  const checkShopifyStatus = useCallback(async () => {
+    try {
+      const res = await shopifyClient.shopify.getStatus(project.id);
+      setShopifyConnected(res.connected);
+      if (res.shop) setShopifyShop(res.shop);
+    } catch { /* ignore */ }
+  }, [shopifyClient, project.id]);
+
+  useEffect(() => {
+    checkShopifyStatus();
+    // Auto-open dialog if redirected back from Shopify OAuth
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("shopify") === "connected") {
+      setShopifyDialogOpen(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [checkShopifyStatus]);
+
+  const connectShopify = async () => {
+    const store = shopifyStoreInput.trim();
+    if (!store) return;
+    const normalized = store.includes(".myshopify.com") ? store : `${store}.myshopify.com`;
+    setShopifyConnecting(true);
+    try {
+      const { url } = await shopifyClient.shopify.getAuthUrl(normalized, project.id);
+      window.location.href = url;
+    } catch (err: any) {
+      toast.error(err?.error || "Failed to connect to Shopify");
+      setShopifyConnecting(false);
+    }
+  };
+
+  const loadShopifyProducts = async () => {
+    setShopifyLoading(true);
+    try {
+      const res = await shopifyClient.shopify.getProducts(project.id);
+      setShopifyProducts(res.products);
+      setShopifyShop(res.shop);
+      setShopifySelected(new Set());
+    } catch (err: any) {
+      if (err?.code === "NOT_CONNECTED" || err?.code === "TOKEN_EXPIRED") {
+        setShopifyConnected(false);
+        toast.error("Shopify store disconnected. Please reconnect.");
+      } else {
+        toast.error("Failed to load Shopify products");
+      }
+    } finally {
+      setShopifyLoading(false);
+    }
+  };
+
+  const disconnectShopify = async () => {
+    try {
+      await shopifyClient.shopify.disconnect(project.id);
+      setShopifyConnected(false);
+      setShopifyProducts([]);
+      setShopifyShop("");
+      toast.success("Shopify store disconnected");
+    } catch {
+      toast.error("Failed to disconnect");
+    }
+  };
+
+  const toggleShopifyProduct = (id: number) => {
+    setShopifySelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAllShopify = () => {
+    if (shopifySelected.size === shopifyProducts.length) {
+      setShopifySelected(new Set());
+    } else {
+      setShopifySelected(new Set(shopifyProducts.map((p) => p.shopifyId)));
+    }
+  };
+
+  const importSelectedShopify = async () => {
+    const toImport = shopifyProducts.filter((p) => shopifySelected.has(p.shopifyId));
+    if (toImport.length === 0) return;
+
+    setShopifyImporting(true);
+    let imported = 0;
+
+    try {
+      await ensureProductSchemaColumns(turso);
+      const now = new Date().toISOString();
+
+      for (const sp of toImport) {
+        const id = `prod_${Math.random().toString(36).slice(2, 10)}`;
+        const imagesJson = JSON.stringify(sp.images.slice(0, 5));
+
+        await turso.execute({
+          sql: `INSERT INTO Product
+            (id, name, slug, description, price, compareAtPrice, trackStock, stock, inventory, sku, isVirtual, status, images, createdAt, updatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+          args: [
+            id,
+            sp.name,
+            slugifyProductName(sp.name, id),
+            sp.description,
+            sp.price,
+            sp.compareAtPrice,
+            sp.trackStock ? 1 : 0,
+            sp.stock,
+            sp.stock,
+            sp.sku || "",
+            sp.status.toUpperCase(),
+            imagesJson,
+            now,
+            now,
+          ],
+        });
+        imported++;
+      }
+
+      toast.success(`Imported ${imported} product${imported !== 1 ? "s" : ""} from Shopify`);
+      setShopifyDialogOpen(false);
+      window.dispatchEvent(new CustomEvent("webagt:shop-changed"));
+      loadData();
+    } catch (err: any) {
+      toast.error(`Imported ${imported} products, then failed: ${err?.message || "Unknown error"}`);
+    } finally {
+      setShopifyImporting(false);
+    }
   };
 
   const openEdit = async (row: any) => {
@@ -864,6 +1016,19 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
             </DropdownMenuContent>
           </DropdownMenu>
 
+          {/* Import from Shopify */}
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-9 gap-1.5 shrink-0"
+            onClick={() => {
+              setShopifyDialogOpen(true);
+              if (shopifyConnected && shopifyProducts.length === 0) loadShopifyProducts();
+            }}
+          >
+            <Store className="size-4" /> Import from Shopify
+          </Button>
+
           {/* Add product */}
           <Button size="sm" className="h-9 gap-1.5 shrink-0" onClick={openNew}>
             <Plus className="size-4" /> Add product
@@ -994,6 +1159,146 @@ function ProductsTab({ turso, project }: { turso: any; project: Project }) {
         taxGroups={taxGroups}
         onSave={handleSave}
       />
+
+      {/* ── Shopify Import Dialog ── */}
+      <Dialog open={shopifyDialogOpen} onOpenChange={setShopifyDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Store className="size-5" /> Import from Shopify
+            </DialogTitle>
+          </DialogHeader>
+
+          {!shopifyConnected ? (
+            <div className="space-y-4 py-4">
+              <p className="text-sm text-muted-foreground">
+                Connect your Shopify store to import products. Enter your store URL below.
+              </p>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Input
+                    placeholder="yourstore.myshopify.com"
+                    value={shopifyStoreInput}
+                    onChange={(e) => setShopifyStoreInput(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && connectShopify()}
+                  />
+                </div>
+                <Button onClick={connectShopify} disabled={shopifyConnecting || !shopifyStoreInput.trim()} className="gap-1.5">
+                  {shopifyConnecting ? <Loader2 className="size-4 animate-spin" /> : <ArrowUpRight className="size-4" />}
+                  Connect
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                You&apos;ll be redirected to Shopify to authorize access. Only read-only product access is requested.
+              </p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-hidden flex flex-col gap-3">
+              {/* Connection info bar */}
+              <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2">
+                <div className="flex items-center gap-2 text-sm">
+                  <div className="size-2 rounded-full bg-green-500" />
+                  <span className="font-medium">{shopifyShop}</span>
+                  <span className="text-muted-foreground">connected</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1" onClick={loadShopifyProducts} disabled={shopifyLoading}>
+                    <RefreshCcw className={cn("size-3", shopifyLoading && "animate-spin")} /> Refresh
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-xs gap-1 text-red-500 hover:text-red-600" onClick={disconnectShopify}>
+                    <Link2Off className="size-3" /> Disconnect
+                  </Button>
+                </div>
+              </div>
+
+              {shopifyLoading ? (
+                <div className="flex justify-center py-12">
+                  <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : shopifyProducts.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <Package className="size-10 mx-auto mb-3 opacity-40" />
+                  <p className="font-medium">No products found</p>
+                  <p className="text-sm mt-1">Your Shopify store has no products yet.</p>
+                </div>
+              ) : (
+                <>
+                  {/* Select all + import bar */}
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="rounded border-muted-foreground/40"
+                        checked={shopifySelected.size === shopifyProducts.length}
+                        onChange={toggleAllShopify}
+                      />
+                      Select all ({shopifyProducts.length})
+                    </label>
+                    <Button
+                      size="sm"
+                      className="gap-1.5"
+                      disabled={shopifySelected.size === 0 || shopifyImporting}
+                      onClick={importSelectedShopify}
+                    >
+                      {shopifyImporting ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Download className="size-4" />
+                      )}
+                      Import {shopifySelected.size > 0 ? `${shopifySelected.size} product${shopifySelected.size !== 1 ? "s" : ""}` : "selected"}
+                    </Button>
+                  </div>
+
+                  {/* Product list */}
+                  <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
+                    {shopifyProducts.map((sp) => (
+                      <label
+                        key={sp.shopifyId}
+                        className={cn(
+                          "flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors hover:bg-muted/50",
+                          shopifySelected.has(sp.shopifyId) && "border-primary bg-primary/5"
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          className="rounded border-muted-foreground/40 shrink-0"
+                          checked={shopifySelected.has(sp.shopifyId)}
+                          onChange={() => toggleShopifyProduct(sp.shopifyId)}
+                        />
+                        {sp.images[0] ? (
+                          <img
+                            src={sp.images[0]}
+                            alt={sp.name}
+                            className="size-12 rounded-md object-cover shrink-0 border"
+                          />
+                        ) : (
+                          <div className="size-12 rounded-md bg-muted flex items-center justify-center shrink-0 border">
+                            <Package className="size-5 text-muted-foreground" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{sp.name}</p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {sp.variants.length > 1 ? `${sp.variants.length} variants · ` : ""}
+                            {sp.vendor && `${sp.vendor} · `}
+                            {sp.status}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="font-medium text-sm">${sp.price.toFixed(2)}</p>
+                          {sp.compareAtPrice && (
+                            <p className="text-xs text-muted-foreground line-through">${sp.compareAtPrice.toFixed(2)}</p>
+                          )}
+                        </div>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

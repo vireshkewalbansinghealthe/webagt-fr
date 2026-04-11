@@ -19,6 +19,34 @@ import type { Project, ProjectFile, VersionMeta } from "@/types/project";
 import type { ChatMessage } from "@/types/chat";
 import type { AnalyticsData, SiteAnalyticsResponse } from "@/types/analytics";
 
+export interface ShopifyMappedProduct {
+  shopifyId: number;
+  name: string;
+  description: string;
+  price: number;
+  compareAtPrice: number | null;
+  sku: string;
+  stock: number;
+  trackStock: boolean;
+  status: "active" | "draft";
+  images: string[];
+  variants: Array<{
+    title: string;
+    price: number;
+    compareAtPrice: number | null;
+    sku: string;
+    stock: number;
+    trackStock: boolean;
+    option1: string | null;
+    option2: string | null;
+    option3: string | null;
+  }>;
+  options: Array<{ name: string; values: string[] }>;
+  vendor: string;
+  productType: string;
+  tags: string[];
+}
+
 /**
  * Base URL for the Worker API.
  * In development: http://localhost:8787
@@ -450,6 +478,34 @@ export function createApiClient(getToken: GetTokenFunction) {
             method: "POST",
             body: JSON.stringify({ thumbnail }),
           }
+        ),
+    },
+
+    shopify: {
+      getAuthUrl: (shop: string, projectId: string) =>
+        authenticatedFetch<{ url: string }>(
+          getToken,
+          `/api/shopify/auth-url?shop=${encodeURIComponent(shop)}&projectId=${encodeURIComponent(projectId)}`,
+        ),
+
+      getStatus: (projectId: string) =>
+        authenticatedFetch<{ connected: boolean; shop?: string; connectedAt?: string }>(
+          getToken,
+          `/api/shopify/status/${projectId}`,
+        ),
+
+      getProducts: (projectId: string, cursor?: string) =>
+        authenticatedFetch<{
+          products: ShopifyMappedProduct[];
+          nextCursor: string | null;
+          shop: string;
+        }>(getToken, `/api/shopify/products/${projectId}${cursor ? `?cursor=${cursor}` : ""}`),
+
+      disconnect: (projectId: string) =>
+        authenticatedFetch<{ ok: boolean }>(
+          getToken,
+          `/api/shopify/disconnect/${projectId}`,
+          { method: "POST" },
         ),
     },
 

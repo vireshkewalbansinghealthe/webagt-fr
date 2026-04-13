@@ -3,6 +3,7 @@
 export const dynamic = "force-dynamic";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { createApiClient } from "@/lib/api-client";
 import { Badge } from "@/components/ui/badge";
@@ -24,10 +25,12 @@ import { formatDistanceToNow } from "date-fns";
 
 interface CreditEntry {
   userId: string;
+  email: string;
   remaining: number;
   total: number;
   plan: string;
   updatedAt?: string;
+  apiSpendUsd: number;
 }
 
 interface Summary {
@@ -37,7 +40,7 @@ interface Summary {
   totalConsumed: number;
 }
 
-type SortKey = "consumed" | "remaining" | "pct" | "total" | "plan";
+type SortKey = "consumed" | "remaining" | "pct" | "total" | "plan" | "apiSpendUsd";
 
 function StatCard({
   icon,
@@ -91,13 +94,12 @@ function UsageBar({ pct }: { pct: number }) {
 }
 
 function fmt(n: number) {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
+  return n.toLocaleString("en-US");
 }
 
 export default function CreditsReportPage() {
   const { getToken } = useAuth();
+  const router = useRouter();
   const [credits, setCredits] = useState<CreditEntry[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,7 +137,8 @@ export default function CreditsReportPage() {
       pct: c.total > 0 ? ((c.total - c.remaining) / c.total) * 100 : 0,
     }))
     .filter(c =>
-      !search || c.userId.toLowerCase().includes(search.toLowerCase()) ||
+      !search || c.email.toLowerCase().includes(search.toLowerCase()) ||
+      c.userId.toLowerCase().includes(search.toLowerCase()) ||
       c.plan.toLowerCase().includes(search.toLowerCase())
     )
     .sort((a, b) => {
@@ -274,23 +277,28 @@ export default function CreditsReportPage() {
               <thead className="bg-muted/40 border-b border-border">
                 <tr>
                   <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    User ID
+                    User
                   </th>
                   <Th label="Plan" sortKey="plan" />
-                  <Th label="Verbruikt" sortKey="consumed" />
-                  <Th label="Resterend" sortKey="remaining" />
-                  <Th label="Totaal" sortKey="total" />
+                  <Th label="Used" sortKey="consumed" />
+                  <Th label="Remaining" sortKey="remaining" />
+                  <Th label="Total" sortKey="total" />
+                  <Th label="API Spend" sortKey="apiSpendUsd" />
                   <Th label="%" sortKey="pct" />
                   <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Bijgewerkt
+                    Last Active
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {processed.map((c) => (
-                  <tr key={c.userId} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
-                      {c.userId}
+                  <tr
+                    key={c.userId}
+                    className="hover:bg-muted/20 transition-colors cursor-pointer"
+                    onClick={() => router.push(`/admin/users/${c.userId}`)}
+                  >
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-medium">{c.email || c.userId}</span>
                     </td>
                     <td className="px-4 py-3">
                       {c.plan === "pro" ? (
@@ -312,13 +320,18 @@ export default function CreditsReportPage() {
                     <td className="px-4 py-3 tabular-nums text-muted-foreground">
                       {fmt(c.total)}
                     </td>
-                    <td className="px-4 py-3 w-48">
+                    <td className="px-4 py-3 tabular-nums">
+                      <span className={cn("font-mono text-xs", c.apiSpendUsd > 0 ? "text-rose-400" : "text-muted-foreground")}>
+                        ${c.apiSpendUsd.toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 w-36">
                       <UsageBar pct={c.pct} />
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                       {c.updatedAt
                         ? formatDistanceToNow(new Date(c.updatedAt), { addSuffix: true })
-                        : "—"}
+                        : "Never"}
                     </td>
                   </tr>
                 ))}

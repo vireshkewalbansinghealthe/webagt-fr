@@ -1,46 +1,42 @@
 /**
  * worker/src/routes/credits.ts
  *
- * API endpoint for retrieving the authenticated user's credit balance.
- * The frontend uses this to display the credit counter in the sidebar
- * and to determine whether the chat input should be disabled.
+ * API endpoints for credit balance and promo code redemption.
  *
  * Endpoints:
- * - GET /api/credits — Return the user's current credit balance and plan
+ * - GET  /api/credits            — Return the user's current credit balance
+ * - POST /api/credits/redeem     — Redeem a promo/invitation code for credits
+ * - GET  /api/credits/onboarding — Check if onboarding modal was seen
+ * - POST /api/credits/onboarding — Mark onboarding as seen
  *
- * Credits are managed by the credits service (worker/src/services/credits.ts)
- * and stored in KV as `credits:{userId}`.
- *
- * Used by: worker/src/index.ts (mounted at /api/credits)
+ * Promo code KV schema:
+ *   Key:   promo:{CODE}          (uppercase, trimmed)
+ *   Value: { credits, maxUses, usedBy[], createdAt, expiresAt?, label? }
  */
 
 import { Hono } from "hono";
 import type { Env, AppVariables } from "../types";
-import { getCredits } from "../services/credits";
+import { getCredits, addCredits } from "../services/credits";
 
-/**
- * Create a Hono router for credit endpoints.
- * Auth middleware is applied by the parent app in index.ts.
- */
 const creditRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
 
 // ---------------------------------------------------------------------------
-// GET /api/credits — Get the user's current credit balance
+// Types
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the authenticated user's credit balance, plan, and period info.
- * Triggers lazy period reset if the billing period has expired.
- *
- * Response shape:
- * {
- *   remaining: number,   // -1 means unlimited (Pro)
- *   total: number,       // 50 for free tier
- *   plan: "free" | "pro",
- *   periodEnd: string,   // ISO 8601 — when credits reset
- *   isUnlimited: boolean // convenience flag for the frontend
- * }
- */
+export interface PromoCode {
+  credits: number;
+  maxUses: number;
+  usedBy: string[];
+  createdAt: string;
+  expiresAt?: string;
+  label?: string;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/credits
+// ---------------------------------------------------------------------------
+
 creditRoutes.get("/", async (c) => {
   const userId = c.var.userId;
   const credits = await getCredits(userId, c.env);
@@ -48,62 +44,72 @@ creditRoutes.get("/", async (c) => {
   return c.json({
     remaining: credits.remaining,
     total: credits.total,
-    plan: credits.plan,
-    periodEnd: credits.periodEnd,
-    isUnlimited: false,
+    plan: "pro",
   });
 });
 
-/**
- * POST /api/credits/sync
- *
- * Called immediately after Clerk's onSubscriptionComplete fires in the UI.
- * Because Clerk only fires that callback on a real successful payment,
- * we can unconditionally upgrade the authenticated user to Pro here —
- * no secondary verification needed.
- */
-creditRoutes.post("/sync", async (c) => {
-  const userId = c.var.userId;
+// ---------------------------------------------------------------------------
+// POST /api/credits/redeem — Redeem a promo/invitation code
+// ---------------------------------------------------------------------------
 
-  try {
-    const { upgradePlan } = await import("../services/credits");
-    const credits = await upgradePlan(userId, c.env);
-    return c.json({ synced: true, upgraded: true, credits });
-  } catch (err: any) {
-    console.error("[credits/sync] Error:", err);
-    const credits = await getCredits(userId, c.env);
-    return c.json({ synced: false, error: err.message, credits });
+creditRoutes.post("/redeem", async (c) => {
+  const userId = c.var.userId;
+  const body = await c.req.json<{ code: string }>().catch(() => ({ code: "" }));
+  const code = (body.code || "").trim().toUpperCase();
+
+  if (!code || code.length < 3) {
+    return c.json({ error: "Please enter a valid code.", code: "INVALID_CODE" }, 400);
   }
+
+  const kvKey = `promo:${code}`;
+  const promo = await c.env.METADATA.get<PromoCode>(kvKey, "json");
+
+  if (!promo) {
+    return c.json({ error: "This code doesn't exist or has expired.", code: "NOT_FOUND" }, 404);
+  }
+
+  if (promo.expiresAt && new Date(promo.expiresAt) < new Date()) {
+    return c.json({ error: "This code has expired.", code: "EXPIRED" }, 410);
+  }
+
+  if (promo.usedBy.includes(userId)) {
+    return c.json({ error: "You've already used this code.", code: "ALREADY_USED" }, 409);
+  }
+
+  if (promo.usedBy.length >= promo.maxUses) {
+    return c.json({ error: "This code has reached its maximum number of uses.", code: "MAX_USES" }, 410);
+  }
+
+  // Redeem: add credits + mark as used
+  promo.usedBy.push(userId);
+  await c.env.METADATA.put(kvKey, JSON.stringify(promo));
+
+  const updated = await addCredits(userId, promo.credits, c.env);
+
+  console.log(`[credits/redeem] User ${userId} redeemed code "${code}" for ${promo.credits} credits, balance: ${updated.remaining}`);
+
+  return c.json({
+    success: true,
+    creditsAdded: promo.credits,
+    remaining: updated.remaining,
+    label: promo.label || `${promo.credits} credits`,
+  });
 });
 
-/**
- * GET /api/credits/onboarding — Check if the user has seen the onboarding modal.
- * Returns { seen: boolean } read from KV so it's the same across all devices.
- */
+// ---------------------------------------------------------------------------
+// Onboarding flag (KV-persisted)
+// ---------------------------------------------------------------------------
+
 creditRoutes.get("/onboarding", async (c) => {
   const userId = c.var.userId;
   const seen = await c.env.METADATA.get(`onboarding_seen:${userId}`);
   return c.json({ seen: seen === "1" });
 });
 
-/**
- * POST /api/credits/onboarding — Mark the onboarding modal as seen.
- * Stored in KV so it persists across devices and browsers.
- */
 creditRoutes.post("/onboarding", async (c) => {
   const userId = c.var.userId;
   await c.env.METADATA.put(`onboarding_seen:${userId}`, "1");
   return c.json({ ok: true });
-});
-
-/**
- * DEBUG: Force upgrade a specific user to Pro.
- */
-creditRoutes.get("/debug-upgrade", async (c) => {
-  const userId = c.var.userId;
-  const { upgradePlan } = await import("../services/credits");
-  const upgraded = await upgradePlan(userId, c.env);
-  return c.json({ success: true, upgraded });
 });
 
 export { creditRoutes };

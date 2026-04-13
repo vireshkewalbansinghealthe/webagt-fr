@@ -5,7 +5,8 @@ import { createPortal } from "react-dom";
 import { useUser, useAuth } from "@clerk/nextjs";
 import { createApiClient } from "@/lib/api-client";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, FolderPlus, Search, Crown, Sparkles, X } from "lucide-react";
+import { ArrowRight, FolderPlus, Search, Coins, Sparkles, Wand2, X, AlertTriangle } from "lucide-react";
+import { BuyCreditsModal } from "@/components/editor/buy-credits-modal";
 
 interface TourStep {
   target: string;
@@ -13,7 +14,7 @@ interface TourStep {
   description: string;
   side: "top" | "bottom" | "left" | "right";
   icon: React.ReactNode;
-  color: string; // tailwind bg class for the icon badge
+  color: string;
 }
 
 const STEPS: TourStep[] = [
@@ -21,27 +22,36 @@ const STEPS: TourStep[] = [
     target: '[data-tour="create-project"]',
     title: "Create your first project",
     description:
-      "Click here to start building. Choose a website or webshop, pick a template or describe your idea — the AI handles the rest.",
+      "Click here to start building. Choose a website or webshop, describe your idea — and the AI builds it for you in seconds.",
     side: "bottom",
     icon: <FolderPlus className="size-4" />,
     color: "bg-blue-500",
   },
   {
     target: '[data-tour="search"]',
-    title: "Search & organize",
+    title: "Your dashboard",
     description:
-      "All your projects appear in the dashboard. Search by name, filter by type, and switch between grid and list view to stay organised.",
+      "All your projects live here. Search by name, filter by type, and switch between grid and list view to stay organised.",
     side: "bottom",
     icon: <Search className="size-4" />,
     color: "bg-violet-500",
   },
   {
-    target: '[data-tour="pricing-link"]',
-    title: "Upgrade to Pro",
+    target: '[data-tour="credits"]',
+    title: "How credits work",
     description:
-      "The free plan gives you 3 projects. Upgrade to Pro for unlimited projects, more AI credits, custom domains, and priority support.",
+      "Every AI generation uses credits. Small edits cost ~4 credits, full builds ~8-10. When you run low, buy more in flexible packs or use an invitation code.",
     side: "right",
-    icon: <Crown className="size-4" />,
+    icon: <Coins className="size-4" />,
+    color: "bg-emerald-500",
+  },
+  {
+    target: '[data-tour="create-project"]',
+    title: "AI does the heavy lifting",
+    description:
+      "Just describe what you want in plain language — change colors, add pages, update content. The AI understands and updates your site instantly. No coding needed!",
+    side: "bottom",
+    icon: <Wand2 className="size-4" />,
     color: "bg-amber-500",
   },
 ];
@@ -60,12 +70,20 @@ export function SpotlightTour() {
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [mounted, setMounted] = useState(false);
   const [hasMeasured, setHasMeasured] = useState(false);
+  const [userCredits, setUserCredits] = useState<number | null>(null);
+  const [showBuyModal, setShowBuyModal] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!isLoaded || !isSignedIn || !user) return;
     const client = createApiClient(getToken);
+
+    // Fetch credits so we can show the real balance
+    client.credits.get().then((data) => {
+      setUserCredits(data.remaining);
+    }).catch(() => {});
+
     client.credits
       .getOnboardingSeen()
       .then(({ seen }) => {
@@ -88,7 +106,6 @@ export function SpotlightTour() {
   useEffect(() => {
     if (step < 0) return;
     setHasMeasured(false);
-    // Small delay so DOM has settled after step change
     const t = setTimeout(measureTarget, 100);
     window.addEventListener("resize", measureTarget);
     window.addEventListener("scroll", measureTarget, true);
@@ -114,9 +131,44 @@ export function SpotlightTour() {
 
   if (!active || !mounted) return null;
 
+  const hasCredits = userCredits !== null && userCredits > 0;
+  const isLow = userCredits !== null && userCredits < 10;
+
   // ── Welcome screen ──────────────────────────────────────────────────────────
   if (step === -1) {
     const firstName = user?.firstName || user?.username || "there";
+
+    // Determine credit message
+    let creditLine: React.ReactNode;
+    if (userCredits === null) {
+      creditLine = (
+        <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+          Want a quick tour?
+        </p>
+      );
+    } else if (hasCredits && !isLow) {
+      creditLine = (
+        <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+          You have <strong className="text-foreground">{userCredits} credits</strong> to get started. Want a quick tour?
+        </p>
+      );
+    } else {
+      // No credits or very low
+      creditLine = (
+        <div className="mb-6 rounded-lg bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-left">
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle className="size-4 text-amber-500 shrink-0" />
+            <p className="text-sm font-medium text-amber-500">
+              {userCredits === 0 ? "No credits yet" : `Only ${userCredits} credits left`}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            You need credits to start building. Buy a credit pack or use an invitation code to top up!
+          </p>
+        </div>
+      );
+    }
+
     return createPortal(
       <>
         <style>{`
@@ -131,8 +183,7 @@ export function SpotlightTour() {
           style={{ position: "fixed", inset: 0, zIndex: 9998, background: OVERLAY, backdropFilter: "blur(2px)" }}
           className="flex items-center justify-center p-4"
         >
-          <div className="tour-welcome w-full max-w-[360px] rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden">
-            {/* Top accent strip */}
+          <div className="tour-welcome w-full max-w-[380px] rounded-2xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden">
             <div className="h-1 w-full bg-gradient-to-r from-primary via-primary/70 to-primary/30" />
 
             <div className="p-8 text-center">
@@ -146,9 +197,11 @@ export function SpotlightTour() {
               <h2 className="text-2xl font-bold leading-tight mb-3">
                 Hey {firstName}! 👋
               </h2>
-              <p className="text-sm text-muted-foreground leading-relaxed mb-8">
-                Great to have you here. Want a quick 30-second tour so you know your way around?
+              <p className="text-sm text-muted-foreground leading-relaxed mb-2">
+                Build professional websites and webshops with AI — just describe what you want and we&apos;ll build it for you.
               </p>
+
+              {creditLine}
 
               <div className="flex flex-col gap-2.5">
                 <Button className="w-full gap-2 h-10" onClick={() => setStep(0)}>
@@ -156,6 +209,19 @@ export function SpotlightTour() {
                   Show me around
                   <ArrowRight className="size-4" />
                 </Button>
+                {isLow && (
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2 h-10 border-amber-500/30 text-amber-500 hover:bg-amber-500/10"
+                    onClick={() => {
+                      dismiss();
+                      setShowBuyModal(true);
+                    }}
+                  >
+                    <Coins className="size-4" />
+                    Get Credits First
+                  </Button>
+                )}
                 <button
                   onClick={dismiss}
                   className="text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
@@ -166,17 +232,26 @@ export function SpotlightTour() {
             </div>
           </div>
         </div>
+
+        <BuyCreditsModal
+          open={showBuyModal}
+          onOpenChange={setShowBuyModal}
+          onPurchaseComplete={() => {
+            // Refresh credits
+            const client = createApiClient(getToken);
+            client.credits.get().then((data) => setUserCredits(data.remaining)).catch(() => {});
+          }}
+          currentCredits={userCredits ?? 0}
+        />
       </>,
       document.body
     );
   }
 
   // ── Spotlight steps ─────────────────────────────────────────────────────────
-  // Wait until measurement has been attempted before deciding to skip
   if (!hasMeasured) return null;
 
   if (!rect) {
-    // Target not in DOM — skip to next step or dismiss
     if (step < STEPS.length - 1) {
       setTimeout(() => setStep((s) => s + 1), 100);
     } else {
@@ -185,7 +260,8 @@ export function SpotlightTour() {
     return null;
   }
 
-  const { side } = STEPS[step];
+  const currentStep = STEPS[step];
+  const { side } = currentStep;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
@@ -196,7 +272,6 @@ export function SpotlightTour() {
   const sW      = sRight - sLeft;
   const sH      = sBottom - sTop;
 
-  // ── Tooltip position ────────────────────────────────────────────────────────
   let tooltipTop  = 0;
   let tooltipLeft = 0;
   let arrowStyle: React.CSSProperties = {};
@@ -204,16 +279,10 @@ export function SpotlightTour() {
   if (side === "bottom") {
     tooltipTop  = sBottom + TOOLTIP_GAP;
     tooltipLeft = Math.max(16, Math.min(rect.left - PADDING, vw - TOOLTIP_WIDTH - 16));
-    // Arrow points up at the top-left area of the card
     const arrowX = Math.max(16, Math.min(rect.left + rect.width / 2 - tooltipLeft - ARROW_SIZE, TOOLTIP_WIDTH - 32));
     arrowStyle = {
-      position: "absolute",
-      top: -ARROW_SIZE,
-      left: arrowX,
-      width: 0,
-      height: 0,
-      borderLeft: `${ARROW_SIZE}px solid transparent`,
-      borderRight: `${ARROW_SIZE}px solid transparent`,
+      position: "absolute", top: -ARROW_SIZE, left: arrowX, width: 0, height: 0,
+      borderLeft: `${ARROW_SIZE}px solid transparent`, borderRight: `${ARROW_SIZE}px solid transparent`,
       borderBottom: `${ARROW_SIZE}px solid hsl(var(--border) / 0.4)`,
     };
   } else if (side === "top") {
@@ -221,13 +290,8 @@ export function SpotlightTour() {
     tooltipLeft = Math.max(16, Math.min(rect.left - PADDING, vw - TOOLTIP_WIDTH - 16));
     const arrowX = Math.max(16, Math.min(rect.left + rect.width / 2 - tooltipLeft - ARROW_SIZE, TOOLTIP_WIDTH - 32));
     arrowStyle = {
-      position: "absolute",
-      bottom: -ARROW_SIZE,
-      left: arrowX,
-      width: 0,
-      height: 0,
-      borderLeft: `${ARROW_SIZE}px solid transparent`,
-      borderRight: `${ARROW_SIZE}px solid transparent`,
+      position: "absolute", bottom: -ARROW_SIZE, left: arrowX, width: 0, height: 0,
+      borderLeft: `${ARROW_SIZE}px solid transparent`, borderRight: `${ARROW_SIZE}px solid transparent`,
       borderTop: `${ARROW_SIZE}px solid hsl(var(--border) / 0.4)`,
     };
   } else if (side === "right") {
@@ -235,13 +299,8 @@ export function SpotlightTour() {
     tooltipTop  = Math.max(16, Math.min(rect.top - PADDING, vh - 220));
     const arrowY = Math.max(16, Math.min(rect.top + rect.height / 2 - tooltipTop - ARROW_SIZE, 180));
     arrowStyle = {
-      position: "absolute",
-      left: -ARROW_SIZE,
-      top: arrowY,
-      width: 0,
-      height: 0,
-      borderTop: `${ARROW_SIZE}px solid transparent`,
-      borderBottom: `${ARROW_SIZE}px solid transparent`,
+      position: "absolute", left: -ARROW_SIZE, top: arrowY, width: 0, height: 0,
+      borderTop: `${ARROW_SIZE}px solid transparent`, borderBottom: `${ARROW_SIZE}px solid transparent`,
       borderRight: `${ARROW_SIZE}px solid hsl(var(--border) / 0.4)`,
     };
   } else {
@@ -249,18 +308,15 @@ export function SpotlightTour() {
     tooltipTop  = Math.max(16, Math.min(rect.top - PADDING, vh - 220));
     const arrowY = Math.max(16, Math.min(rect.top + rect.height / 2 - tooltipTop - ARROW_SIZE, 180));
     arrowStyle = {
-      position: "absolute",
-      right: -ARROW_SIZE,
-      top: arrowY,
-      width: 0,
-      height: 0,
-      borderTop: `${ARROW_SIZE}px solid transparent`,
-      borderBottom: `${ARROW_SIZE}px solid transparent`,
+      position: "absolute", right: -ARROW_SIZE, top: arrowY, width: 0, height: 0,
+      borderTop: `${ARROW_SIZE}px solid transparent`, borderBottom: `${ARROW_SIZE}px solid transparent`,
       borderLeft: `${ARROW_SIZE}px solid hsl(var(--border) / 0.4)`,
     };
   }
 
-  const currentStep = STEPS[step];
+  // On the credits step, show a dynamic description + top-up button if low
+  const isCreditsStep = step === 2;
+  const showTopUpInStep = isCreditsStep && isLow;
 
   return createPortal(
     <>
@@ -283,57 +339,33 @@ export function SpotlightTour() {
       <div style={{ position:"fixed", top: sTop, left:0, width: sLeft, height: sH, background: OVERLAY, zIndex:9998 }} />
       <div style={{ position:"fixed", top: sTop, left: sRight, right:0, height: sH, background: OVERLAY, zIndex:9998 }} />
 
-      {/* Ping ring (subtle glow that pulses outward) */}
+      {/* Ping ring */}
       <div
         className="tour-ping"
         style={{
-          position: "fixed",
-          top: sTop - 6,
-          left: sLeft - 6,
-          width: sW + 12,
-          height: sH + 12,
-          borderRadius: 14,
-          border: "2px solid rgba(255,255,255,0.5)",
-          zIndex: 9999,
-          pointerEvents: "none",
+          position: "fixed", top: sTop - 6, left: sLeft - 6, width: sW + 12, height: sH + 12,
+          borderRadius: 14, border: "2px solid rgba(255,255,255,0.5)", zIndex: 9999, pointerEvents: "none",
         }}
       />
 
-      {/* Spotlight ring — bright, solid white */}
+      {/* Spotlight ring */}
       <div
         style={{
-          position: "fixed",
-          top: sTop,
-          left: sLeft,
-          width: sW,
-          height: sH,
-          borderRadius: 10,
-          border: "2px solid rgba(255,255,255,0.95)",
-          boxShadow:
-            "0 0 0 1px rgba(255,255,255,0.15), " +
-            "0 0 16px 4px rgba(255,255,255,0.18), " +
-            "inset 0 0 0 1px rgba(255,255,255,0.08)",
-          zIndex: 10000,
-          pointerEvents: "none",
+          position: "fixed", top: sTop, left: sLeft, width: sW, height: sH,
+          borderRadius: 10, border: "2px solid rgba(255,255,255,0.95)",
+          boxShadow: "0 0 0 1px rgba(255,255,255,0.15), 0 0 16px 4px rgba(255,255,255,0.18), inset 0 0 0 1px rgba(255,255,255,0.08)",
+          zIndex: 10000, pointerEvents: "none",
         }}
       />
 
       {/* Tooltip card */}
       <div
         className="tour-tooltip"
-        style={{
-          position: "fixed",
-          top: tooltipTop,
-          left: tooltipLeft,
-          width: TOOLTIP_WIDTH,
-          zIndex: 10001,
-        }}
+        style={{ position: "fixed", top: tooltipTop, left: tooltipLeft, width: TOOLTIP_WIDTH, zIndex: 10001 }}
       >
-        {/* Arrow */}
         <div style={arrowStyle} />
 
         <div className="rounded-xl border border-white/10 bg-zinc-900 shadow-2xl overflow-hidden">
-          {/* Colored top accent */}
           <div className={`h-0.5 w-full ${currentStep.color}`} />
 
           <div className="p-4">
@@ -356,14 +388,44 @@ export function SpotlightTour() {
               </button>
             </div>
 
-            <h3 className="text-sm font-bold mb-1.5">{currentStep.title}</h3>
-            <p className="text-xs text-muted-foreground leading-relaxed mb-4">
-              {currentStep.description}
-            </p>
+            {/* Title */}
+            <h3 className="text-sm font-bold mb-1.5">
+              {showTopUpInStep ? "You need credits to start!" : currentStep.title}
+            </h3>
+
+            {/* Description */}
+            {showTopUpInStep ? (
+              <div className="mb-3">
+                <p className="text-xs text-muted-foreground leading-relaxed mb-2">
+                  {userCredits === 0
+                    ? "You don't have any credits yet. You need credits to generate websites with AI."
+                    : `You only have ${userCredits} credits left — that's not enough for most generations.`}
+                </p>
+                <p className="text-xs text-muted-foreground leading-relaxed mb-3">
+                  Buy a credit pack or enter an invitation code to top up and start building!
+                </p>
+                <Button
+                  size="sm"
+                  className="w-full gap-1.5 h-8 text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                  onClick={() => {
+                    dismiss();
+                    setShowBuyModal(true);
+                  }}
+                >
+                  <Coins className="size-3.5" />
+                  Get Credits Now
+                </Button>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+                {isCreditsStep && userCredits !== null
+                  ? `You currently have ${userCredits} credits. ${currentStep.description}`
+                  : currentStep.description}
+              </p>
+            )}
 
             {/* Footer */}
             <div className="flex items-center gap-2">
-              {/* Step dots */}
               <div className="flex gap-1.5 flex-1 items-center">
                 {STEPS.map((s, i) => (
                   <div
@@ -386,6 +448,16 @@ export function SpotlightTour() {
           </div>
         </div>
       </div>
+
+      <BuyCreditsModal
+        open={showBuyModal}
+        onOpenChange={setShowBuyModal}
+        onPurchaseComplete={() => {
+          const client = createApiClient(getToken);
+          client.credits.get().then((data) => setUserCredits(data.remaining)).catch(() => {});
+        }}
+        currentCredits={userCredits ?? 0}
+      />
     </>,
     document.body
   );

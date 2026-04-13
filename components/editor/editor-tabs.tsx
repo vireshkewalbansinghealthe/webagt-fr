@@ -22,7 +22,7 @@ import { Eye, Code2, History, Store } from "lucide-react";
  * "history" shows version timeline and diff viewer.
  * "shop-manager" shows the webshop management dashboard.
  */
-export type EditorTabValue = "preview" | "code" | "history" | "shop-manager";
+export type EditorTabValue = "preview" | "code" | "history" | "shop-manager" | "publish";
 
 /**
  * Props for the EditorTabs component.

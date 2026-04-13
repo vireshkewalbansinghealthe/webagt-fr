@@ -186,11 +186,52 @@ import { ProjectLogger } from "../services/project-logger";
 import { createTursoDatabase, createWebshopSchema } from "../services/turso";
 import { getBillingConfig, DEFAULT_PRICING_FORMULA } from "./billing";
 
+interface GenerationState {
+  status: "running" | "completed" | "failed";
+  startedAt: string;
+  lastHeartbeat?: string;
+  completedAt?: string;
+  versionId?: string;
+  error?: string;
+  streamingText?: string;
+}
+
 /**
  * Create a Hono router for chat endpoints.
  * Auth middleware is applied by the parent app in index.ts.
  */
 const chatRoutes = new Hono<{ Bindings: Env; Variables: AppVariables }>();
+
+// ---------------------------------------------------------------------------
+// GET /api/chat/status/:projectId — Check generation status
+// ---------------------------------------------------------------------------
+chatRoutes.get("/status/:projectId", async (c) => {
+  const projectId = c.req.param("projectId");
+  const raw = await c.env.METADATA.get(`generation:${projectId}`, "text");
+  if (!raw) return c.json({ status: "idle" });
+  try {
+    const state = JSON.parse(raw) as GenerationState;
+
+    if (state.status === "running") {
+      const heartbeat = state.lastHeartbeat || state.startedAt;
+      const staleSec = (Date.now() - new Date(heartbeat).getTime()) / 1000;
+      if (staleSec > 45) {
+        const failed: GenerationState = {
+          ...state,
+          status: "failed",
+          completedAt: new Date().toISOString(),
+          error: "Generation stalled — no heartbeat received",
+        };
+        await c.env.METADATA.put(`generation:${projectId}`, JSON.stringify(failed)).catch(() => {});
+        return c.json(failed);
+      }
+    }
+
+    return c.json(state);
+  } catch {
+    return c.json({ status: "idle" });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // POST /api/chat/:projectId — Stream AI code generation
@@ -474,7 +515,36 @@ chatRoutes.post("/:projectId", async (c) => {
     }
   }
 
-  // --- 7. Stream the AI response ---
+  // --- 7. Set generation state and stream the AI response ---
+  const nowIso = new Date().toISOString();
+  await c.env.METADATA.put(`generation:${projectId}`, JSON.stringify({
+    status: "running",
+    startedAt: nowIso,
+  } satisfies GenerationState));
+
+  // Save user message to chat history immediately so it survives a page refresh
+  const earlyUserMsg: ChatMessage = {
+    id: `msg-${Date.now()}-user`,
+    role: "user",
+    content: userMessage,
+    timestamp: nowIso,
+    images: enrichedImages.length > 0
+      ? enrichedImages.map((img) => ({
+          base64: img.url ? "" : img.base64,
+          mediaType: img.mediaType,
+          name: img.name,
+          url: img.url,
+        }))
+      : undefined,
+  };
+  const earlyChat: ChatSession = {
+    projectId,
+    messages: [...chatHistory, earlyUserMsg],
+    createdAt: chatSession?.createdAt || nowIso,
+    updatedAt: nowIso,
+  };
+  await c.env.METADATA.put(`chat:${projectId}`, JSON.stringify(earlyChat)).catch(() => {});
+
   return streamSSE(c, async (stream) => {
     let fullResponse = "";
     let eventId = 0;
@@ -485,28 +555,84 @@ chatRoutes.post("/:projectId", async (c) => {
 
       plog.info("chat", `Calling ${modelConfig.displayName} API — maxOutputTokens=${modelConfig.maxOutputTokens}`);
 
-      const result = streamText({
-        model,
-        system: systemPrompt,
-        messages: sdkMessages,
-        maxOutputTokens: modelConfig.maxOutputTokens,
-        experimental_telemetry: {
-          isEnabled: true,
-          functionId: "chat-generation",
-          recordInputs: true,
-          recordOutputs: true,
-          metadata: { projectId, modelId, userId },
-        },
-      });
+      // Retry with exponential backoff on rate limits (429)
+      const MAX_RETRIES = 3;
+      let result: ReturnType<typeof streamText> | null = null;
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        try {
+          result = streamText({
+            model,
+            system: systemPrompt,
+            messages: sdkMessages,
+            maxOutputTokens: modelConfig.maxOutputTokens,
+            experimental_telemetry: {
+              isEnabled: true,
+              functionId: "chat-generation",
+              recordInputs: true,
+              recordOutputs: true,
+              metadata: { projectId, modelId, userId },
+            },
+          });
+          // Consume the first chunk to detect immediate errors (e.g. 429)
+          const reader = result.textStream[Symbol.asyncIterator]();
+          const first = await reader.next();
+          if (!first.done) {
+            // Put the first chunk back by wrapping the stream
+            const originalReader = reader;
+            const wrappedStream = (async function* () {
+              yield first.value;
+              while (true) {
+                const next = await originalReader.next();
+                if (next.done) break;
+                yield next.value;
+              }
+            })();
+            // Replace the textStream reference for consumption below
+            (result as any)._retriedTextStream = wrappedStream;
+          }
+          break;
+        } catch (e: any) {
+          const msg = String(e?.message || e || "");
+          const isRateLimit = msg.includes("429") || msg.toLowerCase().includes("rate limit") || msg.includes("too many");
+          if (isRateLimit && attempt < MAX_RETRIES) {
+            const delay = Math.pow(2, attempt + 1) * 1000 + Math.random() * 1000;
+            plog.info("chat", `Rate limited (attempt ${attempt + 1}/${MAX_RETRIES + 1}), retrying in ${(delay / 1000).toFixed(1)}s...`);
+            await stream.writeSSE({
+              event: "status",
+              data: JSON.stringify({ message: `Rate limited — retrying in ${Math.ceil(delay / 1000)}s...`, attempt: attempt + 1 }),
+              id: String(eventId++),
+            });
+            await new Promise((r) => setTimeout(r, delay));
+            continue;
+          }
+          throw e;
+        }
+      }
+      if (!result) throw new Error("Failed to start AI stream after retries");
+
+      const textStream = (result as any)._retriedTextStream ?? result.textStream;
 
       let chunkCount = 0;
       let lastChunkTime = Date.now();
       let clientDisconnected = false;
+      let lastHeartbeatTime = Date.now();
 
-      for await (const chunk of result.textStream) {
+      for await (const chunk of textStream) {
         fullResponse += chunk;
         chunkCount++;
         lastChunkTime = Date.now();
+
+        // Heartbeat: update KV every ~10s so staleness detection works
+        if (Date.now() - lastHeartbeatTime > 10_000) {
+          lastHeartbeatTime = Date.now();
+          const partialExplanation = extractExplanation(fullResponse);
+          c.env.METADATA.put(`generation:${projectId}`, JSON.stringify({
+            status: "running",
+            startedAt: new Date(streamStart).toISOString(),
+            lastHeartbeat: new Date().toISOString(),
+            streamingText: partialExplanation.slice(0, 2000),
+          } satisfies GenerationState)).catch(() => {});
+        }
 
         if (!clientDisconnected) {
           try {
@@ -525,12 +651,31 @@ chatRoutes.post("/:projectId", async (c) => {
       // Capture real token usage from Anthropic (resolves after stream ends)
       let inputTokens = 0;
       let outputTokens = 0;
+      let cacheReadTokens = 0;
+      let cacheWriteTokens = 0;
       try {
         const usage = await result.usage;
-        inputTokens = usage.promptTokens ?? 0;
-        outputTokens = usage.completionTokens ?? 0;
+        inputTokens = (usage as any).inputTokens ?? (usage as any).promptTokens ?? 0;
+        outputTokens = (usage as any).outputTokens ?? (usage as any).completionTokens ?? 0;
+        const det = (usage as any).inputTokenDetails;
+        if (det) {
+          cacheReadTokens = det.cacheReadTokens ?? 0;
+          cacheWriteTokens = det.cacheWriteTokens ?? 0;
+        }
       } catch {
         // will use fallback below
+      }
+      try {
+        const meta = await result.providerMetadata;
+        const anthropicMeta = (meta as any)?.anthropic;
+        if (anthropicMeta) {
+          const metaWrite = anthropicMeta.cacheCreationInputTokens ?? 0;
+          if (metaWrite > 0) cacheWriteTokens = metaWrite;
+          const metaRead = anthropicMeta.usage?.cache_read_input_tokens ?? 0;
+          if (metaRead > 0) cacheReadTokens = metaRead;
+        }
+      } catch {
+        // provider metadata not available
       }
       // Fallback: estimate from character count when provider returns 0
       if (outputTokens === 0 && fullResponse.length > 0) {
@@ -539,7 +684,7 @@ chatRoutes.post("/:projectId", async (c) => {
       }
 
       const streamDuration = Date.now() - streamStart;
-      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${inputTokens} input + ${outputTokens} output tokens, ${(streamDuration / 1000).toFixed(1)}s${clientDisconnected ? " (background)" : ""}`, JSON.stringify({ chunkCount, inputTokens, outputTokens, durationMs: streamDuration, background: clientDisconnected }));
+      plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${inputTokens} total in (${Math.max(0, inputTokens - cacheWriteTokens - cacheReadTokens)} reg / ${cacheWriteTokens} write / ${cacheReadTokens} read) / ${outputTokens} out, ${(streamDuration / 1000).toFixed(1)}s${clientDisconnected ? " (background)" : ""}`);
 
       // Check for possible truncation
       const lastFileTagOpen = fullResponse.lastIndexOf("<file ");
@@ -633,14 +778,20 @@ chatRoutes.post("/:projectId", async (c) => {
       // --- 10. Deduct credits based on real Anthropic token usage ---
       const billingCfg = await getBillingConfig(c.env);
       const formula = billingCfg?.pricingFormula ?? DEFAULT_PRICING_FORMULA;
-      const apiCostUsd =
-        (inputTokens * formula.inputPricePerMillion) / 1_000_000 +
-        (outputTokens * formula.outputPricePerMillion) / 1_000_000;
+      const inputPricePerToken = formula.inputPricePerMillion / 1_000_000;
+      const outputPricePerToken = formula.outputPricePerMillion / 1_000_000;
+      const regularInputTokens = Math.max(0, inputTokens - cacheWriteTokens - cacheReadTokens);
+      const regularInputCost = regularInputTokens * inputPricePerToken;
+      const cacheWriteCost = cacheWriteTokens * inputPricePerToken * 1.25;
+      const cacheReadCost = cacheReadTokens * inputPricePerToken * 0.1;
+      const outputCost = outputTokens * outputPricePerToken;
+      const apiCostUsd = regularInputCost + cacheWriteCost + cacheReadCost + outputCost;
       const creditsToDeduct = Math.max(1, Math.ceil(apiCostUsd / formula.creditUnitCostUsd));
+      const userPaysUsd = creditsToDeduct * formula.creditUnitCostUsd * formula.markup;
 
-      const updatedCredits = await deductCredits(userId, creditsToDeduct, c.env);
+      const updatedCredits = await deductCredits(userId, creditsToDeduct, c.env, apiCostUsd);
       console.log(
-        `[chat] Token usage — ${inputTokens} in / ${outputTokens} out — API cost $${apiCostUsd.toFixed(4)} — deducted ${creditsToDeduct} credits, remaining: ${updatedCredits.remaining}`,
+        `[chat] ${regularInputTokens} reg / ${cacheWriteTokens} cacheWrite / ${cacheReadTokens} cacheRead / ${outputTokens} out — API $${apiCostUsd.toFixed(4)} / user pays $${userPaysUsd.toFixed(4)} — deducted ${creditsToDeduct} credits, remaining: ${updatedCredits.remaining}`,
       );
 
       // --- 11. Save chat messages to KV ---
@@ -684,6 +835,7 @@ chatRoutes.post("/:projectId", async (c) => {
           inputTokens,
           outputTokens,
           costUsd: apiCostUsd,
+          userPaysUsd,
           creditsUsed: creditsToDeduct,
         },
       };
@@ -740,6 +892,7 @@ chatRoutes.post("/:projectId", async (c) => {
                   inputTokens,
                   outputTokens,
                   costUsd: apiCostUsd,
+                  userPaysUsd,
                   creditsUsed: creditsToDeduct,
                 },
               }),
@@ -752,6 +905,15 @@ chatRoutes.post("/:projectId", async (c) => {
 
       const totalDuration = Date.now() - streamStart;
       plog.info("chat", `✅ Generation complete — v${newVersionNumber}, ${changedFilePaths.length} files changed, ${(totalDuration / 1000).toFixed(1)}s total`);
+
+      // Mark generation as completed so polling clients know
+      await c.env.METADATA.put(`generation:${projectId}`, JSON.stringify({
+        status: "completed",
+        startedAt: new Date(streamStart).toISOString(),
+        completedAt: new Date().toISOString(),
+        versionId: `v${newVersionNumber}`,
+      } satisfies GenerationState));
+
       await plog.flush();
     } catch (error) {
       const rawError =
@@ -794,6 +956,14 @@ chatRoutes.post("/:projectId", async (c) => {
         userMessage = "Failed to generate code. Please try again.";
         errorCode = "GENERATION_FAILED";
       }
+
+      // Mark generation as failed so polling clients know
+      await c.env.METADATA.put(`generation:${projectId}`, JSON.stringify({
+        status: "failed",
+        startedAt: new Date(streamStart).toISOString(),
+        completedAt: new Date().toISOString(),
+        error: rawError,
+      } satisfies GenerationState)).catch(() => {});
 
       await stream.writeSSE({
         event: "error",

@@ -92,6 +92,17 @@ const ShopManagerPanel = dynamic(
 );
 
 /**
+ * Lazy-load the Publish panel (for website projects).
+ */
+const PublishPanel = dynamic(
+  () =>
+    import("@/components/editor/publish-panel").then(
+      (mod) => mod.PublishPanel
+    ),
+  { ssr: false, loading: () => <EditorSkeleton /> }
+);
+
+/**
  * Strips markdown code fences from file content.
  * Removes the opening ```lang line (if first line) and closing ``` line (if last line).
  * Uses a line-based approach for robustness.
@@ -231,6 +242,7 @@ export default function EditorPage({
   /** Loading state while fetching project data */
   const [isLoading, setIsLoading] = useState(true);
 
+
   /** Version history metadata for the timeline */
   const [versions, setVersions] = useState<VersionMeta[]>([]);
 
@@ -242,11 +254,11 @@ export default function EditorPage({
     undefined
   );
 
-  /** Total credits for the billing period (e.g. 50 for free) */
+  /** Total credits */
   const [creditsTotal, setCreditsTotal] = useState<number>(50);
 
-  /** User's current plan — determines model access */
-  const [userPlan, setUserPlan] = useState<"free" | "pro">("free");
+  /** User plan — always "pro" now (credit-pack model) */
+  const [userPlan, setUserPlan] = useState<"free" | "pro">("pro");
 
   /** Currently selected AI model ID */
   const [selectedModelId, setSelectedModelId] = useState<string>(DEFAULT_MODEL_ID);
@@ -293,7 +305,18 @@ export default function EditorPage({
   const startPolling = useCallback(() => {
     if (pollingRef.current) return; // already polling
 
+    const pollingStartedAt = Date.now();
+
     pollingRef.current = setInterval(async () => {
+      // Safety net: stop polling after 5 minutes
+      if (Date.now() - pollingStartedAt > 5 * 60 * 1000) {
+        clearInterval(pollingRef.current!);
+        pollingRef.current = null;
+        setIsStreaming(false);
+        isStreamingRef.current = false;
+        return;
+      }
+
       try {
         const token = await getToken();
         if (!token) return;
@@ -303,7 +326,28 @@ export default function EditorPage({
         });
         if (!res.ok) return;
 
-        const state = await res.json() as { status: string; versionId?: string };
+        const state = await res.json() as { status: string; versionId?: string; streamingText?: string };
+
+          // Update partial AI response while still running
+          if (state.status === "running" && state.streamingText) {
+            setMessages((prev) => {
+              const idx = prev.findIndex((m) => m.id === "streaming-partial");
+              if (idx >= 0) {
+                const updated = [...prev];
+                updated[idx] = { ...updated[idx], content: state.streamingText! };
+                return updated;
+              }
+              return [
+                ...prev,
+                {
+                  id: "streaming-partial",
+                  role: "assistant" as const,
+                  content: state.streamingText!,
+                  timestamp: new Date().toISOString(),
+                },
+              ];
+            });
+          }
 
           if (state.status === "completed" || state.status === "failed") {
           // Stop polling
@@ -327,16 +371,27 @@ export default function EditorPage({
           setVersions(versionsResponse.versions);
 
           if (state.status === "completed") {
+            try { sessionStorage.removeItem(`pendingPrompt:${projectId}`); } catch {}
+
             setProject((prev) =>
               prev ? { ...prev, currentVersion: prev.currentVersion + 1, updatedAt: new Date().toISOString() } : prev
             );
 
-            // Force thumbnail capture after Sandpack re-renders the new files
             setTimeout(() => {
               window.dispatchEvent(
                 new CustomEvent("webagt:capture-thumbnail", { detail: { delay: 2000 } })
               );
             }, 6000);
+          } else if (state.status === "failed") {
+            // If the initial generation failed (no versions exist),
+            // delete the empty project and redirect to dashboard
+            if (versionsResponse.versions.length === 0) {
+              const c = createApiClient(getToken);
+              c.projects.delete(projectId).catch(() => {});
+              try { sessionStorage.removeItem(`pendingPrompt:${projectId}`); } catch {}
+              router.replace("/dashboard");
+              return;
+            }
           }
 
           setIsStreaming(false);
@@ -346,7 +401,7 @@ export default function EditorPage({
         // Polling failed silently — will retry next interval
       }
     }, 4000);
-  }, [getToken, projectId]);
+  }, [getToken, projectId, router]);
 
   /**
    * Fetch project metadata, current version files, chat history,
@@ -378,11 +433,9 @@ export default function EditorPage({
         setSelectedModelId(
           projectResponse.project.model || DEFAULT_MODEL_ID
         );
-        setCreditsRemaining(
-          creditsResponse.isUnlimited ? -1 : creditsResponse.remaining
-        );
+        setCreditsRemaining(creditsResponse.remaining);
         setCreditsTotal(creditsResponse.total);
-        setUserPlan(creditsResponse.plan);
+        setUserPlan("pro");
 
         const fileRecord = filesToRecord(filesResponse.files);
         setFiles(fileRecord);
@@ -399,28 +452,55 @@ export default function EditorPage({
           setActiveFile(filePaths[0]);
         }
 
-        // If the server is still generating (background), restore the chat
-        // to how it looked before the refresh: show the user message + a
-        // typing AI bubble, then poll until the server finishes and swap in
-        // the real response automatically.
-        const genState = statusRes as { status: string };
+        const genState = statusRes as { status: string; streamingText?: string };
+        const isInitialGeneration = projectResponse.project.currentVersion === 0;
+
+        // If the initial generation was interrupted by a refresh (status is
+        // "running" or "failed" while still at v0), delete the empty project
+        // and redirect to dashboard — prevents broken/empty projects.
+        if (isInitialGeneration && genState.status !== "idle") {
+          try {
+            await client.projects.delete(projectId);
+          } catch { /* ignore — may already be deleted */ }
+          try { sessionStorage.removeItem(`pendingPrompt:${projectId}`); } catch {}
+          router.replace("/dashboard");
+          return;
+        }
+
+        // For follow-up generations (v1+): if still running in background,
+        // show partial progress and poll until it finishes.
         if (genState.status === "running") {
+          if (genState.streamingText) {
+            setMessages((prev) => {
+              const hasPartial = prev.some((m) => m.id === "streaming-partial");
+              if (hasPartial) return prev;
+              return [
+                ...prev,
+                {
+                  id: "streaming-partial",
+                  role: "assistant" as const,
+                  content: genState.streamingText!,
+                  timestamp: new Date().toISOString(),
+                },
+              ];
+            });
+          }
           setIsStreaming(true);
           isStreamingRef.current = true;
           startPolling();
         }
 
         // Check sessionStorage for a pending prompt (set during project creation).
-        // Consume and delete the key so refreshes won't re-send.
-        try {
-          const storageKey = `pendingPrompt:${projectId}`;
-          const pending = sessionStorage.getItem(storageKey);
-          if (pending) {
-            sessionStorage.removeItem(storageKey);
-            pendingPromptRef.current = pending;
+        if (genState.status === "idle") {
+          try {
+            const storageKey = `pendingPrompt:${projectId}`;
+            const pending = sessionStorage.getItem(storageKey);
+            if (pending) {
+              pendingPromptRef.current = pending;
+            }
+          } catch {
+            // sessionStorage unavailable — skip auto-send
           }
-        } catch {
-          // sessionStorage unavailable — skip auto-send
         }
       } catch {
         // If project not found or access denied, redirect to dashboard
@@ -846,10 +926,13 @@ export default function EditorPage({
                   10
                 );
 
+                // Generation succeeded — clear the pending prompt from sessionStorage
+                try {
+                  sessionStorage.removeItem(`pendingPrompt:${projectId}`);
+                } catch {}
+
                 setProject((prev) => {
                   const isFirst = (prev?.currentVersion ?? 0) === 0;
-                  // After the FIRST generation, force a fresh thumbnail capture
-                  // (give Sandpack ~5s to fully render the new files)
                   if (isFirst) {
                     setTimeout(() => {
                       window.dispatchEvent(
@@ -1209,16 +1292,16 @@ export default function EditorPage({
     }
   }, [isFirstPrompt, handleStopGeneration]);
 
-  // Block browser-level navigation (refresh, tab close) during first prompt
+  // Block browser-level navigation (refresh, tab close) while generating
   useEffect(() => {
-    if (!isStreaming || !isFirstPrompt) return;
+    if (!isStreaming) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [isStreaming, isFirstPrompt]);
+  }, [isStreaming]);
 
   // Intercept SPA navigation (logo, sign-out) during first prompt
   const handleNavigateAway = useCallback((): boolean => {
@@ -1309,6 +1392,7 @@ export default function EditorPage({
       databaseUrl={project?.databaseUrl}
       databaseToken={project?.databaseToken}
       shopManagerPanel={project && project.type === "webshop" ? <ShopManagerPanel project={project} /> : undefined}
+      publishPanel={project && project.type !== "webshop" ? <PublishPanel project={project} /> : undefined}
       previewPanel={<PreviewPanel files={files} onError={handleSandpackError} isStreaming={isStreaming} onFilesChange={handleFilesChange} streamingContent={isStreaming ? (messages.findLast(m => m.role === "assistant")?.content ?? "") : ""} />}
       codeEditorPanel={
         <CodeEditorPanel

@@ -35,7 +35,7 @@ import { getModelById } from "@/lib/models";
  * @property isCreditsExhausted - Whether the user has 0 credits left
  * @property selectedModelId - Currently selected AI model ID
  * @property onModelChange - Callback when user switches model
- * @property userPlan - User's plan for model gating ("free" or "pro")
+ * @property userPlan - Legacy prop; always treated as Pro
  */
 export interface ChatPanelProps {
   messages: ChatMessage[];
@@ -45,7 +45,7 @@ export interface ChatPanelProps {
   isCreditsExhausted?: boolean;
   selectedModelId: string;
   onModelChange: (modelId: string) => void;
-  userPlan: "free" | "pro";
+  userPlan?: "pro" | "free";
   onStopGeneration?: () => void;
   canStop?: boolean;
 }
@@ -67,7 +67,7 @@ export function ChatPanel({
   isCreditsExhausted,
   selectedModelId,
   onModelChange,
-  userPlan,
+  userPlan = "pro",
   onStopGeneration,
   canStop,
 }: ChatPanelProps) {

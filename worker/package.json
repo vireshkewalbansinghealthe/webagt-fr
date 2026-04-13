@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "wrangler dev --env dev",
+    "dev": "NODE_OPTIONS='--max-old-space-size=4096' wrangler dev --env dev",
     "deploy": "wrangler deploy",
     "deploy:dev": "wrangler deploy --env dev",
     "typecheck": "tsc --noEmit"
@@ -29,6 +29,6 @@
     "@cloudflare/workers-types": "^4.20260214.0",
     "@types/canvas-confetti": "^1.9.0",
     "typescript": "^5.9.3",
-    "wrangler": "^4.65.0"
+    "wrangler": "^4.81.1"
   }
 }

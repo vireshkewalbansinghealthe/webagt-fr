@@ -253,6 +253,7 @@ export default function FlyAdminPage() {
 
   useEffect(() => {
     fetchMachines();
+    fetchLogs();
     return () => { stopPolling(); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -280,7 +281,7 @@ export default function FlyAdminPage() {
         </div>
         <Button variant="outline" size="sm" onClick={fetchMachines} disabled={machinesLoading}>
           <RefreshCw className={cn("size-4 mr-2", machinesLoading && "animate-spin")} />
-          Vernieuwen
+          Refresh
         </Button>
       </div>
 
@@ -300,7 +301,7 @@ export default function FlyAdminPage() {
           </div>
         ) : machines.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border p-8 text-center text-muted-foreground text-sm">
-            Geen machines gevonden
+            No machines found
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -314,7 +315,7 @@ export default function FlyAdminPage() {
         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
             <Terminal className="size-4" />
-            Live Logs
+            Logs
             {isPolling && (
               <span className="inline-flex items-center gap-1 text-emerald-500">
                 <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -331,7 +332,7 @@ export default function FlyAdminPage() {
                 onChange={(e) => setFilterInstance(e.target.value)}
                 className="text-xs bg-muted border border-border rounded-md px-2 py-1.5 outline-none font-mono"
               >
-                <option value="">Alle machines</option>
+                <option value="">All machines</option>
                 {uniqueInstances.map(id => (
                   <option key={id} value={id}>{id.slice(0, 12)}</option>
                 ))}
@@ -344,7 +345,7 @@ export default function FlyAdminPage() {
               onChange={(e) => setFilterLevel(e.target.value)}
               className="text-xs bg-muted border border-border rounded-md px-2 py-1.5 outline-none"
             >
-              <option value="">Alle niveaus</option>
+              <option value="">All levels</option>
               <option value="error">Error</option>
               <option value="warn">Warn</option>
               <option value="info">Info</option>
@@ -358,7 +359,7 @@ export default function FlyAdminPage() {
               className="text-xs h-7 px-2"
               onClick={() => { seenIds.clear(); setLogs([]); }}
             >
-              Wissen
+              Clear
             </Button>
 
             {/* Start / Stop */}
@@ -385,7 +386,7 @@ export default function FlyAdminPage() {
             onClick={() => { setAutoScroll(true); logEndRef.current?.scrollIntoView({ behavior: "smooth" }); }}
             className="mb-2 flex items-center gap-1.5 rounded-full bg-primary/10 px-3 py-1 text-xs text-primary hover:bg-primary/20 transition-colors"
           >
-            <ChevronDown className="size-3" /> Scroll naar beneden
+            <ChevronDown className="size-3" /> Scroll to bottom
           </button>
         )}
 
@@ -397,7 +398,7 @@ export default function FlyAdminPage() {
           {filteredLogs.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3 text-slate-500">
               <Terminal className="size-8 opacity-30" />
-              <p>{isPolling ? "Wachten op logs…" : "Druk op 'Start Live' om logs te streamen."}</p>
+              <p>{isPolling ? "Waiting for logs…" : "No recent logs found. Press 'Start Live' to stream new logs."}</p>
             </div>
           ) : (
             <div className="space-y-0.5">
@@ -431,7 +432,7 @@ export default function FlyAdminPage() {
           )}
         </div>
         <p className="text-[11px] text-muted-foreground mt-2">
-          {filteredLogs.length} regels • elke 3s bijgewerkt • max 2000 regels
+          {filteredLogs.length} lines • refreshes every 3s when live • max 2000 lines
         </p>
       </section>
     </div>

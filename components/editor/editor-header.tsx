@@ -43,6 +43,7 @@ import {
   Store,
   ExternalLink,
   Loader2,
+  Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -65,7 +66,7 @@ import { useNewOrdersCount } from "@/hooks/use-new-orders-count";
  * @property mobilePanel - Which panel is visible on mobile ("chat" or "content")
  * @property onMobilePanelChange - Callback to switch the mobile panel
  * @property projectId - Project ID for the export button
- * @property userPlan - User's plan for export gating
+ * @property userPlan - Legacy prop; always treated as Pro
  * @property creditsRemaining - Credits left (-1 = unlimited, undefined = loading)
  * @property creditsTotal - Total credits for the plan period
  * @property onRename - Callback when user renames the project
@@ -82,7 +83,7 @@ export interface EditorHeaderProps {
   mobilePanel: "chat" | "content";
   onMobilePanelChange: (panel: "chat" | "content") => void;
   projectId: string;
-  userPlan: "free" | "pro";
+  userPlan?: "pro" | "free";
   creditsRemaining?: number;
   creditsTotal?: number;
   onRename: (newName: string) => void;
@@ -127,7 +128,7 @@ export function EditorHeader({
   mobilePanel,
   onMobilePanelChange,
   projectId,
-  userPlan,
+  userPlan = "pro",
   creditsRemaining,
   creditsTotal,
   onRename,
@@ -171,6 +172,8 @@ export function EditorHeader({
   const tabs: Array<{ value: EditorTabValue; label: string; icon: any }> = [...BASE_TABS];
   if (projectType === "webshop") {
     tabs.push({ value: "shop-manager", label: "Shop", icon: Store });
+  } else {
+    tabs.push({ value: "publish", label: "Publish", icon: Rocket });
   }
 
   /** Creates a CodeSandbox sandbox and opens the live .csb.app URL directly */
@@ -291,7 +294,7 @@ export function EditorHeader({
           onRename={onRename}
           onDelete={onDelete}
         />
-        {projectType === "webshop" && (
+        {projectType === "webshop" ? (
           <button
             onClick={() => {
               onTabChange("shop-manager");
@@ -311,6 +314,22 @@ export function EditorHeader({
                 {newOrdersCount > 9 ? "9+" : newOrdersCount}
               </span>
             )}
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              onTabChange("publish");
+              onMobilePanelChange("content");
+            }}
+            className={cn(
+              "flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-150",
+              activeTab === "publish"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground bg-secondary/50 hover:text-foreground",
+            )}
+          >
+            <Rocket className="size-3" />
+            Publish
           </button>
         )}
       </div>

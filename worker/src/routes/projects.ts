@@ -24,7 +24,7 @@ import { nanoid } from "nanoid";
 import type { Env, AppVariables } from "../types";
 import type { Project, Version } from "../types/project";
 import { createInitialVersion } from "../ai/default-project";
-import { getCredits, FREE_PROJECT_LIMIT } from "../services/credits";
+import { getCredits } from "../services/credits";
 import { sanitizeProjectName } from "../services/sanitize";
 import { createTursoDatabase, createWebshopSchema, executeTursoSQL, deleteTursoDatabase } from "../services/turso";
 import {
@@ -1036,38 +1036,7 @@ projectRoutes.post("/", async (c) => {
     );
   }
 
-  // Check project count limit and webshop restriction for free users
-  const credits = await getCredits(userId, c.env);
-  if (credits.plan === "free") {
-    // Webshop is a Pro-only feature
-    if (body.type === "webshop") {
-      return c.json(
-        {
-          error: "Webshops zijn alleen beschikbaar in het Pro plan. Upgrade om een webshop te maken.",
-          code: "PLAN_RESTRICTION",
-        },
-        403
-      );
-    }
-
-    const existingIds = await c.env.METADATA.get<string[]>(
-      `user-projects:${userId}`,
-      "json"
-    );
-    const projectCount = existingIds?.length ?? 0;
-
-    if (projectCount >= FREE_PROJECT_LIMIT) {
-      return c.json(
-        {
-          error: `Free plan is limited to ${FREE_PROJECT_LIMIT} projects. Upgrade to Pro for unlimited projects.`,
-          code: "PROJECT_LIMIT_REACHED",
-          limit: FREE_PROJECT_LIMIT,
-          current: projectCount,
-        },
-        403
-      );
-    }
-  }
+  // No project limit — everyone is on the credit-pack model
 
   const projectId = nanoid(12);
   const now = new Date().toISOString();

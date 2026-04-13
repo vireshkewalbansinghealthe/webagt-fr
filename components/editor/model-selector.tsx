@@ -11,7 +11,7 @@
 "use client";
 
 import { useState } from "react";
-import { Zap, Sparkles, Lock, Check, ChevronDown } from "lucide-react";
+import { Zap, Sparkles, Check, ChevronDown } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -24,7 +24,8 @@ import type { ModelInfo } from "@/lib/models";
 export interface ModelSelectorProps {
   selectedModelId: string;
   onModelChange: (modelId: string) => void;
-  userPlan: "free" | "pro";
+  /** Legacy; ignored — all models available */
+  userPlan?: "pro" | "free";
   disabled?: boolean;
 }
 
@@ -37,7 +38,7 @@ function TierIcon({ tier, className }: { tier: "lite" | "premium"; className?: s
 export function ModelSelector({
   selectedModelId,
   onModelChange,
-  userPlan,
+  userPlan: _userPlan,
   disabled = false,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
@@ -46,7 +47,6 @@ export function ModelSelector({
   const tier = selectedModel?.tier ?? "lite";
 
   function handleSelect(model: ModelInfo) {
-    if (model.tier === "premium" && userPlan === "free") return;
     onModelChange(model.id);
     setOpen(false);
   }
@@ -93,18 +93,15 @@ export function ModelSelector({
 
             {group.models.map((model) => {
               const isSelected = model.id === selectedModelId;
-              const isLocked = model.tier === "premium" && userPlan === "free";
 
               return (
                 <button
                   key={model.id}
                   onClick={() => handleSelect(model)}
-                  disabled={isLocked}
                   className={cn(
                     "flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left transition-colors",
                     "hover:bg-accent/60",
-                    isSelected && "bg-accent/40",
-                    isLocked && "cursor-not-allowed opacity-35"
+                    isSelected && "bg-accent/40"
                   )}
                 >
                   <TierIcon
@@ -126,7 +123,7 @@ export function ModelSelector({
                     {model.name}
                   </span>
 
-                  {model.savingLabel && !isLocked && (
+                  {model.savingLabel && (
                     <span className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium bg-emerald-500/15 text-emerald-500">
                       {model.savingLabel}
                     </span>
@@ -134,9 +131,6 @@ export function ModelSelector({
 
                   {isSelected && (
                     <Check className="size-3 shrink-0 text-foreground/50" />
-                  )}
-                  {isLocked && (
-                    <Lock className="size-3 shrink-0 text-muted-foreground/40" />
                   )}
                 </button>
               );

@@ -15,7 +15,7 @@ import { createApiClient, type AdminUserSummary, type ProviderBalance } from "@/
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Users, FolderOpen, RefreshCw, ArrowRight, CheckCircle2, XCircle, ExternalLink } from "lucide-react";
+import { Users, FolderOpen, RefreshCw, ArrowRight, CheckCircle2, XCircle, ExternalLink, Key, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
 
@@ -234,7 +234,82 @@ export default function AdminOverviewPage() {
             ))}
           </ul>
         )}
+      {/* API Token for scripts */}
+      <ApiTokenSection getToken={getToken} />
       </div>
+    </div>
+  );
+}
+
+function ApiTokenSection({ getToken }: { getToken: () => Promise<string | null> }) {
+  const [token, setToken] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  async function handleReveal() {
+    setLoading(true);
+    try {
+      const t = await getToken();
+      setToken(t);
+    } catch {
+      setToken(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleCopy() {
+    if (!token) return;
+    await navigator.clipboard.writeText(token);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Key className="size-4 text-muted-foreground" />
+        <h3 className="font-semibold text-sm">API Token</h3>
+        <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">for scripts</span>
+      </div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Use this JWT token with the load test script or API calls. Expires after ~60 seconds.
+      </p>
+      {!token ? (
+        <button
+          onClick={handleReveal}
+          disabled={loading}
+          className="rounded-lg border border-border bg-background px-4 py-2 text-sm font-medium hover:bg-muted transition-colors disabled:opacity-50"
+        >
+          {loading ? "Loading..." : "Reveal Token"}
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            <code className="flex-1 rounded-lg bg-muted/50 border border-border px-3 py-2 text-xs font-mono break-all max-h-20 overflow-auto select-all">
+              {token}
+            </code>
+            <button
+              onClick={handleCopy}
+              className="shrink-0 rounded-lg border border-border bg-background px-3 py-2 hover:bg-muted transition-colors"
+            >
+              {copied ? <Check className="size-4 text-green-500" /> : <Copy className="size-4 text-muted-foreground" />}
+            </button>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleReveal}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Refresh token
+            </button>
+            <span className="text-xs text-muted-foreground">·</span>
+            <span className="text-xs text-muted-foreground">
+              python3 scripts/load-test.py
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

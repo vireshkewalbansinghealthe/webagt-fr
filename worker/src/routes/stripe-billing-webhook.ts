@@ -23,7 +23,7 @@
 import { Hono } from "hono";
 import Stripe from "stripe";
 import type { Env } from "../types";
-import { upgradePlan, downgradePlan, getCredits } from "../services/credits";
+import { addCredits, getCredits } from "../services/credits";
 
 const stripeBillingWebhookRoutes = new Hono<{ Bindings: Env }>();
 
@@ -77,28 +77,14 @@ stripeBillingWebhookRoutes.post("/", async (c) => {
         if (!existing) await env.METADATA.put(`stripe_customer:${userId}`, customerId);
       }
 
-      if (session.mode === "subscription") {
-        // Pro subscription payment
-        console.log(`[stripe-billing-webhook] Upgrading user ${userId} to Pro`);
-        await upgradePlan(userId, env);
-      } else if (session.mode === "payment" && session.metadata?.type === "credit_pack") {
-        // One-time credit pack purchase — add credits to user balance
-        const creditsToAdd = parseInt(session.metadata?.credits || "0", 10);
-        if (creditsToAdd > 0) {
-          const current = await getCredits(userId, env);
-          // Pro users are already unlimited, no need to add
-          if (current.remaining !== -1) {
-            const updated = {
-              ...current,
-              remaining: current.remaining + creditsToAdd,
-              total: current.total + creditsToAdd,
-            };
-            await env.METADATA.put(`credits:${userId}`, JSON.stringify(updated));
-            console.log(`[stripe-billing-webhook] Added ${creditsToAdd} credits to user ${userId}`);
-          } else {
-            console.log(`[stripe-billing-webhook] User ${userId} is Pro (unlimited) — skipping credit add`);
-          }
-        }
+      const creditsToAdd = parseInt(session.metadata?.credits || "0", 10);
+      if (session.metadata?.type === "credit_pack" && creditsToAdd > 0) {
+        const updated = await addCredits(userId, creditsToAdd, env);
+        console.log(`[stripe-billing-webhook] Added ${creditsToAdd} credits to user ${userId}, balance: ${updated.remaining}`);
+      } else if (session.mode === "subscription") {
+        // Legacy subscription — give 100 bonus credits
+        const updated = await addCredits(userId, 100, env);
+        console.log(`[stripe-billing-webhook] Legacy subscription — added 100 credits to user ${userId}, balance: ${updated.remaining}`);
       }
       break;
     }
@@ -107,34 +93,10 @@ stripeBillingWebhookRoutes.post("/", async (c) => {
      * customer.subscription.deleted — Subscription fully cancelled/expired.
      * Downgrade the user back to Free.
      */
-    case "customer.subscription.deleted": {
-      const sub = event.data.object as Stripe.Subscription;
-      const userId = sub.metadata?.clerk_user_id;
-      if (!userId) {
-        console.error("[stripe-billing-webhook] subscription.deleted: missing clerk_user_id");
-        break;
-      }
-      console.log(`[stripe-billing-webhook] Downgrading user ${userId} to Free`);
-      await downgradePlan(userId, env);
-      break;
-    }
-
-    /**
-     * customer.subscription.updated — Status changed (e.g. past_due, canceled, active).
-     * Only downgrade when status leaves "active" state definitively.
-     */
+    case "customer.subscription.deleted":
     case "customer.subscription.updated": {
-      const sub = event.data.object as Stripe.Subscription;
-      const userId = sub.metadata?.clerk_user_id;
-      if (!userId) break;
-
-      if (sub.status === "active" || sub.status === "trialing") {
-        // Still active — ensure they're on Pro
-        await upgradePlan(userId, env);
-      } else if (sub.status === "canceled" || sub.status === "unpaid") {
-        await downgradePlan(userId, env);
-      }
-      // past_due: Stripe retries, don't downgrade yet
+      // No-op — we no longer use subscriptions, credits are pay-as-you-go
+      console.log(`[stripe-billing-webhook] ${event.type} — no action (credits-only model)`);
       break;
     }
 

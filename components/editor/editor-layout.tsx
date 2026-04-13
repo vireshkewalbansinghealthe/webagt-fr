@@ -60,7 +60,7 @@ import { EditorTour } from "./editor-tour";
  * @property isCreditsExhausted - Whether the user has 0 credits left
  * @property selectedModelId - Currently selected AI model ID
  * @property onModelChange - Callback when user switches model
- * @property userPlan - User's plan for model gating ("free" or "pro")
+ * @property userPlan - Legacy prop; always treated as Pro (credit packs)
  * @property projectId - Project ID for export and other actions
  * @property creditsTotal - Total credits for the plan period
  * @property onRename - Callback when user renames the project
@@ -80,6 +80,7 @@ export interface EditorLayoutProps {
   codeEditorPanel: React.ReactNode;
   historyPanel?: React.ReactNode;
   shopManagerPanel?: React.ReactNode;
+  publishPanel?: React.ReactNode;
   viewingVersion?: number | null;
   onBackToCurrent?: () => void;
   onRestoreViewing?: () => void;
@@ -88,7 +89,8 @@ export interface EditorLayoutProps {
   isCreditsExhausted?: boolean;
   selectedModelId: string;
   onModelChange: (modelId: string) => void;
-  userPlan: "free" | "pro";
+  /** Always Pro; `"free"` may still be passed from older API responses and is ignored */
+  userPlan?: "pro" | "free";
   onRename: (newName: string) => void;
   onDelete: () => Promise<void>;
   onStopGeneration?: () => void;
@@ -141,7 +143,7 @@ export function EditorLayout({
   isCreditsExhausted,
   selectedModelId,
   onModelChange,
-  userPlan,
+  userPlan = "pro",
   onRename,
   onDelete,
   onStopGeneration,
@@ -150,6 +152,7 @@ export function EditorLayout({
   projectType,
   deploymentUuid,
   shopManagerPanel,
+  publishPanel,
   databaseUrl,
   databaseToken,
 }: EditorLayoutProps) {
@@ -370,6 +373,13 @@ export function EditorLayout({
             </div>
           )}
 
+          {/* Publish panel (website projects) */}
+          {activeTab === "publish" && publishPanel && (
+            <div className="absolute inset-0 z-10 overflow-auto bg-background">
+              {publishPanel}
+            </div>
+          )}
+
           {/* Preview panel — kept mounted to avoid iframe remount */}
           <div
             className={cn(
@@ -450,6 +460,12 @@ export function EditorLayout({
           {activeTab === "shop-manager" && shopManagerPanel && (
             <div className="absolute inset-0 z-20 overflow-auto bg-background">
               {shopManagerPanel}
+            </div>
+          )}
+          {/* Publish panel as full-screen overlay on mobile */}
+          {activeTab === "publish" && publishPanel && (
+            <div className="absolute inset-0 z-20 overflow-auto bg-background">
+              {publishPanel}
             </div>
           )}
           <PanelErrorBoundary name="Preview">

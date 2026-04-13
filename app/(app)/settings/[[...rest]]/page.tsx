@@ -99,24 +99,20 @@ export default function SettingsPage() {
               <thead>
                 <tr className="border-b border-border text-left">
                   <th className="pb-2 pr-6 font-medium text-muted-foreground">Category</th>
-                  <th className="pb-2 pr-6 font-medium text-muted-foreground">Free Plan</th>
-                  <th className="pb-2 font-medium text-muted-foreground">Pro Plan</th>
+                  <th className="pb-2 font-medium text-muted-foreground">Limit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 <tr>
                   <td className="py-2 pr-6">AI Generation</td>
-                  <td className="py-2 pr-6">10 req/min</td>
                   <td className="py-2">30 req/min</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-6">Export</td>
-                  <td className="py-2 pr-6">5 req/min</td>
                   <td className="py-2">5 req/min</td>
                 </tr>
                 <tr>
                   <td className="py-2 pr-6">General API</td>
-                  <td className="py-2 pr-6">60 req/min</td>
                   <td className="py-2">60 req/min</td>
                 </tr>
               </tbody>

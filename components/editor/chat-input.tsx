@@ -344,19 +344,19 @@ export function ChatInput({
           <Button
             type="button"
             variant="ghost"
-            size="icon-xs"
+            size="sm"
             data-tour="editor-visual-edit"
             onClick={() => window.dispatchEvent(new CustomEvent("toggle-visual-edit"))}
             disabled={isDisabled}
             className={cn(
-              "shrink-0 rounded-lg transition-colors",
+              "shrink-0 rounded-full border transition-colors gap-1.5 h-7 px-3 text-xs",
               isVisualEditMode
                 ? "bg-primary/20 text-primary hover:bg-primary/30 hover:text-primary"
                 : "text-muted-foreground hover:text-foreground"
             )}
-            title="Visual Editor"
           >
             <Wand2 className="size-3.5" />
+            Visual Edit
           </Button>
 
           {/* Hidden file input for image selection */}

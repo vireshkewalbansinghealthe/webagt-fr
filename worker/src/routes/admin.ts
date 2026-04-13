@@ -638,6 +638,15 @@ adminRoutes.get("/api/admin/users/:userId/projects", async (c) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/admin/projects/:projectId/chat — Chat history for a project (admin)
+// ---------------------------------------------------------------------------
+adminRoutes.get("/api/admin/projects/:projectId/chat", async (c) => {
+  const projectId = c.req.param("projectId");
+  const raw = await c.env.METADATA.get(`chat:${projectId}`, "json") as { messages?: unknown[] } | null;
+  return c.json({ messages: raw?.messages ?? [] });
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/admin/fly/machines
 // List all Fly.io machines for the chat app
 // ---------------------------------------------------------------------------
@@ -650,8 +659,9 @@ adminRoutes.get("/api/admin/fly/machines", async (c) => {
     return c.json({ error: "FLY_API_TOKEN not configured" }, 500);
   }
 
+  const authHeader = token.startsWith("FlyV1") ? token : `Bearer ${token}`;
   const res = await fetch(`https://api.machines.dev/v1/apps/${app}/machines`, {
-    headers: { Authorization: `Bearer ${token}` },
+    headers: { Authorization: authHeader },
   });
 
   if (!res.ok) {
@@ -684,12 +694,13 @@ adminRoutes.get("/api/admin/fly/logs", async (c) => {
   if (region) params.set("region", region);
   if (instance) params.set("instance", instance);
   const qs = params.toString();
-  const url = `https://api.machines.dev/v1/apps/${app}/logs${qs ? `?${qs}` : ""}`;
+  const url = `https://api.fly.io/api/v1/apps/${app}/logs${qs ? `?${qs}` : ""}`;
+  const authHeader = token.startsWith("FlyV1") ? token : `Bearer ${token}`;
 
   let res: Response;
   try {
     res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { Authorization: authHeader },
       signal: AbortSignal.timeout(12_000),
     });
   } catch {
@@ -702,18 +713,21 @@ adminRoutes.get("/api/admin/fly/logs", async (c) => {
   }
 
   const text = await res.text();
-  const logs = text
-    .trim()
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
+
+  let logs: any[];
+  try {
+    const parsed = JSON.parse(text);
+    logs = Array.isArray(parsed?.data) ? parsed.data : [];
+  } catch {
+    logs = text
+      .trim()
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        try { return JSON.parse(line); } catch { return null; }
+      })
+      .filter(Boolean);
+  }
 
   return c.json({ logs, app });
 });
@@ -724,6 +738,7 @@ adminRoutes.get("/api/admin/fly/logs", async (c) => {
 // ---------------------------------------------------------------------------
 
 adminRoutes.get("/api/admin/credits/report", async (c) => {
+  const secretKey = c.env.CLERK_SECRET_KEY;
   const keys = await c.env.METADATA.list({ prefix: "credits:", limit: 1000 });
 
   const entries = await Promise.all(
@@ -733,6 +748,7 @@ adminRoutes.get("/api/admin/credits/report", async (c) => {
         total?: number;
         plan?: string;
         updatedAt?: string;
+        apiSpendUsd?: number;
       }>(key.name, "json");
       if (!data) return null;
       return {
@@ -741,6 +757,8 @@ adminRoutes.get("/api/admin/credits/report", async (c) => {
         total: data.total ?? 0,
         plan: data.plan ?? "free",
         updatedAt: data.updatedAt,
+        apiSpendUsd: data.apiSpendUsd ?? 0,
+        email: "",
       };
     })
   );
@@ -751,9 +769,35 @@ adminRoutes.get("/api/admin/credits/report", async (c) => {
     total: number;
     plan: string;
     updatedAt?: string;
+    apiSpendUsd: number;
+    email: string;
   }[];
 
-  // Compute aggregate stats
+  if (secretKey) {
+    const userIds = credits
+      .map((c) => c.userId)
+      .filter((id) => id.startsWith("user_"));
+
+    if (userIds.length > 0) {
+      try {
+        const qs = userIds.map((id) => `user_id=${id}`).join("&");
+        const users = await clerkFetch<ClerkUser[]>(secretKey, `/users?${qs}&limit=100`);
+        const emailMap = new Map<string, string>();
+        for (const u of users) {
+          const email = u.email_addresses?.find((e: any) => e.id === u.primary_email_address_id)?.email_address
+            || u.email_addresses?.[0]?.email_address
+            || "";
+          emailMap.set(u.id, email);
+        }
+        for (const entry of credits) {
+          entry.email = emailMap.get(entry.userId) || entry.userId;
+        }
+      } catch {
+        // Fall back to userId if Clerk lookup fails
+      }
+    }
+  }
+
   const totalAllocated = credits.reduce((s, c) => s + c.total, 0);
   const totalRemaining = credits.reduce((s, c) => s + c.remaining, 0);
   const totalConsumed = totalAllocated - totalRemaining;
@@ -775,11 +819,7 @@ adminRoutes.get("/api/admin/credits/report", async (c) => {
 
 adminRoutes.get("/api/admin/billing-config", adminMiddleware, async (c) => {
   const config = await getBillingConfig(c.env);
-  return c.json(config ?? {
-    subscription: { priceId: "", amount: 2900, currency: "eur", name: "Pro Plan", description: "" },
-    creditPacks: [],
-    pricingFormula: DEFAULT_PRICING_FORMULA,
-  });
+  return c.json(config);
 });
 
 // ---------------------------------------------------------------------------
@@ -791,5 +831,323 @@ adminRoutes.put("/api/admin/billing-config", adminMiddleware, async (c) => {
   await c.env.METADATA.put("billing_config", JSON.stringify(body));
   return c.json({ ok: true });
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/promo-codes — Create a promo/invitation code
+// ---------------------------------------------------------------------------
+
+adminRoutes.post("/api/admin/promo-codes", adminMiddleware, async (c) => {
+  const body = await c.req.json<{
+    code?: string;
+    credits: number;
+    maxUses?: number;
+    expiresAt?: string;
+    label?: string;
+  }>();
+
+  if (!body.credits || body.credits < 1) {
+    return c.json({ error: "credits must be >= 1" }, 400);
+  }
+
+  // Auto-generate a 6-char code if not provided
+  const code = (body.code || generateCode()).trim().toUpperCase();
+  const kvKey = `promo:${code}`;
+
+  const existing = await c.env.METADATA.get(kvKey);
+  if (existing) {
+    return c.json({ error: `Code "${code}" already exists` }, 409);
+  }
+
+  const promo = {
+    credits: body.credits,
+    maxUses: body.maxUses ?? 1,
+    usedBy: [] as string[],
+    createdAt: new Date().toISOString(),
+    expiresAt: body.expiresAt || undefined,
+    label: body.label || undefined,
+  };
+
+  await c.env.METADATA.put(kvKey, JSON.stringify(promo));
+  console.log(`[admin] Created promo code "${code}" — ${promo.credits} credits, max ${promo.maxUses} uses`);
+
+  return c.json({ code, ...promo });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/promo-codes — List all promo codes
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/api/admin/promo-codes", adminMiddleware, async (c) => {
+  const list = await c.env.METADATA.list({ prefix: "promo:" });
+  const codes: Array<{ code: string; credits: number; maxUses: number; used: number; createdAt: string; expiresAt?: string; label?: string }> = [];
+
+  for (const key of list.keys) {
+    const promo = await c.env.METADATA.get<{ credits: number; maxUses: number; usedBy: string[]; createdAt: string; expiresAt?: string; label?: string }>(key.name, "json");
+    if (promo) {
+      codes.push({
+        code: key.name.replace("promo:", ""),
+        credits: promo.credits,
+        maxUses: promo.maxUses,
+        used: promo.usedBy.length,
+        createdAt: promo.createdAt,
+        expiresAt: promo.expiresAt,
+        label: promo.label,
+      });
+    }
+  }
+
+  return c.json({ codes });
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/admin/promo-codes/:code — Delete a promo code
+// ---------------------------------------------------------------------------
+
+adminRoutes.delete("/api/admin/promo-codes/:code", adminMiddleware, async (c) => {
+  const code = c.req.param("code").toUpperCase();
+  await c.env.METADATA.delete(`promo:${code}`);
+  return c.json({ ok: true, deleted: code });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/admin/invites — Create invite, store code, send email
+// ---------------------------------------------------------------------------
+
+interface InviteRecord {
+  email: string;
+  code: string;
+  credits: number;
+  sentAt: string;
+  sentBy: string;
+  redeemed: boolean;
+  message?: string;
+}
+
+adminRoutes.post("/api/admin/invites", adminMiddleware, async (c) => {
+  const body = await c.req.json<{
+    email: string;
+    credits: number;
+    message?: string;
+  }>();
+
+  if (!body.email || !body.email.includes("@")) {
+    return c.json({ error: "A valid email address is required" }, 400);
+  }
+  if (!body.credits || body.credits < 1) {
+    return c.json({ error: "credits must be >= 1" }, 400);
+  }
+
+  const code = generateCode();
+  const kvKey = `promo:${code}`;
+
+  const promo = {
+    credits: body.credits,
+    maxUses: 1,
+    usedBy: [] as string[],
+    createdAt: new Date().toISOString(),
+    label: `Invite for ${body.email}`,
+  };
+
+  await c.env.METADATA.put(kvKey, JSON.stringify(promo));
+
+  const invite: InviteRecord = {
+    email: body.email,
+    code,
+    credits: body.credits,
+    sentAt: new Date().toISOString(),
+    sentBy: c.var.userId,
+    redeemed: false,
+    message: body.message,
+  };
+
+  const existingInvites = await c.env.METADATA.get<InviteRecord[]>("admin_invites", "json") ?? [];
+  existingInvites.unshift(invite);
+  await c.env.METADATA.put("admin_invites", JSON.stringify(existingInvites));
+
+  const resendKey = c.env.RESEND_API_KEY;
+  const fromEmail = c.env.PLATFORM_EMAIL_FROM || "WebAGT <noreply@webagt.ai>";
+  let emailSent = false;
+  let emailError: string | undefined;
+
+  if (resendKey) {
+    try {
+      const frontendUrl = c.env.FRONTEND_URL || "https://www.webagt.ai";
+      const html = buildInviteEmailHtml({
+        code,
+        credits: body.credits,
+        signupUrl: `${frontendUrl}/sign-up`,
+        message: body.message,
+      });
+
+      const res = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${resendKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          from: fromEmail,
+          to: body.email,
+          subject: `You've been invited to WebAGT — ${body.credits} free credits inside`,
+          html,
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        emailError = `Resend ${res.status}: ${errText}`;
+        console.error(`[admin/invite] Email failed:`, emailError);
+      } else {
+        emailSent = true;
+      }
+    } catch (err: any) {
+      emailError = err.message;
+      console.error(`[admin/invite] Email error:`, err);
+    }
+  } else {
+    emailError = "RESEND_API_KEY not configured";
+  }
+
+  console.log(`[admin] Invite sent to ${body.email} — code: ${code}, ${body.credits} credits, emailSent: ${emailSent}`);
+
+  return c.json({ code, credits: body.credits, email: body.email, emailSent, emailError });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/admin/invites — List all sent invitations
+// ---------------------------------------------------------------------------
+
+adminRoutes.get("/api/admin/invites", adminMiddleware, async (c) => {
+  const invites = await c.env.METADATA.get<InviteRecord[]>("admin_invites", "json") ?? [];
+
+  for (const inv of invites) {
+    const promo = await c.env.METADATA.get<{ usedBy: string[] }>(`promo:${inv.code}`, "json");
+    inv.redeemed = (promo?.usedBy?.length ?? 0) > 0;
+  }
+
+  return c.json({ invites });
+});
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function generateCode(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+  for (let i = 0; i < 6; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+function buildInviteEmailHtml(opts: {
+  code: string;
+  credits: number;
+  signupUrl: string;
+  message?: string;
+}): string {
+  const { code, credits, signupUrl, message } = opts;
+
+  const messageBlock = message
+    ? `<p style="margin:0 0 24px;font-size:14px;color:#999999;line-height:1.7;font-style:italic;border-left:3px solid #333;padding-left:16px;">${message.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`
+    : "";
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+</head>
+<body style="margin:0;padding:0;background:#050505;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:48px 20px;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="background:#0a0a0a;border-radius:16px;border:1px solid #1a1a1a;overflow:hidden;">
+          <!-- Header -->
+          <tr>
+            <td style="padding:36px 40px 28px;border-bottom:1px solid #1a1a1a;">
+              <span style="font-size:24px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">WebAGT</span>
+            </td>
+          </tr>
+          <!-- Hero -->
+          <tr>
+            <td style="padding:40px 40px 0;">
+              <h1 style="margin:0 0 8px;font-size:28px;font-weight:800;color:#ffffff;line-height:1.2;letter-spacing:-0.5px;">
+                You're invited
+              </h1>
+              <p style="margin:0 0 28px;font-size:16px;color:#888888;line-height:1.6;">
+                Someone thinks you'd love building with AI. Here are <strong style="color:#ffffff;">${credits} free credits</strong> to get started.
+              </p>
+              ${messageBlock}
+            </td>
+          </tr>
+          <!-- Code card -->
+          <tr>
+            <td style="padding:0 40px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="background:#111;border-radius:12px;border:1px solid #222;">
+                <tr>
+                  <td style="padding:28px 32px;text-align:center;">
+                    <p style="margin:0 0 8px;font-size:11px;color:#666;text-transform:uppercase;letter-spacing:3px;font-weight:600;">Your invite code</p>
+                    <p style="margin:0;font-size:36px;font-weight:800;color:#ffffff;letter-spacing:6px;font-family:'Courier New',monospace;">${code}</p>
+                    <p style="margin:12px 0 0;font-size:13px;color:#555;">Worth <strong style="color:#60a5fa;">${credits} credits</strong> — enter it after signing up</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- CTA -->
+          <tr>
+            <td style="padding:0 40px 36px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center">
+                    <table cellpadding="0" cellspacing="0">
+                      <tr>
+                        <td style="border-radius:10px;background:linear-gradient(135deg,#2563eb,#0ea5e9);">
+                          <a href="${signupUrl}" style="display:inline-block;padding:16px 40px;font-size:16px;font-weight:700;color:#ffffff;text-decoration:none;border-radius:10px;">
+                            Create Your Account
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:20px 0 0;font-size:13px;color:#555;text-align:center;line-height:1.6;">
+                Sign up, then enter the code <strong style="color:#aaa;">${code}</strong> in the credits section.
+              </p>
+            </td>
+          </tr>
+          <!-- What is WebAGT -->
+          <tr>
+            <td style="padding:0 40px 32px;">
+              <table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #1a1a1a;">
+                <tr>
+                  <td style="padding:28px 0 0;">
+                    <p style="margin:0 0 12px;font-size:13px;font-weight:600;color:#888;text-transform:uppercase;letter-spacing:1px;">What is WebAGT?</p>
+                    <p style="margin:0;font-size:14px;color:#666;line-height:1.7;">
+                      An AI-powered platform that builds complete websites and webshops in minutes. Just describe what you want, and our AI creates production-ready code with live preview, one-click deployment, and built-in payments.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 40px;border-top:1px solid #1a1a1a;background:#080808;">
+              <p style="margin:0;font-size:11px;color:#444444;line-height:1.6;">
+                You received this because someone invited you to try WebAGT. If this wasn't meant for you, feel free to ignore it.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+}
 
 export { adminRoutes };

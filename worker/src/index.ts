@@ -131,6 +131,7 @@ app.use("/api/*", async (c, next) => {
     c.req.path === "/api/testing/sign-in-token" ||
     c.req.path === "/api/sa/collect" ||
     c.req.path === "/api/shopify/callback" ||
+    c.req.path === "/api/contact" ||
     c.req.path.match(/\/api\/projects\/.*\/public-files/) ||
     c.req.method === "GET" && c.req.path.match(/^\/api\/invites\/[^/]+$/)
   ) {
@@ -231,6 +232,80 @@ app.route("/api/sa", siteAnalyticsRoutes);
  * GET /api/shopify/callback is public (OAuth redirect from Shopify).
  */
 app.route("/api/shopify", shopifyRoutes);
+
+/**
+ * Contact form endpoint — sends email via Resend.
+ */
+app.post("/api/contact", async (c) => {
+  const body = await c.req.json<{
+    name: string;
+    email: string;
+    subject: string;
+    message: string;
+  }>();
+
+  if (!body.name || !body.email || !body.message) {
+    return c.json({ error: "Name, email, and message are required" }, 400);
+  }
+
+  const resendKey = c.env.RESEND_API_KEY;
+  if (!resendKey) {
+    return c.json({ error: "Email service not configured" }, 500);
+  }
+
+  const subjectMap: Record<string, string> = {
+    general: "General question",
+    support: "Technical support",
+    billing: "Billing & plans",
+    feedback: "Feedback & suggestions",
+    partnership: "Partnership / business",
+    other: "Other",
+  };
+  const subjectLabel = subjectMap[body.subject] || body.subject || "General";
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${resendKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from: c.env.PLATFORM_EMAIL_FROM || "WebAGT <noreply@webagt.ai>",
+        to: ["viresh@flexy.nl"],
+        reply_to: body.email,
+        subject: `[WebAGT Contact] ${subjectLabel} — ${body.name}`,
+        html: `
+          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
+            <div style="background: #111; color: #fff; padding: 24px; border-radius: 12px 12px 0 0;">
+              <h2 style="margin: 0; font-size: 18px;">New Contact Message</h2>
+            </div>
+            <div style="border: 1px solid #e5e5e5; border-top: none; padding: 24px; border-radius: 0 0 12px 12px;">
+              <table style="width: 100%; border-collapse: collapse; margin-bottom: 16px;">
+                <tr><td style="padding: 8px 0; color: #666; width: 100px;">From</td><td style="padding: 8px 0; font-weight: 600;">${body.name}</td></tr>
+                <tr><td style="padding: 8px 0; color: #666;">Email</td><td style="padding: 8px 0;"><a href="mailto:${body.email}" style="color: #2563eb;">${body.email}</a></td></tr>
+                <tr><td style="padding: 8px 0; color: #666;">Subject</td><td style="padding: 8px 0;">${subjectLabel}</td></tr>
+              </table>
+              <hr style="border: none; border-top: 1px solid #e5e5e5; margin: 16px 0;">
+              <div style="white-space: pre-wrap; line-height: 1.6; color: #333;">${body.message.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>
+            </div>
+          </div>
+        `,
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      console.error("[contact] Resend error:", err);
+      return c.json({ error: "Failed to send message" }, 500);
+    }
+
+    return c.json({ ok: true });
+  } catch (err: any) {
+    console.error("[contact] Send error:", err);
+    return c.json({ error: "Failed to send message" }, 500);
+  }
+});
 
 /**
  * Mount admin routes at root (routes are prefixed /api/admin/*).

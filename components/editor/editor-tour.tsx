@@ -119,7 +119,7 @@ const ALL_STEPS: TourStep[] = [
     target: '[data-tour="editor-export"]',
     title: "Publiceren & exporteren",
     description:
-      "Klaar? Exporteer je code als zip of publiceer direct naar een live URL. Pro-gebruikers kunnen ook een eigen domein koppelen.",
+      "Klaar? Exporteer je code als zip of publiceer direct naar een live URL. Je kunt ook een eigen domein koppelen.",
     side: "bottom",
     icon: <Rocket className="size-4" />,
     color: "bg-rose-500",

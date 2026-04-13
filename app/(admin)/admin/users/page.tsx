@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useAuth } from "@clerk/nextjs";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { createApiClient, type AdminUserSummary } from "@/lib/api-client";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -80,6 +80,7 @@ interface UserDetail {
 
 export default function AdminUsersPage() {
   const { getToken } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   const [users, setUsers] = useState<UserWithCount[]>([]);
@@ -326,9 +327,10 @@ export default function AdminUsersPage() {
               users.map((u) => (
                 <tr
                   key={u.id}
-                  className={`transition-colors hover:bg-accent/40 ${
+                  className={`transition-colors hover:bg-accent/40 cursor-pointer ${
                     searchParams.get("highlight") === u.id ? "bg-primary/5" : ""
                   }`}
+                  onClick={() => router.push(`/admin/users/${u.id}`)}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -362,7 +364,7 @@ export default function AdminUsersPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => openDetail(u.id)}
+                      onClick={(e) => { e.stopPropagation(); router.push(`/admin/users/${u.id}`); }}
                       className="text-xs"
                     >
                       <Eye className="size-3.5" />
@@ -409,6 +411,9 @@ export default function AdminUsersPage() {
         <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col p-0 gap-0">
           {detailLoading || !detail ? (
             <div className="space-y-3 p-6">
+              <DialogHeader>
+                <DialogTitle>User Details</DialogTitle>
+              </DialogHeader>
               <Skeleton className="h-6 w-40" />
               <Skeleton className="h-4 w-60" />
               <Skeleton className="h-32 w-full mt-4" />

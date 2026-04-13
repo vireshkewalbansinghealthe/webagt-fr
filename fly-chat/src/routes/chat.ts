@@ -193,8 +193,31 @@ chatRoutes.post("/:projectId", async (c) => {
   // --- 6. Build AI prompt ---
   const backendUrl = env.PUBLIC_WORKER_URL?.replace(/\/+$/, "") || "https://webagt-worker-v2.webagt.workers.dev";
 
-  const { basePrompt, projectContext } = buildSystemPromptParts(project, existingFiles, backendUrl);
-  plog.debug("chat", `System prompt built — base=${basePrompt.length} chars, context=${projectContext.length} chars`);
+  const allFilePaths = existingFiles.map((f) => f.path);
+  let selectedFilePaths: string[] | undefined;
+
+  if (existingFiles.length > 4) {
+    const msgLower = userMessage.toLowerCase();
+    const alwaysInclude = new Set(["src/App.tsx", "package.json", "src/index.tsx", "src/index.css"]);
+    const selected = new Set<string>();
+
+    for (const fp of allFilePaths) {
+      if (alwaysInclude.has(fp)) { selected.add(fp); continue; }
+      const basename = fp.split("/").pop()?.replace(/\.[^.]+$/, "").toLowerCase() || "";
+      if (msgLower.includes(basename)) { selected.add(fp); continue; }
+      if (fp.includes("lib/") || fp.includes("data/")) { selected.add(fp); continue; }
+    }
+
+    if (selected.size > 0 && selected.size < allFilePaths.length) {
+      selectedFilePaths = Array.from(selected);
+    }
+  }
+
+  const { basePrompt, projectContext } = buildSystemPromptParts(
+    project, existingFiles, backendUrl,
+    selectedFilePaths ? { selectedFilePaths, allFilePaths } : undefined,
+  );
+  plog.debug("chat", `System prompt built — base=${basePrompt.length} chars, context=${projectContext.length} chars, files=${selectedFilePaths ? `${selectedFilePaths.length}/${allFilePaths.length} selected` : "all"}`);
 
   // --- 6a. Upload images to R2 ---
   const enrichedImages: ImageAttachment[] = [];
@@ -641,10 +664,8 @@ chatRoutes.post("/:projectId", async (c) => {
 
       const BILLING_CONFIG_KEY = "billing_config";
       const billingCfg = await kv.get<{ pricingFormula?: { creditUnitCostUsd: number; markup: number } }>(BILLING_CONFIG_KEY, "json");
-      // creditUnitCostUsd = what 1 credit costs US in API calls (e.g. $0.06)
-      // markup = what the user pays per credit relative to our API cost (e.g. 3 = user pays $0.18/credit)
       const creditUnitCostUsd = billingCfg?.pricingFormula?.creditUnitCostUsd ?? 0.06;
-      const markup = billingCfg?.pricingFormula?.markup ?? 3;
+      const markup = billingCfg?.pricingFormula?.markup ?? 1;
 
       const inputPricePerToken  = modelPrices.input  / 1_000_000;
       const outputPricePerToken = modelPrices.output / 1_000_000;
@@ -655,9 +676,8 @@ chatRoutes.post("/:projectId", async (c) => {
       const regularInputCost = regularInputTokens * inputPricePerToken;
 
       plog.info("chat", `AI stream completed — ${chunkCount} chunks, ${inputTokens} total in (${regularInputTokens} reg / ${cacheWriteTokens} write / ${cacheReadTokens} read) / ${outputTokens} out, ${(streamDuration / 1000).toFixed(1)}s`);
-      // Cache write billed at 0.20× input rate (not 1.25×).
-      // We absorb most of the caching overhead so credits track output tokens, not Anthropic infra.
-      const cacheWriteCost = cacheWriteTokens * inputPricePerToken * 0.20;
+      // Real Anthropic cache pricing: write = 1.25× input, read = 0.1× input
+      const cacheWriteCost = cacheWriteTokens * inputPricePerToken * 1.25;
       const cacheReadCost  = cacheReadTokens  * inputPricePerToken * 0.1;
       const outputCost     = outputTokens     * outputPricePerToken;
       const apiCostUsd = regularInputCost + cacheWriteCost + cacheReadCost + outputCost;
@@ -668,7 +688,7 @@ chatRoutes.post("/:projectId", async (c) => {
       const userPaysUsd = creditsToDeduct * creditUnitCostUsd * markup;
       const actualMargin = userPaysUsd / apiCostUsd;
 
-      const updatedCredits = await deductCredits(userId, creditsToDeduct, kv);
+      const updatedCredits = await deductCredits(userId, creditsToDeduct, kv, apiCostUsd);
       console.log(`[${projectId}] [credits] ${regularInputTokens} reg / ${cacheWriteTokens} cacheWrite / ${cacheReadTokens} cacheRead / ${outputTokens} out — API $${apiCostUsd.toFixed(4)} / user pays $${userPaysUsd.toFixed(4)} (${actualMargin.toFixed(2)}× margin) — deducted ${creditsToDeduct} credits, remaining: ${updatedCredits.remaining}`);
 
       // --- 11. Save chat messages to KV ---

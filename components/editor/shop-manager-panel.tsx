@@ -4352,6 +4352,7 @@ function PublishTab({
   const isDeploySuccess = logs.some(log => log.includes("✨ Deployment completed successfully!"));
   const isDeployFailed = logs.some(log => log.includes("❌ Deployment failed"));
   const isDeploying = loading;
+  const deployProgress = useDeployProgress(isDeploying, isDeploySuccess || isDeployFailed);
   const paymentMode = project.paymentMode ?? "off";
   const hasSelectedModeAccount =
     paymentMode === "test"
@@ -4939,13 +4940,27 @@ function PublishTab({
                   <Activity className="size-4 text-blue-500 animate-pulse" />
                   Deployment Progress
                 </h4>
-                <span className="text-xs text-muted-foreground font-mono">
-                  Building container...
+                <span className="text-xs text-muted-foreground font-mono tabular-nums">
+                  {Math.round(deployProgress)}%
                 </span>
               </div>
               <div className="w-full bg-muted rounded-full h-2 overflow-hidden">
-                <div className="bg-primary h-2 rounded-full w-2/3 animate-pulse transition-all duration-1000 ease-in-out" />
+                <div
+                  className="bg-primary h-2 rounded-full transition-[width] duration-700 ease-out"
+                  style={{ width: `${deployProgress}%` }}
+                />
               </div>
+              <p className="text-xs text-muted-foreground">
+                {deployProgress < 15
+                  ? "Pushing code to GitHub..."
+                  : deployProgress < 40
+                    ? "Building container..."
+                    : deployProgress < 70
+                      ? "Installing dependencies..."
+                      : deployProgress < 90
+                        ? "Starting application..."
+                        : "Finalizing deployment..."}
+              </p>
             </div>
           )}
 
@@ -4981,4 +4996,44 @@ function PublishTab({
       )}
     </div>
   );
+}
+
+function useDeployProgress(isDeploying: boolean, isFinished: boolean): number {
+  const [progress, setProgress] = useState(0);
+  const startTimeRef = useRef<number | null>(null);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (isFinished) {
+      setProgress(100);
+      startTimeRef.current = null;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
+
+    if (!isDeploying) {
+      setProgress(0);
+      startTimeRef.current = null;
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      return;
+    }
+
+    if (!startTimeRef.current) {
+      startTimeRef.current = Date.now();
+    }
+
+    const tick = () => {
+      const elapsed = (Date.now() - startTimeRef.current!) / 1000;
+      const p = 95 * (1 - Math.exp(-elapsed / 60));
+      setProgress(Math.round(p));
+    };
+
+    tick();
+    intervalRef.current = setInterval(tick, 1000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [isDeploying, isFinished]);
+
+  return progress;
 }

@@ -75,9 +75,7 @@ export interface ApiError {
 interface CreditsResponse {
   remaining: number;
   total: number;
-  plan: "free" | "pro";
-  periodEnd: string;
-  isUnlimited: boolean;
+  plan: "pro";
 }
 
 const CREDITS_CACHE_TTL_MS = 30_000;
@@ -527,19 +525,6 @@ export function createApiClient(getToken: GetTokenFunction) {
       get: () => getCreditsWithCache(getToken),
 
       /**
-       * Sync plan from Clerk API — call after checkout completes.
-       * Checks the user's active Clerk subscriptions and upgrades KV if needed.
-       *
-       * @returns Updated credits + whether an upgrade occurred
-       */
-      sync: () =>
-        authenticatedFetch<{
-          synced: boolean;
-          upgraded: boolean;
-          credits: CreditsResponse;
-        }>(getToken, "/api/credits/sync", { method: "POST" }),
-
-      /**
        * Check whether the user has seen the onboarding modal (stored in KV,
        * not localStorage, so it persists across devices).
        */
@@ -556,18 +541,26 @@ export function createApiClient(getToken: GetTokenFunction) {
         authenticatedFetch<{ ok: boolean }>(getToken, "/api/credits/onboarding", {
           method: "POST",
         }),
+
+      /**
+       * Redeem a promo/invitation code for bonus credits.
+       */
+      redeemCode: (code: string) =>
+        authenticatedFetch<{
+          success: boolean;
+          creditsAdded: number;
+          remaining: number;
+          label: string;
+        }>(getToken, "/api/credits/redeem", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+        }),
     },
 
     billing: {
       getConfig: () =>
         authenticatedFetch<BillingConfig>(getToken, "/api/billing/config"),
-
-      createCheckout: (email?: string) =>
-        authenticatedFetch<{ url: string }>(getToken, "/api/billing/checkout", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        }),
 
       buyCredits: (packId: string, email?: string) =>
         authenticatedFetch<{ url: string }>(getToken, "/api/billing/buy-credits", {
@@ -800,6 +793,9 @@ export function createApiClient(getToken: GetTokenFunction) {
           { method: "DELETE" }
         ),
 
+      getProjectChat: (projectId: string) =>
+        authenticatedFetch<{ messages: any[] }>(getToken, `/api/admin/projects/${projectId}/chat`),
+
       getProjectLogs: (projectId: string, opts?: { level?: string; limit?: number }) => {
         const params = new URLSearchParams();
         if (opts?.level) params.set("level", opts.level);
@@ -830,7 +826,7 @@ export function createApiClient(getToken: GetTokenFunction) {
 
       getCreditsReport: () =>
         authenticatedFetch<{
-          credits: { userId: string; remaining: number; total: number; plan: string; updatedAt?: string }[];
+          credits: { userId: string; email: string; remaining: number; total: number; plan: string; updatedAt?: string; apiSpendUsd: number }[];
           summary: { users: number; totalAllocated: number; totalRemaining: number; totalConsumed: number };
         }>(getToken, "/api/admin/credits/report"),
 
@@ -843,6 +839,21 @@ export function createApiClient(getToken: GetTokenFunction) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(config),
         }),
+
+      sendInvite: (data: { email: string; credits: number; message?: string }) =>
+        authenticatedFetch<AdminInviteResult>(getToken, "/api/admin/invites", {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+
+      getInvites: () =>
+        authenticatedFetch<{ invites: AdminInvite[] }>(getToken, "/api/admin/invites"),
+
+      getPromoCodes: () =>
+        authenticatedFetch<{ codes: AdminPromoCode[] }>(getToken, "/api/admin/promo-codes"),
+
+      deletePromoCode: (code: string) =>
+        authenticatedFetch<{ ok: boolean }>(getToken, `/api/admin/promo-codes/${code}`, { method: "DELETE" }),
     },
 
     testing: {
@@ -893,31 +904,48 @@ export interface AdminUserSummary {
 export interface CreditPack {
   id: string;
   credits: number;
-  priceId: string;
-  amount: number;
-  currency: string;
+  priceUsd: number;
+  priceCents: number;
+  label: string;
+  popular?: boolean;
 }
 
-/** Configures how real Anthropic token costs map to credits and margin. */
 export interface PricingFormula {
-  /** $ per million input tokens (Claude Sonnet = 3) */
   inputPricePerMillion: number;
-  /** $ per million output tokens (Claude Sonnet = 15) */
   outputPricePerMillion: number;
-  /** API cost (in $) that equals 1 credit deducted from a user's balance */
   creditUnitCostUsd: number;
-  /** Multiplier: how many times more we charge users vs raw API cost */
   markup: number;
 }
 
 export interface BillingConfig {
-  subscription: {
-    priceId: string;
-    amount: number;
-    currency: string;
-    name: string;
-    description: string;
-  };
   creditPacks: CreditPack[];
   pricingFormula: PricingFormula;
+}
+
+export interface AdminInvite {
+  email: string;
+  code: string;
+  credits: number;
+  sentAt: string;
+  sentBy: string;
+  redeemed: boolean;
+  message?: string;
+}
+
+export interface AdminInviteResult {
+  code: string;
+  credits: number;
+  email: string;
+  emailSent: boolean;
+  emailError?: string;
+}
+
+export interface AdminPromoCode {
+  code: string;
+  credits: number;
+  maxUses: number;
+  used: number;
+  createdAt: string;
+  expiresAt?: string;
+  label?: string;
 }

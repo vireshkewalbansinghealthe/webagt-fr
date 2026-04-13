@@ -69,7 +69,7 @@ import { CollaboratorsPanel } from "./collaborators-panel";
  * @property projectId - Project ID for rename/delete API calls
  * @property creditsRemaining - Credits left (-1 = unlimited, undefined = loading)
  * @property creditsTotal - Total credits for the plan period (e.g. 50)
- * @property userPlan - User's current plan ("free" or "pro")
+ * @property userPlan - Legacy prop; ignored (everyone is Pro + credits)
  * @property projectType - Type of the project ("website" | "webshop")
  * @property isPublished - Whether the project has a live Coolify deployment
  * @property hasDatabase - Whether the project has a Turso database
@@ -81,7 +81,7 @@ export interface ProjectMenuProps {
   projectId: string;
   creditsRemaining?: number;
   creditsTotal?: number;
-  userPlan: "free" | "pro";
+  userPlan?: "pro" | "free";
   projectType?: "website" | "webshop";
   isPublished?: boolean;
   hasDatabase?: boolean;
@@ -107,7 +107,7 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Moon }[] = [
  * @param projectId - Project ID for API operations
  * @param creditsRemaining - Live credit count
  * @param creditsTotal - Total credits for the billing period
- * @param userPlan - "free" or "pro"
+ * @param userPlan - Legacy; ignored
  * @param onRename - Called with the new name after user confirms rename
  * @param onDelete - Called when user confirms project deletion
  */
@@ -116,7 +116,7 @@ export function ProjectMenu({
   projectId,
   creditsRemaining,
   creditsTotal = 50,
-  userPlan,
+  userPlan: _userPlan,
   projectType,
   isPublished = false,
   hasDatabase = false,
@@ -186,11 +186,20 @@ export function ProjectMenu({
     }
   }
 
-  /** Compute credits display values */
-  const isUnlimited = creditsRemaining === -1;
-  const isPro = userPlan === "pro";
-  const displayRemaining = isUnlimited ? creditsTotal : (creditsRemaining ?? 0);
-  const progressPercent = isUnlimited ? 100 : creditsTotal > 0 ? (displayRemaining / creditsTotal) * 100 : 0;
+  const remainingLabel =
+    creditsRemaining === undefined
+      ? "…"
+      : creditsRemaining === -1
+        ? "Unlimited"
+        : String(creditsRemaining);
+  const progressPercent =
+    creditsRemaining !== undefined &&
+    creditsRemaining !== -1 &&
+    creditsTotal > 0
+      ? (creditsRemaining / creditsTotal) * 100
+      : creditsRemaining === -1
+        ? 100
+        : 0;
 
   return (
     <>
@@ -233,20 +242,18 @@ export function ProjectMenu({
                 variant="secondary"
                 className="mt-0.5 w-fit text-[10px] px-1.5 py-0"
               >
-                {isPro ? "Pro plan" : "Free plan"}
+                Pro plan
               </Badge>
             </div>
           </div>
 
-          {/* Credits progress — live data */}
+          {/* Credits — live remaining */}
           <div className="px-2 pb-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
               <span>Credits</span>
-              <span>
-                {isUnlimited ? "Unlimited" : `${creditsRemaining ?? 0} / ${creditsTotal}`}
-              </span>
+              <span>{remainingLabel}</span>
             </div>
-            {!isUnlimited && (
+            {creditsRemaining !== undefined && creditsRemaining !== -1 && (
               <div className="h-1.5 w-full rounded-full bg-secondary">
                 <div
                   className="h-1.5 rounded-full bg-primary transition-all duration-300"

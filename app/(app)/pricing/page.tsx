@@ -3,35 +3,21 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
-import { createApiClient, type BillingConfig } from "@/lib/api-client";
-import { Check, Zap, Package, Infinity } from "lucide-react";
+import { createApiClient, type BillingConfig, type CreditPack } from "@/lib/api-client";
+import { Check, Package, Star, ArrowRight } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 
-const FREE_FEATURES = [
-  "1 AI credit per dag",
-  "Alleen websites (geen webshop)",
-  "Max 3 projecten",
-  "Live preview",
-  "Code editor",
-  "Versiegeschiedenis",
+const FEATURES = [
+  "Full AI-powered website & webshop builder",
+  "All AI models (Claude Sonnet, Haiku, DeepSeek)",
+  "Live preview & code editor",
+  "Version history & rollback",
+  "One-click deployment",
+  "iDEAL & card payments (Stripe)",
+  "Custom domain support",
+  "Credits never expire",
 ];
-
-const PRO_FEATURES = [
-  "10 AI credits per dag",
-  "Websites én webshops",
-  "Onbeperkte projecten",
-  "iDEAL & kaartbetalingen",
-  "Volledige webshop backend",
-  "Premium AI modellen (Claude, DeepSeek)",
-  "Prioriteit support",
-  "Turso database per project",
-  "Aangepast domein",
-];
-
-function formatEur(cents: number) {
-  return `€${(cents / 100).toFixed(2).replace(".00", "")}`;
-}
 
 export default function PricingPage() {
   const { getToken } = useAuth();
@@ -45,36 +31,18 @@ export default function PricingPage() {
       const data = await client.billing.getConfig();
       setConfig(data);
     } catch {
-      // Use fallback defaults if config not available
       setConfig({
-        subscription: { priceId: "", amount: 2900, currency: "eur", name: "Pro Plan", description: "" },
         creditPacks: [
-          { id: "pack_5", credits: 5, priceId: "", amount: 249, currency: "eur" },
-          { id: "pack_10", credits: 10, priceId: "", amount: 449, currency: "eur" },
-          { id: "pack_25", credits: 25, priceId: "", amount: 999, currency: "eur" },
-          { id: "pack_50", credits: 50, priceId: "", amount: 1799, currency: "eur" },
-          { id: "pack_100", credits: 100, priceId: "", amount: 2999, currency: "eur" },
-          { id: "pack_250", credits: 250, priceId: "", amount: 5999, currency: "eur" },
+          { id: "starter", credits: 100, priceUsd: 4.99, priceCents: 499, label: "Starter" },
+          { id: "popular", credits: 500, priceUsd: 19.99, priceCents: 1999, label: "Popular", popular: true },
+          { id: "pro", credits: 1500, priceUsd: 49.99, priceCents: 4999, label: "Pro" },
         ],
-        pricingFormula: { inputPricePerMillion: 3, outputPricePerMillion: 15, creditUnitCostUsd: 0.08, markup: 4 },
+        pricingFormula: { inputPricePerMillion: 3, outputPricePerMillion: 15, creditUnitCostUsd: 0.06, markup: 1 },
       });
     }
   }, [getToken]);
 
   useEffect(() => { load(); }, [load]);
-
-  const handleUpgrade = async () => {
-    setIsRedirecting("sub");
-    try {
-      const client = createApiClient(getToken);
-      const email = user?.primaryEmailAddress?.emailAddress;
-      const { url } = await client.billing.createCheckout(email);
-      if (url) window.location.href = url;
-    } catch (err) {
-      console.error("Failed to start checkout:", err);
-      setIsRedirecting(null);
-    }
-  };
 
   const handleBuyPack = async (packId: string) => {
     setIsRedirecting(packId);
@@ -89,129 +57,107 @@ export default function PricingPage() {
     }
   };
 
-  const subPrice = config ? formatEur(config.subscription.amount) : "€29";
-
   return (
-    <div className="flex flex-col gap-10 p-6 max-w-5xl mx-auto">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Prijzen</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Begin gratis, upgrade wanneer je meer nodig hebt.
+    <div className="flex flex-col gap-12 p-6 max-w-4xl mx-auto">
+      <div className="text-center">
+        <h1 className="text-3xl font-bold tracking-tight">Simple, transparent pricing</h1>
+        <p className="mt-2 text-base text-muted-foreground max-w-lg mx-auto">
+          Buy credits when you need them. No subscriptions, no hidden fees, no expiration.
         </p>
       </div>
 
-      {/* ── Subscription Plans ────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Free */}
-        <div className="rounded-2xl border border-border bg-card p-8 flex flex-col">
-          <div>
-            <h2 className="text-lg font-semibold">Gratis</h2>
-            <div className="mt-3 flex items-baseline gap-1">
-              <span className="text-4xl font-bold">€0</span>
-              <span className="text-muted-foreground text-sm">/maand</span>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">Voor altijd gratis</p>
-          </div>
-          <ul className="mt-6 space-y-3 flex-1">
-            {FREE_FEATURES.map((f) => (
-              <li key={f} className="flex items-center gap-2 text-sm">
-                <Check className="size-4 text-muted-foreground shrink-0" />
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
-          <Button variant="outline" className="mt-8 w-full" disabled>
-            Huidig plan
-          </Button>
-        </div>
-
-        {/* Pro */}
-        <div className="rounded-2xl border-2 border-primary bg-primary/5 p-8 flex flex-col relative">
-          <div className="absolute -top-3 left-6">
-            <span className="bg-primary text-primary-foreground text-xs font-semibold px-3 py-1 rounded-full">
-              Aanbevolen
-            </span>
-          </div>
-          <div>
-            <h2 className="text-lg font-semibold">Pro</h2>
-            <div className="mt-3 flex items-baseline gap-1">
-              {config ? (
-                <span className="text-4xl font-bold">{subPrice}</span>
-              ) : (
-                <Skeleton className="h-10 w-20" />
-              )}
-              <span className="text-muted-foreground text-sm">/maand</span>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">Maandelijks opzegbaar</p>
-          </div>
-          <ul className="mt-6 space-y-3 flex-1">
-            {PRO_FEATURES.map((f) => (
-              <li key={f} className="flex items-center gap-2 text-sm">
-                <Check className="size-4 text-primary shrink-0" />
-                <span>{f}</span>
-              </li>
-            ))}
-          </ul>
-          <Button
-            className="mt-8 w-full gap-2"
-            size="lg"
-            onClick={handleUpgrade}
-            disabled={isRedirecting !== null}
-          >
-            <Zap className="size-4" />
-            {isRedirecting === "sub" ? "Naar Stripe…" : "Nu upgraden naar Pro"}
-          </Button>
-        </div>
-      </div>
-
       {/* ── Credit Packs ──────────────────────────────────────────────────── */}
-      <div>
-        <div className="mb-4 flex items-center gap-3">
-          <div>
-            <h2 className="text-xl font-bold">Creditpakketten</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Eenmalige aankoop · Geen abonnement nodig · Credits verlopen niet
-            </p>
-          </div>
-          <Badge variant="secondary" className="ml-auto">
-            <Package className="size-3 mr-1" />
-            Pay as you go
-          </Badge>
+      {!config ? (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-64 rounded-2xl" />)}
         </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+          {config.creditPacks.map((pack) => (
+            <PackCard
+              key={pack.id}
+              pack={pack}
+              isRedirecting={isRedirecting}
+              onBuy={() => handleBuyPack(pack.id)}
+            />
+          ))}
+        </div>
+      )}
 
-        {!config ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {config.creditPacks.map((pack) => (
-              <button
-                key={pack.id}
-                onClick={() => handleBuyPack(pack.id)}
-                disabled={isRedirecting !== null}
-                className="flex flex-col items-center rounded-xl border border-border bg-card p-4 text-center transition-all hover:border-primary/60 hover:bg-primary/5 hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <span className="text-2xl font-bold">{pack.credits}</span>
-                <span className="text-xs text-muted-foreground">credits</span>
-                <span className="mt-3 text-base font-semibold text-primary">
-                  {formatEur(pack.amount)}
-                </span>
-                <span className="text-[10px] text-muted-foreground mt-0.5">
-                  {formatEur(Math.round(pack.amount / pack.credits))}/credit
-                </span>
-                {isRedirecting === pack.id && (
-                  <span className="mt-2 text-[10px] text-muted-foreground">Laden…</span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
+      {/* ── Features ──────────────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-border bg-card p-8">
+        <h2 className="text-lg font-semibold mb-4">Everything included with every credit pack</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {FEATURES.map((f) => (
+            <div key={f} className="flex items-center gap-2 text-sm">
+              <Check className="size-4 text-primary shrink-0" />
+              <span>{f}</span>
+            </div>
+          ))}
+        </div>
       </div>
 
       <p className="text-center text-sm text-muted-foreground">
-        Veilige betaling via Stripe · iDEAL · Creditcard · SEPA Incasso · Opzeggen wanneer je wilt
+        Secure payment via Stripe — iDEAL, Credit Card, SEPA, and more.
       </p>
+    </div>
+  );
+}
+
+function PackCard({ pack, isRedirecting, onBuy }: { pack: CreditPack; isRedirecting: string | null; onBuy: () => void }) {
+  const perCredit = pack.credits > 0 ? (pack.priceUsd / pack.credits) : 0;
+
+  return (
+    <div
+      className={`relative rounded-2xl border-2 p-8 flex flex-col transition-all ${
+        pack.popular
+          ? "border-primary bg-primary/5 shadow-lg shadow-primary/10"
+          : "border-border bg-card hover:border-primary/40"
+      }`}
+    >
+      {pack.popular && (
+        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
+          <Badge className="bg-primary text-primary-foreground gap-1 text-xs px-3">
+            <Star className="size-3" /> Most Popular
+          </Badge>
+        </div>
+      )}
+
+      <div className="text-center">
+        <p className="text-sm font-medium text-muted-foreground">{pack.label}</p>
+        <div className="mt-2 flex items-baseline justify-center gap-1">
+          <span className="text-4xl font-bold">${pack.priceUsd.toFixed(2)}</span>
+        </div>
+        <p className="mt-1 text-xs text-muted-foreground">one-time payment</p>
+      </div>
+
+      <div className="mt-6 flex flex-col items-center gap-1">
+        <div className="flex items-center gap-2">
+          <Package className="size-4 text-primary" />
+          <span className="text-2xl font-bold">{pack.credits}</span>
+          <span className="text-sm text-muted-foreground">credits</span>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          ${perCredit.toFixed(3)} per credit
+        </p>
+      </div>
+
+      <Button
+        className="mt-6 w-full gap-2"
+        size="lg"
+        variant={pack.popular ? "default" : "outline"}
+        onClick={onBuy}
+        disabled={isRedirecting !== null}
+      >
+        {isRedirecting === pack.id ? (
+          "Redirecting to Stripe…"
+        ) : (
+          <>
+            Get {pack.credits} credits
+            <ArrowRight className="size-4" />
+          </>
+        )}
+      </Button>
     </div>
   );
 }

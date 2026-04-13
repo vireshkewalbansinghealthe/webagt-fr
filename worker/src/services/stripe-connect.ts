@@ -104,13 +104,29 @@ export function buildStripeAccountStatus(account: Stripe.Account) {
 
 export async function createStripeConnectedAccount(env: Env, mode: StripeMode): Promise<Stripe.Account> {
   const stripe = getStripeClient(env, mode);
-  return stripe.accounts.create({
-    type: "express",
-    capabilities: {
-      card_payments: { requested: true },
-      transfers: { requested: true },
-    },
-  });
+  const maxRetries = 4;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await stripe.accounts.create({
+        type: "express",
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true },
+        },
+      });
+    } catch (e: any) {
+      const isRateLimit = e?.message?.includes("too quickly") || e?.statusCode === 429;
+      if (isRateLimit && attempt < maxRetries - 1) {
+        const delay = Math.pow(2, attempt) * 1000 + Math.random() * 500;
+        console.log(`[Stripe] Rate limited (attempt ${attempt + 1}), retrying in ${(delay / 1000).toFixed(1)}s...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error("Stripe account creation failed after retries");
 }
 
 export function getStripePublishConfig(env: Env, project: Project): StripePublishConfig {
